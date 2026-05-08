@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --brand: #0f172a;
+  --brand-accent: #1e3a8a;
+  --surface-card: #ffffff;
+  --border-subtle: rgba(15, 23, 42, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer components {
+  .form-control {
+    @apply w-full rounded-lg border border-slate-300/90 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm;
+    @apply transition-colors duration-150;
+    @apply focus:border-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-900/15;
+    @apply placeholder:text-slate-400;
+  }
+  select.form-control {
+    @apply cursor-pointer;
+  }
+  .form-label {
+    @apply text-sm font-medium text-slate-700;
+  }
+  .card {
+    @apply rounded-xl border border-slate-200/90 bg-[var(--surface-card)] p-6 shadow-sm shadow-slate-900/[0.04];
+  }
+  .card-compact {
+    @apply rounded-xl border border-slate-200/90 bg-[var(--surface-card)] p-5 shadow-sm shadow-slate-900/[0.04];
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm;
+    @apply transition-colors duration-150;
+    @apply hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-900/40 focus:ring-offset-2;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm;
+    @apply transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50;
+    @apply focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:ring-offset-2;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-100 shadow-sm backdrop-blur-sm;
+    @apply transition-colors duration-150 hover:border-white/35 hover:bg-white/10 hover:text-white;
+    @apply focus:outline-none focus:ring-2 focus:ring-white/25;
+  }
+  /** Outline para fondos claros (secundario en páginas de contenido) */
+  .btn-outline-light {
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm;
+    @apply hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400/35;
+  }
+  .table-wrap {
+    @apply overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm shadow-slate-900/[0.03];
+  }
+  .table-head {
+    @apply bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-600;
+  }
+  .table-cell {
+    @apply border-t border-slate-100 px-4 py-3 text-sm text-slate-800;
+  }
+  .table-row-hover {
+    @apply transition-colors hover:bg-slate-50/95;
+  }
+  .link-action {
+    @apply font-medium text-blue-900 underline decoration-blue-900/25 underline-offset-2 transition-colors hover:text-blue-950 hover:decoration-blue-950/40;
+  }
+  /** Contenedor de página estándar */
+  .page-shell {
+    @apply mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8;
+  }
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl;
+  }
+  .page-lead {
+    @apply mt-2 max-w-3xl text-sm leading-relaxed text-slate-600 sm:text-[15px];
+  }
+  /** Tarjeta destacada (avisos, importación recomendada) */
+  .callout-accent {
+    @apply rounded-xl border border-blue-900/15 bg-gradient-to-br from-blue-50/90 to-slate-50 p-6 shadow-sm shadow-blue-900/[0.06];
+  }
+  /** Badge de estatus en tablas */
+  .badge-muted {
+    @apply inline-flex rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-800 ring-1 ring-slate-200/80;
+  }
+}

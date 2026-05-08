@@ -1,0 +1,23 @@
+Clasificación de datos (Tactical Support Master)
+===============================================
+
+Módulos y sensibilidad sugerida
+-------------------------------
+- empleado + empleado_master: datos laborales — confidencial interno.
+- empleado_identidad: datos personales identificables (CURP, RFC, domicilio, etc.) — alto valor para privacidad.
+- empleado_salud: datos de salud — altamente sensible; en México suelen considerarse datos sensibles bajo LFPDPPP; limitar acceso y finalidad.
+- empleado_nomina_reclutamiento: cuentas bancarias, sueldos — altamente sensible; mínimo privilegio y cifrado en tránsito (HTTPS) y en reposo donde aplique.
+- familiar: datos de terceros — tratar como datos personales con finalidad legítima documentada.
+- historial_moper, audit_log: operativos — confidencial interno; audit_log es clave para trazabilidad.
+
+Buenas prácticas mínimas
+------------------------
+1) Acceso: solo usuarios operativos autenticados en la web; API con token dedicado (API_BEARER_TOKEN) o sesión; Excel con usuario MySQL de solo lectura sobre vistas.
+2) Backups: programar respaldos de la base; almacenamiento cifrado; pruebas de restauración periódicas.
+3) Retención: definir cuánto tiempo se conservan bajas y datos de salud/nómina; eliminar o anonimizar cuando la finalidad expire.
+4) Minimización: no recolectar campos que no usen; restringir exportaciones de Excel a las vistas necesarias.
+5) Bitácora: usar la tabla audit_log para investigaciones; restringir quién puede leerla.
+
+Nota legal
+----------
+Este archivo es orientación técnica, no asesoría legal. Valida aviso de privacidad, consentimientos y medidas organizacionales con tu área jurídica o un especialista en LFPDPPP.

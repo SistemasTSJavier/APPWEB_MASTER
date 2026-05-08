@@ -1,0 +1,7 @@
+# Copia este contenido a tu archivo .env.local (o .env) en /web y rellena los valores.
+# Supabase Dashboard → tu proyecto → Project Settings → API
+
+NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Prueba: http://localhost:3000/api/supabase/status

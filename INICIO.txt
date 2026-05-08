@@ -1,0 +1,3 @@
+﻿Tactical Support Master — aplicación Next.js en la subcarpeta web/
+Arranque: cd web && npm install && npm run dev
+Variables: copiar web/supabase-env.example a .env.local y completar credenciales.
