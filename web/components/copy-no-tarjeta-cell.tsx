@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 
-/** Celda nómina: número de tarjeta + copiar al portapapeles (solo Contabilidad / vista lectura). */
+/** Celda nómina: número de tarjeta + copiar al portapapeles (vista solo lectura en Colaboradores). */
 export function CopyNoTarjetaCell({ value }: { value: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
   const raw = typeof value === "string" ? value.trim() : "";

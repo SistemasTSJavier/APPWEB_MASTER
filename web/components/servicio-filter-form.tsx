@@ -11,7 +11,7 @@ export function ServicioFilterForm({
   actionPath: string;
   servicios: ServicioOption[];
   value: string | null;
-  /** `centered`: sin borde inferior, controles alineados al centro (p. ej. Contabilidad). */
+  /** `centered`: sin borde inferior, controles alineados al centro. */
   variant?: "default" | "centered";
 }) {
   const hasFilter = Boolean(value);

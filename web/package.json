@@ -6,7 +6,8 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "eslint"
+        "lint": "eslint",
+        "storage:empty-fotos": "node supabase/scripts/empty-colaboradores-fotos-bucket.mjs"
     },
     "dependencies": {
         "@supabase/ssr": "^0.10.3",

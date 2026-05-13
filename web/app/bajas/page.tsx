@@ -1,10 +1,26 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import Link from "next/link";
-import { findColaboradorByNo } from "@/lib/colaboradores-store";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
+import {
+  findColaboradorCompletoByNo,
+  listColaboradoresCompletos,
+  upsertColaboradorCompleto,
+} from "@/lib/colaboradores-store";
+import {
+  aplicarBajaEnExpediente,
+  bajasFormDesdeColaborador,
+  listarColaboradoresBajaFiltrados,
+  serviciosUnicosColaboradoresDadosDeBaja,
+  servicioAsignadoDesdeExpediente,
+  zonasDisponiblesFiltroBajas,
+  ZONA_FILTRO_SIN_SUFIJO,
+  type BajasFormState,
+} from "@/lib/colaboradores-baja";
+import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
+import { servicioAgrupadoUsaZona } from "@/lib/servicio-agrupacion";
 
-const EMPTY_FORM = {
+const EMPTY_FORM: BajasFormState = {
   noEmpleado: "",
   nombreCompleto: "",
   servicioAsignado: "",
@@ -20,106 +36,329 @@ const EMPTY_FORM = {
   comentario: "",
 };
 
-export default function BajasPage() {
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [searchMsg, setSearchMsg] = useState<string | null>(null);
+const MAX_SUGERENCIAS = 60;
 
-  function updateField(name: keyof typeof EMPTY_FORM, value: string) {
+function coincideBusqueda(c: ColaboradorCompleto, q: string): boolean {
+  const n = q.trim().toLowerCase();
+  if (!n) return true;
+  const no = c.noEmpleado.toLowerCase();
+  const nom = (c.nombreCompleto ?? "").toLowerCase();
+  const nss = (c.nss ?? "").toLowerCase();
+  return no.includes(n) || nom.includes(n) || nss.includes(n);
+}
+
+function formatoSoloFechaYmd(raw: string): string {
+  const n = normalizarFechaParaInputDate(String(raw ?? ""));
+  if (!n) return "—";
+  const [y, mo, d] = n.split("-").map((x) => parseInt(x, 10));
+  if (!y || !mo || !d) return "—";
+  const dt = new Date(y, mo - 1, d);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toLocaleDateString("es-MX", { dateStyle: "medium" }).toUpperCase();
+}
+
+export default function BajasPage() {
+  const [rows, setRows] = useState<ColaboradorCompleto[]>([]);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [sel, setSel] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [listaAbierta, setListaAbierta] = useState(false);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [form, setForm] = useState<BajasFormState>(EMPTY_FORM);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const [filtroServicio, setFiltroServicio] = useState("");
+  const [filtroZona, setFiltroZona] = useState("");
+  const [filtroDesde, setFiltroDesde] = useState("");
+  const [filtroHasta, setFiltroHasta] = useState("");
+  /** N° empleado cuya fila de detalle de baja esta expandida en la tabla de consulta. */
+  const [bajaDetalleAbierta, setBajaDetalleAbierta] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      setLoadErr(null);
+      try {
+        const list = await listColaboradoresCompletos();
+        if (!cancel) setRows(list);
+      } catch (e) {
+        if (!cancel) {
+          setRows([]);
+          setLoadErr(e instanceof Error ? e.message : "ERROR AL CARGAR COLABORADORES.");
+        }
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  const opciones = useMemo(
+    () =>
+      [...rows].sort((a, b) =>
+        a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true, sensitivity: "base" }),
+      ),
+    [rows],
+  );
+
+  const sugerencias = useMemo(() => {
+    const filtradas = opciones.filter((c) => coincideBusqueda(c, busqueda));
+    return filtradas.slice(0, MAX_SUGERENCIAS);
+  }, [opciones, busqueda]);
+
+  const serviciosOpcionesBajas = useMemo(() => serviciosUnicosColaboradoresDadosDeBaja(rows), [rows]);
+
+  const zonasFiltroConsulta = useMemo(
+    () => zonasDisponiblesFiltroBajas(rows, filtroServicio.trim()),
+    [rows, filtroServicio],
+  );
+
+  const bajasRegistradasEnPeriodo = useMemo(() => {
+    const list = listarColaboradoresBajaFiltrados(rows, {
+      desde: filtroDesde.trim() || undefined,
+      hasta: filtroHasta.trim() || undefined,
+      servicio: filtroServicio.trim() || undefined,
+      zona: filtroZona.trim() || undefined,
+    });
+    return [...list].sort((a, b) => {
+      const ua = normalizarFechaParaInputDate(String(a.form?.ultimoDiaLaborado ?? ""));
+      const ub = normalizarFechaParaInputDate(String(b.form?.ultimoDiaLaborado ?? ""));
+      if (ua && ub) return ub.localeCompare(ua);
+      if (ua && !ub) return -1;
+      if (!ua && ub) return 1;
+      const fa = normalizarFechaParaInputDate(String(a.form?.fechaBaja ?? ""));
+      const fb = normalizarFechaParaInputDate(String(b.form?.fechaBaja ?? ""));
+      return fb.localeCompare(fa);
+    });
+  }, [rows, filtroDesde, filtroHasta, filtroServicio, filtroZona]);
+
+  useEffect(() => {
+    if (
+      bajaDetalleAbierta &&
+      !bajasRegistradasEnPeriodo.some((x) => x.noEmpleado === bajaDetalleAbierta)
+    ) {
+      setBajaDetalleAbierta(null);
+    }
+  }, [bajaDetalleAbierta, bajasRegistradasEnPeriodo]);
+
+  useEffect(() => {
+    return () => {
+      if (blurTimer.current) clearTimeout(blurTimer.current);
+    };
+  }, []);
+
+  function updateField(name: keyof BajasFormState, value: string) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  function applyFoundToForm(found: NonNullable<ReturnType<typeof findColaboradorByNo>>) {
-    setForm((prev) => ({
-      ...prev,
-      noEmpleado: found.noEmpleado,
-      nombreCompleto: found.nombreCompleto,
-      servicioAsignado: found.servicioAsignado,
-      ultimoServicio: found.ultimoServicio,
-      nss: found.nss,
-      puesto: found.puesto,
-      ingreso: found.fechaIngreso,
-    }));
-  }
-
-  function buscarPorNoEmpleado() {
-    const key = form.noEmpleado.trim().toUpperCase();
+  async function cargarExpedienteYBaja(noEmpleadoKey: string) {
+    setStatusMsg(null);
+    const key = noEmpleadoKey.trim().toUpperCase();
     if (!key) {
-      setSearchMsg("CAPTURE UN N° DE EMPLEADO PARA BUSCAR.");
+      setSearchMsg("INDIQUE UN COLABORADOR DESDE LA LISTA.");
       return;
     }
-    const found = findColaboradorByNo(key);
-    if (!found) {
-      setSearchMsg("NO SE ENCONTRO COLABORADOR. REVISE EL NUMERO O REGISTRELO EN ALTAS.");
-      setForm((prev) => ({
-        ...prev,
-        noEmpleado: key,
-        nombreCompleto: "",
-        servicioAsignado: "",
-        ultimoServicio: "",
-        nss: "",
-        puesto: "",
-        ingreso: "",
-      }));
+    let completo;
+    try {
+      completo = await findColaboradorCompletoByNo(key);
+    } catch (err) {
+      setSearchMsg(err instanceof Error ? err.message : "ERROR AL CONSULTAR SUPABASE.");
+      setSel("");
+      setForm(EMPTY_FORM);
+      return;
+    }
+    if (!completo) {
+      setSearchMsg("NO SE ENCONTRO COLABORADOR. REVISE EL TEXTO O REGISTRELO EN ALTAS.");
+      setSel("");
+      setForm(EMPTY_FORM);
       return;
     }
     setSearchMsg(null);
-    applyFoundToForm(found);
+    setForm(bajasFormDesdeColaborador(completo, undefined));
+    setSel(completo.noEmpleado);
+    setBusqueda(`${completo.noEmpleado} — ${completo.nombreCompleto || "(SIN NOMBRE)"}`);
+  }
+
+  function elegirColaborador(c: ColaboradorCompleto) {
+    if (blurTimer.current) {
+      clearTimeout(blurTimer.current);
+      blurTimer.current = null;
+    }
+    setListaAbierta(false);
+    void cargarExpedienteYBaja(c.noEmpleado);
+  }
+
+  function limpiarSeleccionYBuscador() {
+    setSel("");
+    setBusqueda("");
+    setListaAbierta(false);
+    setForm(EMPTY_FORM);
+    setSearchMsg(null);
+    setStatusMsg(null);
   }
 
   function limpiar() {
-    setForm(EMPTY_FORM);
-    setSearchMsg(null);
+    limpiarSeleccionYBuscador();
   }
 
-  function submitBaja(e: FormEvent) {
+  async function submitBaja(e: FormEvent) {
     e.preventDefault();
+    setStatusMsg(null);
+    const no = form.noEmpleado.trim().toUpperCase();
+    if (!no) {
+      setStatusMsg({ ok: false, text: "SELECCIONE UN COLABORADOR PARA GUARDAR." });
+      return;
+    }
+    setGuardando(true);
+    try {
+      const existing = await findColaboradorCompletoByNo(no);
+      if (!existing) {
+        setStatusMsg({ ok: false, text: "NO HAY EXPEDIENTE. REGISTRE EL COLABORADOR EN ALTAS PRIMERO." });
+        return;
+      }
+      const next = aplicarBajaEnExpediente(existing, form);
+      await upsertColaboradorCompleto(next);
+      const list = await listColaboradoresCompletos();
+      setRows(list);
+      setStatusMsg({
+        ok: true,
+        text: "BAJA GUARDADA. EXPEDIENTE ACTUALIZADO EN SUPABASE.",
+      });
+    } catch (err) {
+      setStatusMsg({ ok: false, text: err instanceof Error ? err.message : "ERROR AL GUARDAR." });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  function limpiarFiltrosConsulta() {
+    setFiltroServicio("");
+    setFiltroZona("");
+    setFiltroDesde("");
+    setFiltroHasta("");
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto w-full max-w-[1200px] px-3 py-4 md:px-6 md:py-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="w-full">
+        <div className="mb-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Modulo</p>
             <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">BAJAS</h1>
           </div>
-          <Link href="/" className="btn-secondary uppercase">
-            Regresar al inicio
-          </Link>
         </div>
+
+        {loadErr ? (
+          <div className="card mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold uppercase text-red-900">
+            {loadErr}
+          </div>
+        ) : null}
 
         <form onSubmit={submitBaja} className="card space-y-5">
           <h2 className="text-lg font-bold uppercase">REGISTRO DE BAJA</h2>
+          <p className="text-sm font-semibold uppercase leading-relaxed text-slate-800">
+            Los datos se fusionan con el expediente ALTAS en Supabase: no borra otras partes (1–6), solo actualiza baja y campos editados aqui.
+          </p>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Buscar colaborador</p>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <label className="min-w-0 flex-1 space-y-1">
-                <span className="form-label uppercase">N° DE EMPLEADO</span>
-                <input
-                  className="form-control uppercase"
-                  value={form.noEmpleado}
-                  onChange={(e) => updateField("noEmpleado", e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      buscarPorNoEmpleado();
-                    }
-                  }}
-                  placeholder="EJ. PTE-1 O NUMERO CAPTURADO"
-                />
-              </label>
-              <button type="button" className="btn-primary shrink-0 uppercase sm:min-w-[140px]" onClick={buscarPorNoEmpleado}>
-                Buscar
-              </button>
+            <div className="relative space-y-1">
+              <span className="form-label uppercase">Buscar colaborador</span>
+              <p className="text-[11px] text-slate-500">Escribe numero de empleado, nombre o NSS; elige de la lista.</p>
+              <div className="flex flex-wrap gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <input
+                    type="search"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="EJ. 9117 O JUAN PEREZ…"
+                    className="form-control uppercase"
+                    value={busqueda}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setBusqueda(v);
+                      setListaAbierta(true);
+                      if (sel) {
+                        const etiqueta =
+                          form.noEmpleado === sel
+                            ? `${form.noEmpleado} — ${form.nombreCompleto || "(SIN NOMBRE)"}`
+                            : (() => {
+                                const r = rows.find((x) => x.noEmpleado === sel);
+                                return r ? `${r.noEmpleado} — ${r.nombreCompleto || "(SIN NOMBRE)"}` : "";
+                              })();
+                        if (etiqueta && v.trim().toUpperCase() !== etiqueta.trim().toUpperCase()) {
+                          setSel("");
+                          setForm(EMPTY_FORM);
+                          setSearchMsg(null);
+                          setStatusMsg(null);
+                        }
+                      }
+                    }}
+                    onFocus={() => setListaAbierta(true)}
+                    onBlur={() => {
+                      blurTimer.current = setTimeout(() => setListaAbierta(false), 180);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (sugerencias.length === 1) {
+                          elegirColaborador(sugerencias[0]!);
+                        }
+                      }
+                    }}
+                    aria-autocomplete="list"
+                    aria-expanded={listaAbierta && sugerencias.length > 0}
+                    aria-controls="bajas-sugerencias"
+                  />
+                  {listaAbierta && sugerencias.length > 0 ? (
+                    <ul
+                      id="bajas-sugerencias"
+                      role="listbox"
+                      className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                    >
+                      {sugerencias.map((r) => (
+                        <li key={r.noEmpleado} role="option">
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm uppercase hover:bg-slate-100"
+                            onMouseDown={(ev) => ev.preventDefault()}
+                            onClick={() => elegirColaborador(r)}
+                          >
+                            <span className="font-mono font-semibold text-slate-900">{r.noEmpleado}</span>
+                            <span className="text-slate-600"> — {r.nombreCompleto || "(SIN NOMBRE)"}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {listaAbierta && busqueda.trim() && sugerencias.length === 0 ? (
+                    <p className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg">
+                      Sin coincidencias.
+                    </p>
+                  ) : null}
+                </div>
+                <button type="button" className="btn-secondary shrink-0 self-end uppercase text-xs" onClick={limpiarSeleccionYBuscador}>
+                  Limpiar
+                </button>
+              </div>
+              {opciones.length > MAX_SUGERENCIAS && !busqueda.trim() ? (
+                <p className="text-[11px] text-slate-500">
+                  Mostrando los primeros {MAX_SUGERENCIAS} por orden de numero. Escribe para acotar.
+                </p>
+              ) : null}
             </div>
             {searchMsg ? <p className="mt-2 text-sm font-medium uppercase text-amber-800">{searchMsg}</p> : null}
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Field label="NOMBRE COMPLETO" value={form.nombreCompleto} onChange={(v) => updateField("nombreCompleto", v)} />
-            <Field label="SERVICIO ASIGNADO" value={form.servicioAsignado} onChange={(v) => updateField("servicioAsignado", v)} />
-            <Field label="ULTIMO SERVICIO" value={form.ultimoServicio} onChange={(v) => updateField("ultimoServicio", v)} />
+            <Field
+              label="SERVICIO ASIGNADO (ALTA / CONTRATO)"
+              value={form.servicioAsignado}
+              onChange={(v) => updateField("servicioAsignado", v)}
+            />
+            <Field label="ULTIMO SERVICIO (EXPEDIENTE)" value={form.ultimoServicio} onChange={(v) => updateField("ultimoServicio", v)} />
             <Field label="NSS" value={form.nss} onChange={(v) => updateField("nss", v)} />
             <Field label="PUESTO" value={form.puesto} onChange={(v) => updateField("puesto", v)} />
             <Field label="INGRESO" type="date" value={form.ingreso} onChange={(v) => updateField("ingreso", v)} />
@@ -150,15 +389,210 @@ export default function BajasPage() {
             />
           </div>
 
+          {statusMsg ? (
+            <p
+              className={`rounded-lg px-3 py-2 text-sm font-semibold uppercase ${
+                statusMsg.ok ? "border border-green-200 bg-green-50 text-green-900" : "border border-amber-200 bg-amber-50 text-amber-950"
+              }`}
+            >
+              {statusMsg.text}
+            </p>
+          ) : null}
+
           <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
-            <button type="button" className="btn-secondary uppercase" onClick={limpiar}>
+            <button type="button" className="btn-secondary uppercase" onClick={limpiar} disabled={guardando}>
               Limpiar
             </button>
-            <button type="submit" className="btn-primary uppercase">
-              Guardar baja
+            <button type="submit" className="btn-primary uppercase" disabled={guardando}>
+              {guardando ? "GUARDANDO…" : "Guardar baja"}
             </button>
           </div>
         </form>
+
+        <section className="card mt-6 space-y-6" aria-labelledby="bajas-consulta-historial">
+          <div>
+            <h2 id="bajas-consulta-historial" className="text-lg font-bold uppercase text-slate-900">
+              Consulta de bajas registradas
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm font-semibold uppercase leading-relaxed text-slate-800">
+              El rango <strong>Desde / Hasta</strong> filtra por el <strong>ultimo dia laborado</strong> guardado en el expediente. Solo aparecen expedientes que ya tienen <strong>fecha de baja</strong>. Revisa el <strong>año</strong> si no ves resultados. El listado <strong>Servicio</strong> incluye valores de personas dadas de baja (servicio de alta o ultimo servicio en expediente). Para{" "}
+              <strong>CAT</strong> y <strong>U-ERRE</strong> puedes acotar por <strong>zona</strong> (texto despues del nombre base).
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-5">
+            <label className="space-y-1">
+              <span className="form-label uppercase">Servicio</span>
+              <select
+                className="form-control uppercase"
+                value={filtroServicio}
+                onChange={(e) => {
+                  setFiltroServicio(e.target.value);
+                  setFiltroZona("");
+                }}
+              >
+                <option value="">Todos</option>
+                {serviciosOpcionesBajas.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-[10px] font-medium uppercase leading-tight text-slate-400">
+                Expedientes con fecha de baja.
+              </span>
+            </label>
+            <label className="space-y-1">
+              <span className="form-label uppercase">Zona (CAT / U-ERRE)</span>
+              <select
+                className="form-control uppercase"
+                value={filtroZona}
+                onChange={(e) => setFiltroZona(e.target.value)}
+                disabled={!servicioAgrupadoUsaZona(filtroServicio.trim())}
+              >
+                <option value="">Todas</option>
+                {zonasFiltroConsulta.haySinSufijo ? (
+                  <option value={ZONA_FILTRO_SIN_SUFIJO}>SIN ZONA (SOLO &quot;CAT&quot; O &quot;U-ERRE&quot;)</option>
+                ) : null}
+                {zonasFiltroConsulta.labels.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-[10px] font-medium uppercase leading-tight text-slate-400">
+                Solo activo si el servicio es CAT o U-ERRE.
+              </span>
+            </label>
+            <label className="space-y-1">
+              <span className="form-label uppercase">Desde (ultimo dia laborado)</span>
+              <input className="form-control uppercase" type="date" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="form-label uppercase">Hasta (ultimo dia laborado)</span>
+              <input className="form-control uppercase" type="date" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+            </label>
+            <div className="flex flex-col justify-end">
+              <button type="button" className="btn-secondary uppercase text-xs self-start sm:self-auto" onClick={limpiarFiltrosConsulta}>
+                Limpiar filtros
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold uppercase text-slate-800">Bajas registradas en el periodo</h3>
+            {bajasRegistradasEnPeriodo.length === 0 ? (
+              <p className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm uppercase leading-snug text-slate-600">
+                No hay bajas en este rango y filtros. Si usas Desde/Hasta, el expediente debe tener <strong>ultimo dia laborado</strong> dentro del periodo. Revisa el año y que ese campo este capturado.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                <table className="min-w-[880px] w-full text-left">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th className="whitespace-nowrap px-3 py-2">No de empleado</th>
+                      <th className="min-w-[160px] px-3 py-2">Nombre</th>
+                      <th className="whitespace-nowrap px-3 py-2">Ultimo dia laborado</th>
+                      <th className="min-w-[140px] px-3 py-2">Ultimo servicio</th>
+                      <th className="min-w-[140px] px-3 py-2">Motivo</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Ver datos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bajasRegistradasEnPeriodo.map((c) => {
+                      const selHighlight = form.noEmpleado.trim().toUpperCase();
+                      const noUp = c.noEmpleado.trim().toUpperCase();
+                      const destacado = Boolean(selHighlight && noUp === selHighlight);
+                      const celda = `border-b border-slate-100 px-3 py-2 align-top text-xs uppercase text-slate-800 ${destacado ? "bg-amber-50/90" : ""}`;
+                      const abierto = bajaDetalleAbierta === c.noEmpleado;
+                      const f = c.form ?? {};
+                      return (
+                        <Fragment key={c.noEmpleado}>
+                          <tr className={destacado ? "bg-amber-50/50" : "hover:bg-slate-50"}>
+                            <td className={`${celda} font-mono font-semibold`}>{c.noEmpleado}</td>
+                            <td className={celda}>{(c.nombreCompleto ?? "").trim() || "—"}</td>
+                            <td className={`${celda} whitespace-nowrap font-mono text-[11px] text-slate-600`}>
+                              {formatoSoloFechaYmd(String(f.ultimoDiaLaborado ?? ""))}
+                            </td>
+                            <td className={celda}>{String(c.ultimoServicio ?? "").trim() || "—"}</td>
+                            <td className={`${celda} max-w-[240px]`}>{String(f.motivoSeparacion ?? "").trim() || "—"}</td>
+                            <td className={`${celda} text-right`}>
+                              <button
+                                type="button"
+                                className="btn-outline-light px-2 py-1 text-[11px] font-semibold uppercase"
+                                onClick={() => setBajaDetalleAbierta((prev) => (prev === c.noEmpleado ? null : c.noEmpleado))}
+                              >
+                                {abierto ? "Ocultar" : "Ver datos"}
+                              </button>
+                            </td>
+                          </tr>
+                          {abierto ? (
+                            <tr className="bg-slate-50/95">
+                              <td colSpan={6} className="border-b border-slate-200 px-3 py-4">
+                                <DetalleDatosBajaExpediente c={c} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {bajasRegistradasEnPeriodo.length > 0 ? (
+              <p className="text-[11px] text-slate-500">
+                {bajasRegistradasEnPeriodo.length} baja(s) en esta vista. Pulsa <strong>Ver datos</strong> para ver el expediente completo de la baja. La fila en tono ambar coincide con el colaborador cargado arriba.
+              </p>
+            ) : null}
+          </div>
+        </section>
+    </div>
+  );
+}
+
+function DetalleDatosBajaExpediente({ c }: { c: ColaboradorCompleto }) {
+  const f = c.form ?? {};
+  const ingresoRaw = String(c.fechaIngreso ?? f.fechaIngreso ?? "").trim();
+  const ingresoNorm = normalizarFechaParaInputDate(ingresoRaw);
+  const ingresoMostrar = ingresoNorm ? formatoSoloFechaYmd(ingresoNorm) : ingresoRaw ? formatoSoloFechaYmd(ingresoRaw) : "—";
+
+  const item = (label: string, value: string) => (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-0.5 whitespace-pre-wrap break-words text-xs font-medium uppercase text-slate-900">{value.trim() || "—"}</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-semibold uppercase text-slate-600">Datos de baja en expediente (solo lectura)</p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {item("N° DE EMPLEADO", c.noEmpleado)}
+        {item("NOMBRE COMPLETO", String(c.nombreCompleto ?? ""))}
+        {item("NSS", String(c.nss ?? ""))}
+        {item("PUESTO", String(c.puesto ?? ""))}
+        {item("INGRESO", ingresoMostrar)}
+        {item("SERVICIO ASIGNADO (ALTA / CONTRATO)", servicioAsignadoDesdeExpediente(c))}
+        {item("ULTIMO SERVICIO (EXPEDIENTE)", String(c.ultimoServicio ?? ""))}
+        {item("FECHA DE BAJA", formatoSoloFechaYmd(String(f.fechaBaja ?? "")))}
+        {item("FECHA DE RENUNCIA", formatoSoloFechaYmd(String(f.fechaRenuncia ?? "")))}
+        {item("ULTIMO DIA LABORADO", formatoSoloFechaYmd(String(f.ultimoDiaLaborado ?? "")))}
+        {item("MOTIVO DE SEPARACION", String(f.motivoSeparacion ?? ""))}
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">ESPECIFICACION</p>
+          <p className="mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs uppercase text-slate-800">
+            {String(f.especificacion ?? "").trim() || "—"}
+          </p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">COMENTARIO</p>
+          <p className="mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs uppercase text-slate-800">
+            {String(f.comentarioBaja ?? f.comentario ?? "").trim() || "—"}
+          </p>
+        </div>
       </div>
     </div>
   );

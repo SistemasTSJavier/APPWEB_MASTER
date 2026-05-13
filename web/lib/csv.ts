@@ -39,7 +39,7 @@ export function parseCsvContent(text: string): string[][] {
       if (c === "\r" && text[i + 1] === "\n") i++;
       row.push(cell);
       cell = "";
-      if (row.some((x) => x.trim() !== "")) rows.push(row);
+      if (row.some((x) => String(x ?? "").trim() !== "")) rows.push(row);
       row = [];
       i++;
       continue;
@@ -48,7 +48,7 @@ export function parseCsvContent(text: string): string[][] {
     i++;
   }
   row.push(cell);
-  if (row.some((x) => x.trim() !== "")) rows.push(row);
+  if (row.some((x) => String(x ?? "").trim() !== "")) rows.push(row);
   return rows;
 }
 

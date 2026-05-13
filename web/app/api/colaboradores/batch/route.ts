@@ -1,0 +1,86 @@
+import { NextResponse } from "next/server";
+import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
+import {
+  createSupabaseServiceRoleClient,
+  hintSupabaseClientError,
+  isSupabaseServerConfigured,
+} from "@/lib/supabase/admin";
+import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
+import { roleMayEditColaboradores } from "@/lib/app-role";
+
+export const dynamic = "force-dynamic";
+
+const MAX_BATCH = 2000;
+
+function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
+  const key = data.noEmpleado.trim().toUpperCase();
+  return {
+    ...data,
+    noEmpleado: key,
+    nombreCompleto: data.nombreCompleto.trim(),
+    servicioAsignado: data.servicioAsignado.trim(),
+    ultimoServicio: data.ultimoServicio.trim(),
+    nss: data.nss.trim(),
+    posicion: data.posicion.trim(),
+    puesto: data.puesto.trim(),
+    form: data.form,
+    familiares: data.familiares,
+    registeredAt: data.registeredAt,
+    ...(data.moperActual
+      ? {
+          moperActual: {
+            servicio: data.moperActual.servicio.trim(),
+            puesto: data.moperActual.puesto.trim(),
+          },
+        }
+      : {}),
+  };
+}
+
+/** POST: importacion masiva { "items": ColaboradorCompleto[] } */
+export async function POST(req: Request) {
+  const auth = await getAuthedApiUser();
+  if (!isAuthedApiUser(auth)) return auth;
+  if (!roleMayEditColaboradores(auth.role)) {
+    return NextResponse.json({ error: "No autorizado para importar expedientes" }, { status: 403 });
+  }
+
+  if (!isSupabaseServerConfigured()) {
+    return NextResponse.json({ error: "Supabase service role no configurado" }, { status: 503 });
+  }
+  const admin = createSupabaseServiceRoleClient();
+  if (!admin) {
+    return NextResponse.json({ error: "Cliente no disponible" }, { status: 503 });
+  }
+
+  let body: { items?: ColaboradorCompleto[] };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "JSON invalido" }, { status: 400 });
+  }
+
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (items.length === 0) {
+    return NextResponse.json({ error: "items vacio" }, { status: 400 });
+  }
+  if (items.length > MAX_BATCH) {
+    return NextResponse.json({ error: `Maximo ${MAX_BATCH} filas por lote` }, { status: 400 });
+  }
+
+  const now = new Date().toISOString();
+  const rows = items.map((raw) => {
+    const p = normalizePayload(raw);
+    return {
+      no_empleado: p.noEmpleado,
+      data: p as unknown as Record<string, unknown>,
+      updated_at: now,
+    };
+  });
+
+  const { error } = await admin.from("colaboradores").upsert(rows, { onConflict: "no_empleado" });
+  if (error) {
+    return NextResponse.json({ error: hintSupabaseClientError(error.message) }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, count: rows.length });
+}

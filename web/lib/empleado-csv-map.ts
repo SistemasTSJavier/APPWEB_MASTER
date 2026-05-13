@@ -22,6 +22,7 @@ export type CsvFieldKey =
   | "nombres"
   | "fechaNacimiento"
   | "edad"
+  | "estadoCivil"
   | "curp"
   | "rfc"
   | "imss"
@@ -65,7 +66,12 @@ export type CsvFieldKey =
   /** Ultimo servicio por MOPER (export COLABORADORES / sync). */
   | "ultimoServicio"
   /** Fecha ISO o texto de alta en export. */
-  | "registradoAt";
+  | "registradoAt"
+  | "creditoInfonavit"
+  | "noIfe"
+  | "licenciaConducir"
+  | "cartaNoAntecedentes"
+  | "idiomas";
 
 const HEADER_TO_FIELD: Record<string, CsvFieldKey> = {
   no_de_empleado: "noEmpleado",
@@ -96,6 +102,9 @@ const HEADER_TO_FIELD: Record<string, CsvFieldKey> = {
   numero_de_folio: "numeroFolio",
   numero_folio: "numeroFolio",
   folio: "numeroFolio",
+  numero_de_expediente: "numeroFolio",
+  numero_expediente: "numeroFolio",
+  no_expediente: "numeroFolio",
   apellido_paterno: "apellidoPaterno",
   apellido_materno: "apellidoMaterno",
   nombres_identidad: "nombres",
@@ -104,6 +113,10 @@ const HEADER_TO_FIELD: Record<string, CsvFieldKey> = {
   fecha_de_nacimiento: "fechaNacimiento",
   fecha_nacimiento: "fechaNacimiento",
   edad: "edad",
+  estado_civil: "estadoCivil",
+  edo_civil: "estadoCivil",
+  estado_civil_empleado: "estadoCivil",
+  estado_civil_del_empleado: "estadoCivil",
   curp: "curp",
   rfc: "rfc",
   imss: "imss",
@@ -337,7 +350,71 @@ const HEADER_TO_FIELD: Record<string, CsvFieldKey> = {
   ultimo_servicio_moper: "ultimoServicio",
   registrado_en: "registradoAt",
   fecha_registro: "registradoAt",
+  credito_infonavit: "creditoInfonavit",
+  no_credito_infonavit: "creditoInfonavit",
+  num_credito_infonavit: "creditoInfonavit",
+  numero_credito_infonavit: "creditoInfonavit",
+  clave_de_elector: "noIfe",
+  clave_elector: "noIfe",
+  clave_electoral: "noIfe",
+  /** Cabecera ficha / Excel: "NO. INE / IFE" → canon `no_ine_ife` */
+  no_ine_ife: "noIfe",
+  numero_ine_ife: "noIfe",
+  no_de_ine_ife: "noIfe",
+  noine_ife: "noIfe",
+  no_ife: "noIfe",
+  no_ine: "noIfe",
+  numero_ife: "noIfe",
+  numero_ine: "noIfe",
+  credencial_ife: "noIfe",
+  credencial_ine: "noIfe",
+  credencial_elector: "noIfe",
+  licencia_de_conducir: "licenciaConducir",
+  licencia_conducir: "licenciaConducir",
+  carta_no_penales: "cartaNoAntecedentes",
+  no_carta_penales: "cartaNoAntecedentes",
+  carta_no_antecedentes: "cartaNoAntecedentes",
+  carta_antecedentes_no_penales: "cartaNoAntecedentes",
+  idiomas_externos: "idiomas",
+  idioma_externo: "idiomas",
 };
+
+/** Documentos / ficha (INFONAVIT, clave electoral, licencia, carta no penales, idiomas externos). */
+function matchDocumentosFichaColumnFuzzy(canon: string): CsvFieldKey | undefined {
+  if (canon.length < 4) return undefined;
+  if (canon.includes("infonavit") || (canon.includes("credito") && canon.includes("infonavit"))) {
+    return "creditoInfonavit";
+  }
+  /** "NO. INE / IFE", "NÚMERO INE/IFE", etc. → canon con ambos tokens `ine` y `ife` */
+  if (canon.includes("ine") && canon.includes("ife")) {
+    return "noIfe";
+  }
+  if (canon.includes("clave") && canon.includes("elector")) {
+    return "noIfe";
+  }
+  if (
+    canon.includes("carta") &&
+    (canon.includes("penal") || canon.includes("antecedent") || canon.includes("no_antecedent"))
+  ) {
+    return "cartaNoAntecedentes";
+  }
+  if (canon.includes("licencia") && (canon.includes("conduc") || canon === "licencia" || canon.startsWith("licencia_"))) {
+    return "licenciaConducir";
+  }
+  if (canon.includes("idioma") && canon.includes("extern")) {
+    return "idiomas";
+  }
+  if (
+    canon.includes("estado") &&
+    canon.includes("civil") &&
+    !canon.includes("natal") &&
+    !canon.includes("municipio") &&
+    !canon.includes("domicilio")
+  ) {
+    return "estadoCivil";
+  }
+  return undefined;
+}
 
 /** Cabeceras que no son escolaridad aunque contengan palabras parecidas. */
 function isBlockedEscolaridadFuzzy(canon: string): boolean {
@@ -538,6 +615,8 @@ function matchNominaColumnFuzzy(canon: string): CsvFieldKey | undefined {
 export function resolveFieldKeyFromCanonHeader(canon: string): CsvFieldKey | undefined {
   const direct = HEADER_TO_FIELD[canon];
   if (direct) return direct;
+  const docFicha = matchDocumentosFichaColumnFuzzy(canon);
+  if (docFicha) return docFicha;
   const salud = matchSaludColumnFuzzy(canon);
   if (salud) return salud;
   const nomina = matchNominaColumnFuzzy(canon);

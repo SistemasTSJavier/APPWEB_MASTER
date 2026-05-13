@@ -4,4 +4,27 @@
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
-# Prueba: http://localhost:3000/api/supabase/status
+# Si en desarrollo ves "fetch failed" o Error en middleware al llamar a Auth:
+# - Abre la misma NEXT_PUBLIC_SUPABASE_URL en el navegador (debe responder).
+# - Sin barra final en la URL; host debe ser xxx.supabase.co.
+# - Firewall/VPN/antivirus: permitir salida HTTPS a *.supabase.co.
+# - Proyecto pausado en Supabase Dashboard: reanudar.
+
+# Service role: solo servidor (NUNCA como NEXT_PUBLIC_* ni en el navegador).
+# Obligatorio para datos: sin esta clave, /api/colaboradores y /api/moper-historial responden 503.
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Prueba: http://localhost:3000/api/supabase/status (campo serverDataConfigured)
+#
+# Migraciones SQL (orden): 001…004 y 005_ficha_fotos_storage.sql (bucket colaboradores-fotos para Ficha técnica).
+# Si al subir foto dice que no existe el bucket: Supabase → SQL → pega 005_ficha_fotos_storage.sql → Run.
+# (Editor SQL del proyecto Supabase). Si ves "permission denied for table" con service_role bien configurada, ejecuta 003.
+#
+# Autenticación (correo + contraseña): Supabase → Authentication → Providers → Email.
+# Cada usuario debe tener en User metadata (JSON) la clave app_role con uno de:
+# admin | nominas | mejora_continua | rh | gerente_rh | aux_legal | gerente_legal
+# Ejemplo RH: {"app_role":"rh"}
+# Área legal (solo lectura en Colaboradores y Expedientes legal; mismo panel de inicio y barra lateral de módulos):
+#   auxlegal@tacticalsupport.com.mx     → {"app_role":"aux_legal"}
+#   gerentelegal@tacticalsupport.com.mx → {"app_role":"gerente_legal"}
+# Site URL / Redirect URLs: incluye http://localhost:3000 y tu dominio de producción; ruta de callback: /auth/callback

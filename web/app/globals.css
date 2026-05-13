@@ -22,18 +22,43 @@ body {
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Ficha técnica: una sola hoja A4 al imprimir / guardar como PDF */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 4mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    background: #fff !important;
+  }
+
+  .ficha-print-root {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Evita segunda página por márgenes del contenedor de la app */
+  .min-h-dvh {
+    min-height: 0 !important;
+  }
+}
+
 @layer components {
   .form-control {
-    @apply w-full rounded-lg border border-slate-300/90 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm;
+    @apply w-full rounded-lg border border-slate-300/90 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm;
     @apply transition-colors duration-150;
     @apply focus:border-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-900/15;
-    @apply placeholder:text-slate-400;
+    @apply placeholder:text-slate-500;
   }
   select.form-control {
     @apply cursor-pointer;
   }
   .form-label {
-    @apply text-sm font-medium text-slate-700;
+    @apply text-base font-semibold text-slate-800;
   }
   .card {
     @apply rounded-xl border border-slate-200/90 bg-[var(--surface-card)] p-6 shadow-sm shadow-slate-900/[0.04];
@@ -42,13 +67,13 @@ body {
     @apply rounded-xl border border-slate-200/90 bg-[var(--surface-card)] p-5 shadow-sm shadow-slate-900/[0.04];
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm;
+    @apply inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-base font-bold text-white shadow-sm;
     @apply transition-colors duration-150;
     @apply hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-900/40 focus:ring-offset-2;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm;
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-base font-semibold text-slate-900 shadow-sm;
     @apply transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50;
     @apply focus:outline-none focus:ring-2 focus:ring-slate-400/30 focus:ring-offset-2;
   }
@@ -66,10 +91,10 @@ body {
     @apply overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm shadow-slate-900/[0.03];
   }
   .table-head {
-    @apply bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-600;
+    @apply bg-slate-100 text-left text-sm font-bold uppercase tracking-wide text-slate-900;
   }
   .table-cell {
-    @apply border-t border-slate-100 px-4 py-3 text-sm text-slate-800;
+    @apply border-t border-slate-100 px-4 py-3 text-base text-slate-900;
   }
   .table-row-hover {
     @apply transition-colors hover:bg-slate-50/95;
@@ -82,10 +107,10 @@ body {
     @apply mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8;
   }
   .page-title {
-    @apply text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl;
+    @apply text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl;
   }
   .page-lead {
-    @apply mt-2 max-w-3xl text-sm leading-relaxed text-slate-600 sm:text-[15px];
+    @apply mt-2 max-w-3xl text-base font-medium leading-relaxed text-slate-800 sm:text-lg;
   }
   /** Tarjeta destacada (avisos, importación recomendada) */
   .callout-accent {
@@ -93,6 +118,6 @@ body {
   }
   /** Badge de estatus en tablas */
   .badge-muted {
-    @apply inline-flex rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-800 ring-1 ring-slate-200/80;
+    @apply inline-flex rounded-md bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-900 ring-1 ring-slate-200/80;
   }
 }

@@ -1,8 +1,14 @@
 import { parseCsvContent } from "@/lib/csv";
+import {
+  ENCABEZADOS_CSV_FAMILIARES_ANCHO,
+  familiaresDesdeFilaAncha,
+  numeroEmpleadoDesdeFilaAncha,
+  parseWideFamiliaresLayout,
+} from "@/lib/altas-familiares-csv-ancho";
 import { CSV_TABLE_KEYS, pickFieldsForTable, type CsvMysqlTable } from "@/lib/csv-mysql-modules";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
-import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-store";
-import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-store";
+import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-types";
+import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-data";
 import type { AltasCsvImportResult, AltasCsvImportOptions } from "@/lib/altas-csv-import";
 
 /** PARTE ALTAS ↔ bloque CSV (archivos separados). */
@@ -20,12 +26,12 @@ export const ALTAS_ETIQUETA_PARTE_IMPORT: Record<number, string> = {
   2: "PARTE 2 · Identidad y domicilio",
   3: "PARTE 3 · Salud",
   4: "PARTE 4 · Nómina y reclutamiento",
-  5: "PARTE 5 · Familiares (una fila = un familiar)",
+  5: "PARTE 5 · Familiares (una fila ancha PADRE/MADRE/HIJOS por empleado, o formato clásico una fila por familiar)",
   6: "MOPER (columnas MOPER_1 … MOPER_7 en el expediente)",
 };
 
-function normalizeNo(no: string): string {
-  return no.trim().toUpperCase();
+function normalizeNo(no: string | undefined | null): string {
+  return String(no ?? "").trim().toUpperCase();
 }
 
 function g(p: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
@@ -71,7 +77,7 @@ function buildTelefonoPersonalPartial(p: Partial<Record<CsvFieldKey, string>>): 
   return [t1, t2].filter(Boolean).join(" / ");
 }
 
-function mergeFormPreserve(existing: Record<string, string>, incoming: Record<string, string>): Record<string, string> {
+export function mergeFormPreserve(existing: Record<string, string>, incoming: Record<string, string>): Record<string, string> {
   const out = { ...existing };
   for (const [k, v] of Object.entries(incoming)) {
     if (String(v ?? "").trim() !== "") out[k] = v;
@@ -97,8 +103,8 @@ function emptyColaboradorStub(no: string): ColaboradorCompleto {
   };
 }
 
-/** Solo campos presentes en `picked` → no borra el resto del expediente. */
-function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>): Record<string, string> {
+/** Solo campos presentes en `picked` → no borra el resto del expediente. Exportado para importación CSV de una sola columna. */
+export function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>): Record<string, string> {
   const f: Record<string, string> = {};
   const z = picked;
 
@@ -118,11 +124,17 @@ function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>): Recor
   put("posicion", "posicion");
   put("localForaneo", "localForaneo");
   put("numeroFolio", "numeroFolio");
+  put("creditoInfonavit", "creditoInfonavit");
+  put("noIfe", "noIfe");
+  put("licenciaConducir", "licenciaConducir");
+  put("cartaNoAntecedentes", "cartaNoAntecedentes");
+  put("idiomas", "idiomas");
   put("apellidoPaterno", "apellidoPaterno");
   put("apellidoMaterno", "apellidoMaterno");
   put("nombres", "nombres");
   put("fechaNacimiento", "fechaNacimiento");
   put("edad", "edad");
+  put("estadoCivil", "estadoCivil");
   put("curp", "curp");
   put("rfc", "rfc");
   put("imss", "imss");
@@ -174,7 +186,7 @@ function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>): Recor
   return f;
 }
 
-function aplicarSnapDesdePick(base: ColaboradorCompleto, picked: Partial<Record<CsvFieldKey, string>>): ColaboradorCompleto {
+export function aplicarSnapDesdePick(base: ColaboradorCompleto, picked: Partial<Record<CsvFieldKey, string>>): ColaboradorCompleto {
   const n = { ...base };
   if (picked.nombreCompleto !== undefined) n.nombreCompleto = g(picked, "nombreCompleto");
   if (picked.fechaIngreso !== undefined) n.fechaIngreso = g(picked, "fechaIngreso");
@@ -192,13 +204,14 @@ function aplicarSnapDesdePick(base: ColaboradorCompleto, picked: Partial<Record<
 
 /**
  * Importa un CSV de un solo bloque (PARTE 1…5 o MOPER). Mezcla por N° empleado.
- * PARTE 5: cada fila agrega un familiar (no elimina los anteriores).
+ * PARTE 5: formato ancho (PADRE, MADRE, PAREJA, HIJO1…) una fila reemplaza toda la lista de familiares;
+ * formato clásico (NOMBRE_FAMILIAR + PARENTESCO): cada fila añade un familiar.
  */
-export function importColaboradoresDesdeCsvPorParte(
+export async function importColaboradoresDesdeCsvPorParte(
   text: string,
   parteNum: number,
   options?: AltasCsvImportOptions,
-): AltasCsvImportResult & { tabla: CsvMysqlTable } {
+): Promise<AltasCsvImportResult & { tabla: CsvMysqlTable }> {
   const tabla = ALTAS_PARTE_A_TABLA[parteNum];
   if (!tabla) {
     return {
@@ -223,8 +236,9 @@ export function importColaboradoresDesdeCsvPorParte(
     };
   }
 
-  const headerRow = rows[0]!.map((c) => c.trim());
+  const headerRow = rows[0]!.map((c) => String(c ?? "").trim());
   const fieldIndex = buildHeaderFieldIndex(headerRow);
+  const layoutFamiliaresAncho = parteNum === 5 ? parseWideFamiliaresLayout(headerRow) : null;
 
   let imported = 0;
   let skippedEmpty = 0;
@@ -232,18 +246,54 @@ export function importColaboradoresDesdeCsvPorParte(
 
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
-    if (!cells.some((c) => c.trim() !== "")) {
+    if (!cells.some((c) => String(c ?? "").trim() !== "")) {
       skippedEmpty++;
       continue;
     }
 
     const fieldMapFull = rowToFieldMap(cells, fieldIndex);
+    const rowLabel = r + 1;
+
+    if (tabla === "familiar" && layoutFamiliaresAncho) {
+      const noWide = normalizeNo(numeroEmpleadoDesdeFilaAncha(cells, layoutFamiliaresAncho));
+      if (!noWide) {
+        errors.push({
+          row: rowLabel,
+          message: `FALTA N° EMPLEADO. Columna esperada: NO DE EMPLEADO / NO_EMPLEADO (${ALTAS_ETIQUETA_PARTE_IMPORT[parteNum]}).`,
+        });
+        continue;
+      }
+      const prevF = await findColaboradorCompletoByNo(noWide);
+      if (!prevF) {
+        errors.push({
+          row: rowLabel,
+          message: `NO EXISTE ${noWide}. IMPORTA PARTE 1 (O ALTA) ANTES DE FAMILIARES.`,
+        });
+        continue;
+      }
+      const famAnchos = familiaresDesdeFilaAncha(cells, layoutFamiliaresAncho);
+      if (!famAnchos.length) {
+        errors.push({
+          row: rowLabel,
+          message: "SIN NOMBRES EN COLUMNAS PADRE, MADRE, PAREJA O HIJO1… HIJO4.",
+        });
+        continue;
+      }
+      const mergedAnchos: ColaboradorCompleto = {
+        ...prevF,
+        form: { ...prevF.form, noEmpleado1: noWide },
+        familiares: famAnchos,
+      };
+      if (apply) await upsertColaboradorCompleto(mergedAnchos);
+      imported++;
+      continue;
+    }
+
     const picked = pickFieldsForTable(fieldMapFull, tabla);
     const masterTraeServicioPuesto =
       parteNum === 1 && (picked.servicio !== undefined || picked.puesto !== undefined);
 
     const noRaw = g(picked, "noEmpleado");
-    const rowLabel = r + 1;
 
     if (!picked.noEmpleado || !noRaw) {
       errors.push({
@@ -254,7 +304,7 @@ export function importColaboradoresDesdeCsvPorParte(
     }
 
     const no = normalizeNo(noRaw);
-    const prev = findColaboradorCompletoByNo(no);
+    const prev = await findColaboradorCompletoByNo(no);
 
     if (tabla === "familiar") {
       if (!prev) {
@@ -271,7 +321,7 @@ export function importColaboradoresDesdeCsvPorParte(
         form: { ...prev.form, noEmpleado1: no },
         familiares: [...prev.familiares, ...fam],
       };
-      if (apply) upsertColaboradorCompleto(merged);
+      if (apply) await upsertColaboradorCompleto(merged);
       imported++;
       continue;
     }
@@ -286,7 +336,8 @@ export function importColaboradoresDesdeCsvPorParte(
     merged = aplicarSnapDesdePick(merged, picked);
 
     const nombreComp = nombreCompletoDesde(picked, merged.form);
-    const nombreFinal = nombreComp.trim() || merged.nombreCompleto.trim() || prev?.nombreCompleto.trim() || "";
+    const nombreFinal =
+      nombreComp.trim() || String(merged.nombreCompleto ?? "").trim() || String(prev?.nombreCompleto ?? "").trim() || "";
 
     if (!nombreFinal.trim() && tabla === "empleado_master") {
       errors.push({
@@ -296,7 +347,7 @@ export function importColaboradoresDesdeCsvPorParte(
       continue;
     }
 
-    if (!nombreFinal.trim() && !prev?.nombreCompleto.trim()) {
+    if (!nombreFinal.trim() && !String(prev?.nombreCompleto ?? "").trim()) {
       errors.push({
         row: rowLabel,
         message: `SIN NOMBRE PARA ${no}. IMPORTA PARTE 1 CON NOMBRE O COMPLETA PARTE 2 (NOMBRES / APELLIDOS).`,
@@ -307,13 +358,21 @@ export function importColaboradoresDesdeCsvPorParte(
     merged.nombreCompleto = nombreFinal;
 
     merged.servicioAsignado =
-      merged.servicioAsignado.trim() || merged.form.servicio.trim() || prev?.servicioAsignado || "";
-    merged.puesto = merged.puesto.trim() || merged.form.puesto.trim() || prev?.puesto || "";
-    merged.fechaIngreso = merged.fechaIngreso.trim() || merged.form.fechaIngreso || prev?.fechaIngreso || "";
-    merged.posicion = merged.posicion.trim() || merged.form.posicion || prev?.posicion || "";
-    merged.nss = merged.nss.trim() || merged.form.imss.trim() || prev?.nss || "";
+      String(merged.servicioAsignado ?? "").trim() ||
+      String(merged.form.servicio ?? "").trim() ||
+      prev?.servicioAsignado ||
+      "";
+    merged.puesto =
+      String(merged.puesto ?? "").trim() || String(merged.form.puesto ?? "").trim() || prev?.puesto || "";
+    merged.fechaIngreso =
+      String(merged.fechaIngreso ?? "").trim() || merged.form.fechaIngreso || prev?.fechaIngreso || "";
+    merged.posicion = String(merged.posicion ?? "").trim() || merged.form.posicion || prev?.posicion || "";
+    merged.nss = String(merged.nss ?? "").trim() || String(merged.form.imss ?? "").trim() || prev?.nss || "";
     merged.ultimoServicio =
-      merged.ultimoServicio.trim() || merged.form.ultimoServicio?.trim() || prev?.ultimoServicio || "";
+      String(merged.ultimoServicio ?? "").trim() ||
+      String(merged.form.ultimoServicio ?? "").trim() ||
+      prev?.ultimoServicio ||
+      "";
 
     const registRaw = merged.form.registeredAt?.trim() || merged.registeredAt;
     merged.registeredAt = registRaw || prev?.registeredAt || merged.registeredAt;
@@ -328,14 +387,16 @@ export function importColaboradoresDesdeCsvPorParte(
         moperActual = { ...prev.moperActual };
         ultimoServicio = ultimoServicio || prev.ultimoServicio || "";
       } else if (parteNum === 1 && masterTraeServicioPuesto) {
-        moperActual = {
-          servicio: servFinal || prev.moperActual.servicio,
-          puesto: ptoFinal || prev.moperActual.puesto,
-        };
-        if (picked.ultimoServicio !== undefined && g(picked, "ultimoServicio")) {
-          ultimoServicio = g(picked, "ultimoServicio");
-        } else {
+        const csvUltimoExplicit = g(picked, "ultimoServicio").trim();
+        if (!csvUltimoExplicit) {
+          moperActual = { ...prev.moperActual };
           ultimoServicio = ultimoServicio || prev.ultimoServicio || "";
+        } else {
+          moperActual = {
+            servicio: csvUltimoExplicit || servFinal || prev.moperActual.servicio,
+            puesto: ptoFinal || prev.moperActual.puesto,
+          };
+          ultimoServicio = csvUltimoExplicit;
         }
       } else {
         moperActual = { ...prev.moperActual };
@@ -349,7 +410,7 @@ export function importColaboradoresDesdeCsvPorParte(
     merged.moperActual = moperActual;
 
     if (apply) {
-      upsertColaboradorCompleto(merged);
+      await upsertColaboradorCompleto(merged);
     }
     imported++;
   }
@@ -367,6 +428,7 @@ export function csvFieldKeysToCabecerasExcel(keys: readonly CsvFieldKey[]): stri
 }
 
 export function encabezadosPlantillaCsvPorParte(parteNum: number): string[] {
+  if (parteNum === 5) return [...ENCABEZADOS_CSV_FAMILIARES_ANCHO];
   const tabla = ALTAS_PARTE_A_TABLA[parteNum];
   if (!tabla) return [];
   return csvFieldKeysToCabecerasExcel(CSV_TABLE_KEYS[tabla]);

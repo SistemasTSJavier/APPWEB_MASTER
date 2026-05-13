@@ -1,0 +1,24 @@
+import type { ReactNode } from "react";
+import type { AppRole } from "@/lib/app-role";
+import { AppSidebarNav } from "./app-sidebar-nav";
+
+export function AppModuleShell({
+  role,
+  email,
+  currentPath,
+  children,
+}: {
+  role: AppRole;
+  email: string;
+  currentPath: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-h-dvh bg-slate-100 [--sidebar-w:280px] print:min-h-0 print:bg-white">
+      <div className="mx-auto grid min-h-dvh w-full max-w-[1600px] grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 md:grid-cols-[minmax(0,var(--sidebar-w))_minmax(0,1fr)] md:gap-5 md:p-5 lg:p-6 print:min-h-0 print:max-w-none print:grid-cols-1 print:p-2">
+        <AppSidebarNav role={role} email={email} currentPath={currentPath} />
+        <div className="relative min-w-0 overflow-x-hidden print:overflow-visible">{children}</div>
+      </div>
+    </div>
+  );
+}

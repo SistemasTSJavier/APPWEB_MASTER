@@ -1,4 +1,5 @@
-import type { ColaboradorCompleto } from "./colaboradores-store";
+import type { ColaboradorCompleto } from "./colaboradores-types";
+import { servicioLineaColaborador } from "./servicio-agrupacion";
 
 function csvCell(value: string): string {
   const s = String(value ?? "").replace(/"/g, '""');
@@ -31,6 +32,7 @@ export function colaboradoresToCsv(rows: ColaboradorCompleto[]): string {
     "NOMBRE_COMPLETO",
     "SERVICIO_ASIGNADO",
     "ULTIMO_SERVICIO",
+    "SERVICIO_VIGENTE",
     "NSS",
     "POSICION",
     "PUESTO",
@@ -48,6 +50,7 @@ export function colaboradoresToCsv(rows: ColaboradorCompleto[]): string {
       r.nombreCompleto,
       r.servicioAsignado,
       r.ultimoServicio,
+      servicioLineaColaborador(r),
       r.nss,
       r.posicion,
       r.puesto ?? "",

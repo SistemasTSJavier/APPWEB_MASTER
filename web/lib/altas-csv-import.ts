@@ -1,7 +1,9 @@
+import { familiaresDesdeFilaAncha, parseWideFamiliaresLayout } from "@/lib/altas-familiares-csv-ancho";
+import { mergeMoperEnImportColaboradorCsv } from "@/lib/colaboradores-import-moper-merge";
 import { parseCsvContent } from "@/lib/csv";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
-import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-store";
-import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-store";
+import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-types";
+import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-data";
 
 function normalizeNo(no: string): string {
   return no.trim().toUpperCase();
@@ -33,8 +35,8 @@ function mergeFormPreserve(existing: Record<string, string>, incoming: Record<st
   return out;
 }
 
-function pickStr(csv: string, prev?: string): string {
-  const t = csv.trim();
+function pickStr(csv: string | undefined | null, prev?: string | null): string {
+  const t = String(csv ?? "").trim();
   if (t) return t;
   return String(prev ?? "").trim();
 }
@@ -43,7 +45,7 @@ function pickStr(csv: string, prev?: string): string {
 function buildFormColumnIndex(headerRow: string[]): Map<number, string> {
   const m = new Map<number, string>();
   headerRow.forEach((raw, idx) => {
-    const t = raw.trim();
+    const t = String(raw ?? "").trim();
     if (/^FORM_/i.test(t)) {
       m.set(idx, t.replace(/^FORM_/i, "").trim()); // FORM_apellidoPaterno → apellidoPaterno
     }
@@ -77,12 +79,18 @@ function mergeAltasForm(fieldMap: Partial<Record<CsvFieldKey, string>>, formExtr
   set("posicion", g(fieldMap, "posicion"));
   set("localForaneo", g(fieldMap, "localForaneo") || "LOCAL");
   set("numeroFolio", g(fieldMap, "numeroFolio"));
+  set("creditoInfonavit", g(fieldMap, "creditoInfonavit"));
+  set("noIfe", g(fieldMap, "noIfe"));
+  set("licenciaConducir", g(fieldMap, "licenciaConducir"));
+  set("cartaNoAntecedentes", g(fieldMap, "cartaNoAntecedentes"));
+  set("idiomas", g(fieldMap, "idiomas"));
 
   set("apellidoPaterno", g(fieldMap, "apellidoPaterno"));
   set("apellidoMaterno", g(fieldMap, "apellidoMaterno"));
   set("nombres", g(fieldMap, "nombres"));
   set("fechaNacimiento", g(fieldMap, "fechaNacimiento"));
   set("edad", g(fieldMap, "edad"));
+  set("estadoCivil", g(fieldMap, "estadoCivil"));
   set("curp", g(fieldMap, "curp"));
   set("rfc", g(fieldMap, "rfc"));
   set("imss", g(fieldMap, "imss"));
@@ -163,16 +171,19 @@ export type AltasCsvImportResult = {
 };
 
 export type AltasCsvImportOptions = {
-  /** Si true (defecto), si el colaborador ya existe y la fila no trae servicio ni puesto, se conserva la linea MOPER. */
+  /**
+   * Si true (defecto), no se rebasa `moperActual` con columnas SERVICIO/PUESTO de alta al reimportar.
+   * Solo se actualiza la línea operativa si la fila trae ULTIMO_SERVICIO con texto (sync explícita).
+   */
   preserveMoper?: boolean;
-  /** Si false, solo cuenta filas sin escribir en localStorage (prueba). */
+  /** Si false, solo cuenta filas sin persistir en API (prueba seca). */
   apply?: boolean;
 };
 
-export function importColaboradoresDesdeCsv(
+export async function importColaboradoresDesdeCsv(
   text: string,
   options?: AltasCsvImportOptions,
-): AltasCsvImportResult {
+): Promise<AltasCsvImportResult> {
   const preserveMoper = options?.preserveMoper !== false;
   const apply = options?.apply !== false;
 
@@ -186,9 +197,10 @@ export function importColaboradoresDesdeCsv(
     };
   }
 
-  const headerRow = rows[0]!.map((c) => c.trim());
+  const headerRow = rows[0]!.map((c) => String(c ?? "").trim());
   const fieldIndex = buildHeaderFieldIndex(headerRow);
   const formColIx = buildFormColumnIndex(headerRow);
+  const layoutFamiliaresAncho = parseWideFamiliaresLayout(headerRow);
 
   let imported = 0;
   let skippedEmpty = 0;
@@ -196,18 +208,16 @@ export function importColaboradoresDesdeCsv(
 
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
-    if (!cells.some((c) => c.trim() !== "")) {
+    if (!cells.some((c) => String(c ?? "").trim() !== "")) {
       skippedEmpty++;
       continue;
     }
 
     const fieldMap = rowToFieldMap(cells, fieldIndex);
     const formExtras = collectFormCells(cells, formColIx);
-    const csvTraeUbicacion =
-      Boolean(g(fieldMap, "servicio")) ||
-      Boolean(g(fieldMap, "puesto")) ||
-      Boolean(formExtras.servicio?.trim()) ||
-      Boolean(formExtras.puesto?.trim());
+    /** Solo celdas de esta fila; no usar valor fusionado del expediente guardado (evita falsos positivos). */
+    const ultimoServicioExplicitDesdeFila =
+      g(fieldMap, "ultimoServicio").trim() || (formExtras.ultimoServicio ?? "").trim();
 
     const noRaw =
       g(fieldMap, "noEmpleado").trim() || formExtras.noEmpleado1?.trim() || formExtras.NO_EMPLEADO1?.trim() || "";
@@ -220,7 +230,7 @@ export function importColaboradoresDesdeCsv(
       continue;
     }
 
-    const existing = findColaboradorCompletoByNo(no);
+    const existing = await findColaboradorCompletoByNo(no);
     let formPartial = mergeAltasForm(fieldMap, formExtras);
     formPartial = mergeFormPreserve(existing?.form ?? {}, formPartial);
     formPartial.noEmpleado1 = no;
@@ -237,33 +247,30 @@ export function importColaboradoresDesdeCsv(
 
     const servicioCsv = pickStr(formPartial.servicio, existing?.servicioAsignado);
     const puestoCsv = pickStr(formPartial.puesto, existing?.puesto);
-    const csvUltimo = (g(fieldMap, "ultimoServicio") || formPartial.ultimoServicio || "").trim();
+    const csvUltimoCombinado = (g(fieldMap, "ultimoServicio") || formPartial.ultimoServicio || "").trim();
 
-    let ultimoServicio: string;
-    let moperActual: ColaboradorCompleto["moperActual"];
-
-    if (preserveMoper && existing) {
-      ultimoServicio = csvUltimo || existing.ultimoServicio || "";
-      if (existing.moperActual && !csvTraeUbicacion) {
-        moperActual = { ...existing.moperActual };
-      } else if (existing.moperActual) {
-        moperActual = {
-          servicio: pickStr(servicioCsv, existing.moperActual.servicio),
-          puesto: pickStr(puestoCsv, existing.moperActual.puesto),
-        };
-      } else {
-        moperActual = { servicio: servicioCsv, puesto: puestoCsv };
-      }
-    } else {
-      ultimoServicio = csvUltimo;
-      moperActual = { servicio: servicioCsv, puesto: puestoCsv };
-    }
+    const mergedMoper = mergeMoperEnImportColaboradorCsv({
+      preserveMoper,
+      existing,
+      csvUltimoServicioExplicit: ultimoServicioExplicitDesdeFila,
+      servicioCsv,
+      puestoCsv,
+    });
+    const moperActual = mergedMoper.moperActual;
+    const ultimoServicio = !preserveMoper ? csvUltimoCombinado : mergedMoper.ultimoServicio;
 
     const registradoRaw = (g(fieldMap, "registradoAt") || formPartial.registeredAt || "").trim();
     const registeredAt = registradoRaw || existing?.registeredAt || new Date().toISOString();
 
+    const famAnchos = layoutFamiliaresAncho ? familiaresDesdeFilaAncha(cells, layoutFamiliaresAncho) : [];
     const famFromCsv = buildFamiliares(fieldMap);
-    const familiares = famFromCsv.length ? famFromCsv : existing?.familiares ?? [];
+    const familiares = layoutFamiliaresAncho
+      ? famAnchos.length > 0
+        ? famAnchos
+        : (existing?.familiares ?? [])
+      : famFromCsv.length
+        ? famFromCsv
+        : (existing?.familiares ?? []);
 
     const fechaIngreso = pickStr(formPartial.fechaIngreso, existing?.fechaIngreso);
     const nss = pickStr(formPartial.imss, existing?.nss);
@@ -285,7 +292,7 @@ export function importColaboradoresDesdeCsv(
     };
 
     if (apply) {
-      upsertColaboradorCompleto(payload);
+      await upsertColaboradorCompleto(payload);
     }
     imported++;
   }
