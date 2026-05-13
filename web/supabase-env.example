@@ -12,6 +12,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # Service role: solo servidor (NUNCA como NEXT_PUBLIC_* ni en el navegador).
 # Obligatorio para datos: sin esta clave, /api/colaboradores y /api/moper-historial responden 503.
+# Recomendado: MFA (Supabase → Authentication → Users / Providers) para cuentas con acceso a datos.
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # Prueba: http://localhost:3000/api/supabase/status (campo serverDataConfigured)
