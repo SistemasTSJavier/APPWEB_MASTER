@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState, type MouseEvent } from "react";
+import { FormEvent, useEffect, useState, type MouseEvent } from "react";
 import {
   aplicarMoperMovimiento,
   findColaboradorCompletoByNo,
@@ -10,7 +10,7 @@ import {
 import {
   pushMoperHistorial,
   listMoperHistorialPorEmpleado,
-  listMoperHistorialReciente,
+  listMoperHistorialFiltrado,
   deleteMoperHistorial,
   deleteAllMoperHistorial,
 } from "@/lib/moper-historial";
@@ -44,6 +44,13 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
   const [historialRecienteLoading, setHistorialRecienteLoading] = useState(true);
   const [historialRecienteErr, setHistorialRecienteErr] = useState<string | null>(null);
 
+  /** Filtros del listado global (API GET con `desde` / `hasta` / `servicio`). */
+  const [filtroServicioListado, setFiltroServicioListado] = useState("");
+  const [filtroMoperDesde, setFiltroMoperDesde] = useState("");
+  const [filtroMoperHasta, setFiltroMoperHasta] = useState("");
+  /** Servicios vistos en cargas (para el desplegable; se va ampliando con cada respuesta). */
+  const [opcionesServicioListado, setOpcionesServicioListado] = useState<string[]>([]);
+
   const [historialColab, setHistorialColab] = useState<MoperHistorialEntrada[]>([]);
   const [historialColabLoading, setHistorialColabLoading] = useState(false);
   const [historialColabErr, setHistorialColabErr] = useState<string | null>(null);
@@ -55,23 +62,55 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [purgingHistorial, setPurgingHistorial] = useState(false);
 
-  const cargarHistorialReciente = useCallback(async () => {
+  function mergeOpcionesServicioDesdeLista(list: MoperHistorialEntrada[]) {
+    setOpcionesServicioListado((prev) => {
+      const s = new Set(prev);
+      for (const m of list) {
+        const a = m.servicioInicial.trim();
+        const b = m.servicioFinal.trim();
+        if (a) s.add(a);
+        if (b) s.add(b);
+      }
+      return [...s].sort((x, y) => x.localeCompare(y, "es", { sensitivity: "base" }));
+    });
+  }
+
+  async function recargarListadoMoper(
+    override?: Partial<{ servicio: string; desde: string; hasta: string }>,
+  ) {
+    const servicio = (override?.servicio !== undefined ? override.servicio : filtroServicioListado).trim();
+    const desde = (override?.desde !== undefined ? override.desde : filtroMoperDesde).trim();
+    const hasta = (override?.hasta !== undefined ? override.hasta : filtroMoperHasta).trim();
     setHistorialRecienteLoading(true);
     setHistorialRecienteErr(null);
     try {
-      const list = await listMoperHistorialReciente(80);
+      const list = await listMoperHistorialFiltrado({
+        limit: 300,
+        desde: desde || undefined,
+        hasta: hasta || undefined,
+        servicio: servicio || undefined,
+      });
       setHistorialReciente(list);
+      mergeOpcionesServicioDesdeLista(list);
     } catch (e) {
       setHistorialReciente([]);
       setHistorialRecienteErr(e instanceof Error ? e.message : "NO SE PUDO CARGAR EL HISTORIAL.");
     } finally {
       setHistorialRecienteLoading(false);
     }
-  }, []);
+  }
+
+  function limpiarFiltrosListado() {
+    setFiltroServicioListado("");
+    setFiltroMoperDesde("");
+    setFiltroMoperHasta("");
+    void recargarListadoMoper({ servicio: "", desde: "", hasta: "" });
+  }
 
   useEffect(() => {
-    void cargarHistorialReciente();
-  }, [cargarHistorialReciente]);
+    void recargarListadoMoper();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- carga inicial sin filtros; el resto con «Aplicar» / «Actualizar».
+  }, []);
 
   useEffect(() => {
     let cancel = false;
@@ -227,7 +266,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
     setSearchMsg(null);
     try {
       await deleteMoperHistorial(entry.historialId);
-      await cargarHistorialReciente();
+      await recargarListadoMoper();
       const noColab = noEmpleado.trim().toUpperCase();
       const noEnt = entry.noEmpleado.trim().toUpperCase();
       if (noColab && noEnt === noColab) {
@@ -249,7 +288,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
     setPurgingHistorial(true);
     try {
       await deleteAllMoperHistorial();
-      await cargarHistorialReciente();
+      await recargarListadoMoper();
       const noColab = noEmpleado.trim().toUpperCase();
       if (noColab) {
         const list = await listMoperHistorialPorEmpleado(noColab);
@@ -313,7 +352,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
     }
     setSearchMsg(null);
     setOkMsg("MOVIMIENTO REGISTRADO. SERVICIO Y PUESTO INICIAL ACTUALIZADOS PARA LA SIGUIENTE CAPTURA.");
-    void cargarHistorialReciente();
+    void recargarListadoMoper();
   }
 
   function limpiar() {
@@ -373,7 +412,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-bold uppercase text-slate-800">Ultimos movimientos registrados</h2>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className="btn-secondary text-xs uppercase" onClick={() => void cargarHistorialReciente()}>
+              <button type="button" className="btn-secondary text-xs uppercase" onClick={() => void recargarListadoMoper()}>
                 Actualizar lista
               </button>
               {isAdmin ? (
@@ -403,6 +442,73 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
               </>
             )}
           </p>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-700">Filtros del listado</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 items-end">
+              <label className="space-y-1 sm:col-span-2">
+                <span className="form-label uppercase">Servicio (inicial o final)</span>
+                <select
+                  className="form-control uppercase"
+                  value={filtroServicioListado}
+                  onChange={(e) => setFiltroServicioListado(e.target.value)}
+                  disabled={historialRecienteLoading}
+                >
+                  <option value="">Todos</option>
+                  {opcionesServicioListado.map((sv) => (
+                    <option key={sv} value={sv}>
+                      {sv}
+                    </option>
+                  ))}
+                </select>
+                <span className="block text-[10px] font-medium uppercase leading-tight text-slate-500">
+                  Busca coincidencia en texto de servicio inicial o final (como en el listado).
+                </span>
+              </label>
+              <label className="space-y-1">
+                <span className="form-label uppercase">Creación desde</span>
+                <input
+                  type="date"
+                  className="form-control uppercase"
+                  value={filtroMoperDesde}
+                  onChange={(e) => setFiltroMoperDesde(e.target.value)}
+                  disabled={historialRecienteLoading}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="form-label uppercase">Creación hasta</span>
+                <input
+                  type="date"
+                  className="form-control uppercase"
+                  value={filtroMoperHasta}
+                  onChange={(e) => setFiltroMoperHasta(e.target.value)}
+                  disabled={historialRecienteLoading}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-primary text-xs uppercase"
+                  disabled={historialRecienteLoading}
+                  onClick={() => void recargarListadoMoper()}
+                >
+                  Aplicar filtros
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs uppercase"
+                  disabled={historialRecienteLoading}
+                  onClick={limpiarFiltrosListado}
+                >
+                  Limpiar filtros
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] font-medium uppercase leading-relaxed text-slate-500">
+              Rango de fechas: fecha de <strong>creación del registro MOPER</strong> en el sistema (no la fecha capturada dentro del movimiento).
+            </p>
+          </div>
+
           {historialRecienteErr ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold uppercase text-amber-950">
               {historialRecienteErr}
@@ -411,7 +517,11 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
           {historialRecienteLoading ? (
             <p className="text-sm text-slate-500">Cargando historial…</p>
           ) : historialReciente.length === 0 ? (
-            <p className="text-sm text-slate-600">AUN NO HAY MOVIMIENTOS REGISTRADOS EN ESTE MODULO.</p>
+            <p className="text-sm text-slate-600">
+              {filtroServicioListado.trim() || filtroMoperDesde.trim() || filtroMoperHasta.trim()
+                ? "NO HAY MOVIMIENTOS CON ESTOS FILTROS. PRUEBA OTRO RANGO O SERVICIO, O PULSA «LIMPIAR FILTROS»."
+                : "AUN NO HAY MOVIMIENTOS REGISTRADOS EN ESTE MODULO."}
+            </p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <table className="min-w-[960px] w-full text-left">
