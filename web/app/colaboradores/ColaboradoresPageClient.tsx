@@ -18,7 +18,7 @@ import {
   ZONA_FILTRO_SIN_SUFIJO,
 } from "@/lib/servicio-agrupacion";
 import type { AppRole } from "@/lib/app-role";
-import { esRolLegalSoloLectura, roleMayEditColaboradores } from "@/lib/app-role";
+import { esRolLegalSoloLectura, roleMayEditColaboradores, roleMayExportColaboradoresCsv } from "@/lib/app-role";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 
 function fechaEnRangoIngreso(fechaNormColaborador: string, desde: string, hasta: string): boolean {
@@ -76,9 +76,11 @@ function textoBusquedaCoincide(c: ColaboradorCompleto, q: string): boolean {
 }
 
 export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
-  const soloLectura = appRole === "mejora_continua" || esRolLegalSoloLectura(appRole);
   const puedeEditar = roleMayEditColaboradores(appRole);
-  const colSpan = soloLectura ? 9 : 10;
+  const puedeExportarCsv = roleMayExportColaboradoresCsv(appRole);
+  const mostrarCheckboxCsv = puedeEditar || puedeExportarCsv;
+  const soloLectura = appRole === "mejora_continua" || esRolLegalSoloLectura(appRole);
+  const colSpan = mostrarCheckboxCsv ? 10 : 9;
 
   const [rows, setRows] = useState<ColaboradorCompleto[]>([]);
   const [listaError, setListaError] = useState<string | null>(null);
@@ -286,13 +288,24 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                   </>
                 ) : (
                   <>
-                    Modo <strong>solo consulta</strong> (sin datos de nómina en expediente). Usa <strong>Expediente</strong> para ver el detalle.
+                    Modo <strong>solo consulta</strong> (sin datos de nómina en expediente). Usa filtros, <strong>marcar seleccion</strong> y{" "}
+                    <strong>Exportar CSV</strong> con los expedientes filtrados o seleccionados.
                   </>
                 )
-              ) : (
+              ) : puedeEditar ? (
                 <>
                   Columna <strong>SERVICIO</strong> muestra la linea vigente (MOPER / ultimo movimiento si aplica). Busqueda, filtros y CSV conservan
                   tambien datos de alta. Usa <strong>Editar</strong> para ajustar expediente.
+                </>
+              ) : appRole === "gerente_rh" ? (
+                <>
+                  Modo <strong>solo consulta</strong> de expedientes aqui. Para registrar o editar movimientos de servicio y puesto usa el modulo{" "}
+                  <strong>MOPER</strong>.
+                </>
+              ) : (
+                <>
+                  Modo <strong>consulta y copia</strong> (nominas). Usa <strong>Expediente</strong> para ver el detalle. Puedes exportar CSV con filtros y
+                  seleccion.
                 </>
               )}
             </p>
@@ -439,7 +452,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
               </select>
             </label>
           </div>
-          {!soloLectura ? (
+          {mostrarCheckboxCsv ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
               <button type="button" className="btn-primary uppercase" onClick={exportarCsv} disabled={filtrados.length === 0}>
                 Exportar CSV (Excel)
@@ -472,7 +485,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
           <table className="min-w-full text-left text-sm">
             <thead className="table-head">
               <tr>
-                {!soloLectura ? <th className="w-10 px-2 py-3"></th> : null}
+                {mostrarCheckboxCsv ? <th className="w-10 px-2 py-3"></th> : null}
                 <th className="px-4 py-3">N°</th>
                 <th className="px-4 py-3">NOMBRE</th>
                 <th className="px-4 py-3">SERVICIO (VIGENTE)</th>
@@ -488,7 +501,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
               {filtrados.map((c) => (
                 <Fragment key={c.noEmpleado}>
                   <tr className="table-row-hover">
-                    {!soloLectura ? (
+                    {mostrarCheckboxCsv ? (
                       <td className="table-cell px-2">
                         <input
                           type="checkbox"

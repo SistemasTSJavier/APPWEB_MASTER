@@ -124,6 +124,21 @@ export default async function Home() {
                 <span className="hidden sm:inline">USA LA BARRA IZQUIERDA PARA ENTRAR A COLABORADORES (CONSULTA Y COPIA DE DATOS).</span>
                 <span className="sm:hidden">ENTRA A COLABORADORES DESDE EL MENU SUPERIOR.</span>
               </>
+            ) : auth.role === "mejora_continua" ? (
+              <>
+                <span className="hidden sm:inline">USA MOPER Y BAJAS EN SOLO CONSULTA; EN COLABORADORES PUEDES EXPORTAR CSV CON FILTROS Y SELECCION.</span>
+                <span className="sm:hidden">COLABORADORES: EXPORT CSV. MOPER Y BAJAS: SOLO VER.</span>
+              </>
+            ) : auth.role === "aux_rh" ? (
+              <>
+                <span className="hidden sm:inline">TIENES TODOS LOS MODULOS EXCEPTO MOPER; PUEDES REGISTRAR Y EDITAR EN ALTAS, BAJAS, COLABORADORES, ETC.</span>
+                <span className="sm:hidden">SIN MOPER: REGISTRAR Y EDITAR EN EL RESTO.</span>
+              </>
+            ) : auth.role === "gerente_rh" ? (
+              <>
+                <span className="hidden sm:inline">VISTA DE LECTURA EN CASI TODO; EN MOPER PUEDES REGISTRAR Y EDITAR MOVIMIENTOS.</span>
+                <span className="sm:hidden">SOLO LECTURA; EDICION EN MOPER.</span>
+              </>
             ) : esRolLegalSoloLectura(auth.role) ? (
               <>
                 <span className="hidden sm:inline">USA LA BARRA IZQUIERDA: COLABORADORES Y EXPEDIENTES LEGAL (SOLO CONSULTA).</span>

@@ -22,7 +22,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 #
 # Autenticación (correo + contraseña): Supabase → Authentication → Providers → Email.
 # Cada usuario debe tener en User metadata (JSON) la clave app_role con uno de:
-# admin | nominas | mejora_continua | rh | gerente_rh | aux_legal | gerente_legal
+# admin | nominas | mejora_continua | rh | gerente_rh | aux_rh | aux_legal | gerente_legal
 # Ejemplo RH: {"app_role":"rh"}
 # Área legal (solo lectura en Colaboradores y Expedientes legal; mismo panel de inicio y barra lateral de módulos):
 #   auxlegal@tacticalsupport.com.mx     → {"app_role":"aux_legal"}

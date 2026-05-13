@@ -122,7 +122,7 @@ export default function FichaTecnicaPage() {
 
   const ocultarNomina = appRole === "mejora_continua";
   const puedeFoto =
-    appRole === "admin" || appRole === "rh" || appRole === "gerente_rh";
+    appRole === "admin" || appRole === "rh" || appRole === "aux_rh";
 
   async function onFile(ev: ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0];
