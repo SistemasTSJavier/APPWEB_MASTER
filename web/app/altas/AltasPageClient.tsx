@@ -4,6 +4,7 @@ import { type ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } fro
 import Link from "next/link";
 import {
   findColaboradorCompletoByNo,
+  listColaboradoresCompletos,
   upsertColaboradorCompleto,
   type ColaboradorCompleto,
 } from "@/lib/colaboradores-store";
@@ -24,6 +25,11 @@ import {
   generarPlantillaCorreccionCsvDosColumnas,
   parseCorreccionCsvDosColumnas,
 } from "@/lib/altas-csv-correccion-dos-columnas";
+import {
+  findColaboradoresNombreCoincideConBaja,
+  fechaBajaNormalizadaColaborador,
+  mejorCoincidenciaNombreConBajaPorBajaReciente,
+} from "@/lib/altas-coincidencia-nombre";
 
 type Familiar = {
   nombreFamiliar: string;
@@ -128,9 +134,25 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   const [expedientePrevio, setExpedientePrevio] = useState<ColaboradorCompleto | null>(null);
   const [expedienteBuscando, setExpedienteBuscando] = useState(false);
 
+  /** Cache local del listado para buscar por nombre sin repetir la peticion en cada tecla. */
+  const listadoColaboradoresCacheRef = useRef<ColaboradorCompleto[] | null>(null);
+  const [coincidenciaNombreBaja, setCoincidenciaNombreBaja] = useState<{
+    mejor: ColaboradorCompleto;
+    total: number;
+  } | null>(null);
+  const [nombreCoincidenciaBuscando, setNombreCoincidenciaBuscando] = useState(false);
+
   const reingresoObligatorioPorBaja = Boolean(
     expedientePrevio && colaboradorTieneBaja(expedientePrevio),
   );
+
+  const reingresoObligatorioPorNombreDistintoNo = Boolean(
+    coincidenciaNombreBaja &&
+      form.noEmpleado1.trim().length > 0 &&
+      coincidenciaNombreBaja.mejor.noEmpleado.trim().toUpperCase() !== form.noEmpleado1.trim().toUpperCase(),
+  );
+
+  const reingresoRequerido = reingresoObligatorioPorBaja || reingresoObligatorioPorNombreDistintoNo;
 
   const [correccionCsvMsg, setCorreccionCsvMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [correccionCsvBusy, setCorreccionCsvBusy] = useState(false);
@@ -178,6 +200,55 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     };
   }, [form.noEmpleado1]);
 
+  useEffect(() => {
+    const nombre = form.nombreCompleto.trim();
+    if (!nombre) {
+      setCoincidenciaNombreBaja(null);
+      setNombreCoincidenciaBuscando(false);
+      return;
+    }
+    let active = true;
+    setNombreCoincidenciaBuscando(true);
+    const timer = setTimeout(async () => {
+      try {
+        if (!listadoColaboradoresCacheRef.current) {
+          listadoColaboradoresCacheRef.current = await listColaboradoresCompletos();
+        }
+        const list = listadoColaboradoresCacheRef.current;
+        if (!active || !list.length) {
+          if (active) setCoincidenciaNombreBaja(null);
+          return;
+        }
+        const found = findColaboradoresNombreCoincideConBaja(list, form.nombreCompleto, {
+          excludeNoEmpleado: form.noEmpleado1.trim().toUpperCase(),
+        });
+        const mejor = mejorCoincidenciaNombreConBajaPorBajaReciente(found);
+        if (!active) return;
+        setCoincidenciaNombreBaja(mejor ? { mejor, total: found.length } : null);
+      } catch {
+        if (active) setCoincidenciaNombreBaja(null);
+      } finally {
+        if (active) setNombreCoincidenciaBuscando(false);
+      }
+    }, 500);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [form.nombreCompleto, form.noEmpleado1]);
+
+  /** Si hay coincidencia por nombre con baja y REINGRESO vacio, sugerir la fecha de baja del expediente coincidente. */
+  useEffect(() => {
+    const mejor = coincidenciaNombreBaja?.mejor;
+    if (!mejor) return;
+    const bajaNorm = fechaBajaNormalizadaColaborador(mejor);
+    if (!bajaNorm) return;
+    setForm((prev) => {
+      if (prev.reingreso.trim()) return prev;
+      return { ...prev, reingreso: bajaNorm };
+    });
+  }, [coincidenciaNombreBaja?.mejor.noEmpleado, coincidenciaNombreBaja?.total]);
+
   function updateField(name: string, value: string) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
@@ -203,19 +274,29 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     }
     const noManual = form.noEmpleado1.trim();
     const noFinal = noManual ? noManual.toUpperCase() : `PTE-${pteSequence}`;
+    const reingNorm = normalizarFechaParaInputDate(form.reingreso.trim());
     if (noManual) {
       try {
         const prev = await findColaboradorCompletoByNo(noFinal);
-        if (prev && colaboradorTieneBaja(prev)) {
-          const reingNorm = normalizarFechaParaInputDate(form.reingreso.trim());
-          if (!reingNorm) {
-            setStep(0);
-            setAltaMsg({
-              ok: false,
-              text: "ESTE NUMERO YA TIENE EXPEDIENTE CON FECHA DE BAJA. CAPTURA LA FECHA DE REINGRESO EN PARTE 1 ANTES DE GUARDAR.",
-            });
-            return;
+        const needReingresoPorNumero = Boolean(prev && colaboradorTieneBaja(prev));
+        const needReingresoPorNombre = Boolean(
+          coincidenciaNombreBaja &&
+            coincidenciaNombreBaja.mejor.noEmpleado.trim().toUpperCase() !== noFinal.trim().toUpperCase(),
+        );
+        if ((needReingresoPorNumero || needReingresoPorNombre) && !reingNorm) {
+          setStep(0);
+          const partes: string[] = [];
+          if (needReingresoPorNumero) partes.push("ESTE NUMERO YA TIENE EXPEDIENTE CON FECHA DE BAJA");
+          if (needReingresoPorNombre) {
+            partes.push(
+              `HAY OTRO EXPEDIENTE CON EL MISMO NOMBRE Y BAJA (N° ${coincidenciaNombreBaja!.mejor.noEmpleado.trim()}): USA LA FECHA DE REINGRESO`,
+            );
           }
+          setAltaMsg({
+            ok: false,
+            text: `${partes.join(". ")}. CAPTURA LA FECHA DE REINGRESO EN PARTE 1 ANTES DE GUARDAR.`,
+          });
+          return;
         }
       } catch {
         setAltaMsg({ ok: false, text: "NO SE PUDO VERIFICAR SI EL EMPLEADO YA EXISTE. REVISA CONEXION E INTENTA DE NUEVO." });
@@ -255,6 +336,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       if (!noManual) {
         setPteSequence((prev) => prev + 1);
       }
+      listadoColaboradoresCacheRef.current = null;
       setAltaMsg({ ok: true, text: "EXPEDIENTE GUARDADO EN SUPABASE." });
     } catch (err) {
       setAltaMsg({
@@ -658,7 +740,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                         type="date"
                         value={form.reingreso}
                         onChange={(v) => updateField("reingreso", v)}
-                        inputClassName={reingresoObligatorioPorBaja ? "ring-2 ring-amber-500" : ""}
+                        inputClassName={reingresoRequerido ? "ring-2 ring-amber-500" : ""}
                       />
                     </div>
                     {form.fechaIngreso.trim() ? (
@@ -670,14 +752,61 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                         Igual que ingreso
                       </button>
                     ) : null}
+                    {coincidenciaNombreBaja ? (
+                      <button
+                        type="button"
+                        className="btn-secondary mb-[2px] shrink-0 px-2 py-2 text-[10px] font-bold uppercase"
+                        onClick={() => {
+                          const n = fechaBajaNormalizadaColaborador(coincidenciaNombreBaja.mejor);
+                          if (n) updateField("reingreso", n);
+                        }}
+                      >
+                        Baja (coincidencia)
+                      </button>
+                    ) : null}
                   </div>
-                  {reingresoObligatorioPorBaja ? (
-                    <p className="text-[10px] font-bold uppercase text-amber-800">Obligatorio: expediente previo con fecha de baja.</p>
+                  {reingresoRequerido ? (
+                    <p className="text-[10px] font-bold uppercase text-amber-800">
+                      {reingresoObligatorioPorBaja ? "Obligatorio: expediente con este numero tiene fecha de baja." : null}
+                      {reingresoObligatorioPorNombreDistintoNo ? (
+                        <span>
+                          {reingresoObligatorioPorBaja ? " " : ""}
+                          Obligatorio: mismo nombre que otro expediente con baja (N° de empleado distinto).
+                        </span>
+                      ) : null}
+                    </p>
                   ) : (
                     <p className="text-[10px] font-medium uppercase text-slate-500">Si ya hubo alta y baja, usa la fecha de reingreso laboral.</p>
                   )}
                 </div>
                 <Field label="NOMBRE COMPLETO" value={form.nombreCompleto} onChange={(v) => updateField("nombreCompleto", v)} />
+                {nombreCoincidenciaBuscando ? (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 md:col-span-2 lg:col-span-3">
+                    Buscando coincidencia por nombre en expedientes…
+                  </p>
+                ) : null}
+                {coincidenciaNombreBaja ? (
+                  <div className="rounded-lg border-2 border-amber-400 bg-amber-50/95 px-3 py-3 text-sm uppercase leading-snug text-amber-950 md:col-span-2 lg:col-span-3">
+                    <p className="font-bold">Coincidencia por nombre (otro expediente con baja)</p>
+                    <p className="mt-2 text-xs font-medium text-amber-900">
+                      Expediente <strong>N° {coincidenciaNombreBaja.mejor.noEmpleado.trim()}</strong>
+                      {coincidenciaNombreBaja.total > 1 ? (
+                        <span>
+                          {" "}
+                          — {coincidenciaNombreBaja.total} registros con el mismo nombre; se toma la <strong>baja mas reciente</strong> para sugerir
+                          reingreso.
+                        </span>
+                      ) : null}
+                      . Fecha de baja en ese expediente:{" "}
+                      <strong className="font-mono">
+                        {fechaBajaNormalizadaColaborador(coincidenciaNombreBaja.mejor) ||
+                          String(coincidenciaNombreBaja.mejor.form?.fechaBaja ?? "").trim() ||
+                          "—"}
+                      </strong>
+                      . Si <strong>REINGRESO</strong> esta vacio, se rellena con esa fecha; corrigela si la fecha laboral de reingreso es distinta.
+                    </p>
+                  </div>
+                ) : null}
                 <Field label="PUESTO" value={form.puesto} onChange={(v) => updateField("puesto", v)} />
                 <label className="space-y-1">
                   <span className="form-label uppercase">SERVICIO (CLIENTE/LUGAR)</span>

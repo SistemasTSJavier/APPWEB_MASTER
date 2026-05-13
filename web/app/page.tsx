@@ -2,15 +2,10 @@ import { redirect } from "next/navigation";
 import { getDashboardStats } from "@/lib/dashboard-stats";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
 import { AppModuleShell } from "@/components/app-module-shell";
+import { HomeLocalGreeting } from "@/components/home-local-greeting";
 import { esRolLegalSoloLectura } from "@/lib/app-role";
 
 export const dynamic = "force-dynamic";
-
-function getGreetingByHour(hour: number): string {
-  if (hour < 12) return "BUENOS DIAS";
-  if (hour < 19) return "BUENAS TARDES";
-  return "BUENAS NOCHES";
-}
 
 function etiquetaMesActualMx(): string {
   try {
@@ -32,8 +27,6 @@ export default async function Home() {
 
   const stats = await getDashboardStats();
   const mesEtiqueta = etiquetaMesActualMx();
-  const currentHour = new Date().getHours();
-  const greeting = getGreetingByHour(currentHour);
 
   const fmt = (n: number) => n.toLocaleString("es-MX");
 
@@ -97,7 +90,7 @@ export default async function Home() {
           </p>
           <div className="mx-auto mt-5 h-px w-20 bg-slate-500/60 sm:mt-7 sm:w-28 md:mt-8" />
           <p className="mt-4 text-[clamp(1rem,4vw,1.375rem)] font-semibold leading-snug text-white sm:mt-6 md:text-2xl">
-            {greeting}
+            <HomeLocalGreeting />
           </p>
           <p className="mx-auto mt-3 max-w-lg px-2 text-xs font-bold italic uppercase leading-relaxed tracking-wide text-sky-100 sm:mt-4 sm:text-sm md:text-lg md:tracking-[0.14em]">
             VIVE EL HABITO DE LA EXCELENCIA
