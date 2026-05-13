@@ -6,7 +6,7 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayEditColaboradores, roleMayReadColaboradoresApi } from "@/lib/app-role";
+import { roleMayEditColaboradores, roleMayAccessExpedientesLegal, roleMayReadColaboradoresApi } from "@/lib/app-role";
 import { EXPEDIENTE_LEGAL_BUCKET } from "@/lib/expediente-legal-constants";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ async function colaboradorExiste(admin: ReturnType<typeof createSupabaseServiceR
 export async function GET(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
-  if (!roleMayReadColaboradoresApi(auth.role)) {
+  if (!roleMayReadColaboradoresApi(auth.role) || !roleMayAccessExpedientesLegal(auth.role)) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 

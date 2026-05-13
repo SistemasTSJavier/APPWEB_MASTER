@@ -121,8 +121,10 @@ export default async function Home() {
           <p className="text-sm font-bold uppercase leading-relaxed text-slate-800 sm:text-base">
             {auth.role === "nominas" ? (
               <>
-                <span className="hidden sm:inline">USA LA BARRA IZQUIERDA PARA ENTRAR A COLABORADORES (CONSULTA Y COPIA DE DATOS).</span>
-                <span className="sm:hidden">ENTRA A COLABORADORES DESDE EL MENU SUPERIOR.</span>
+                <span className="hidden sm:inline">
+                  USA <strong>COLABORADORES</strong> Y <strong>MOPER</strong> EN SOLO CONSULTA (COPIA DATOS EN COLABORADORES SI LO NECESITAS).
+                </span>
+                <span className="sm:hidden">COLABORADORES Y MOPER: SOLO VER.</span>
               </>
             ) : auth.role === "mejora_continua" ? (
               <>
@@ -136,8 +138,11 @@ export default async function Home() {
               </>
             ) : auth.role === "gerente_rh" ? (
               <>
-                <span className="hidden sm:inline">VISTA DE LECTURA EN CASI TODO; EN MOPER PUEDES REGISTRAR Y EDITAR MOVIMIENTOS.</span>
-                <span className="sm:hidden">SOLO LECTURA; EDICION EN MOPER.</span>
+                <span className="hidden sm:inline">
+                  BAJAS Y COLABORADORES EN CONSULTA; EN <strong>MOPER</strong> REGISTRAS Y EDITAS MOVIMIENTOS. NO TIENES ALTAS, SERVICIOS, EXPEDIENTES LEGAL NI
+                  FICHA TECNICA.
+                </span>
+                <span className="sm:hidden">BAJAS/COLABORADORES CONSULTA · MOPER EDICION.</span>
               </>
             ) : esRolLegalSoloLectura(auth.role) ? (
               <>

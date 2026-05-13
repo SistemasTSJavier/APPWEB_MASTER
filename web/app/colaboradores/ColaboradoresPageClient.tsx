@@ -304,8 +304,8 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                 </>
               ) : (
                 <>
-                  Modo <strong>consulta y copia</strong> (nominas). Usa <strong>Expediente</strong> para ver el detalle. Puedes exportar CSV con filtros y
-                  seleccion.
+                  Modo <strong>solo consulta</strong> (nominas). Usa <strong>Expediente</strong> para ver el detalle. Los movimientos MOPER los consultas en el
+                  modulo <strong>MOPER</strong> (solo lectura).
                 </>
               )}
             </p>
