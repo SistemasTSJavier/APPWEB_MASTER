@@ -20,6 +20,7 @@ import {
 import type { AppRole } from "@/lib/app-role";
 import { esRolLegalSoloLectura, roleMayEditColaboradores, roleMayExportColaboradoresCsv } from "@/lib/app-role";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
+import { formatoDesdeYyyyMmDd, formatoFechaDiaMesAnio } from "@/lib/fecha-formato-display";
 
 function fechaEnRangoIngreso(fechaNormColaborador: string, desde: string, hasta: string): boolean {
   const desdeN = desde.trim() ? normalizarFechaParaInputDate(desde.trim()) || desde.trim() : "";
@@ -33,27 +34,12 @@ function fechaEnRangoIngreso(fechaNormColaborador: string, desde: string, hasta:
 function ingresoMostrarEnTabla(c: ColaboradorCompleto): string {
   const n = fechaIngresoNormalizadaColaborador(c);
   if (n) {
-    const [y, mo, d] = n.split("-").map((x) => parseInt(x, 10));
-    if (y && mo && d) {
-      const dt = new Date(y, mo - 1, d);
-      if (!Number.isNaN(dt.getTime())) {
-        return dt.toLocaleDateString("es-MX", { dateStyle: "medium" }).toUpperCase();
-      }
-    }
+    const dmy = formatoDesdeYyyyMmDd(n);
+    if (dmy) return dmy;
   }
   const fallback = String(c.fechaIngreso ?? c.form?.fechaIngreso ?? "").trim();
-  return fallback || "—";
-}
-
-function formatoFechaMoper(iso: string): string {
-  if (!iso.trim()) return "—";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso.toUpperCase();
-    return d.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" }).toUpperCase();
-  } catch {
-    return iso.toUpperCase();
-  }
+  if (!fallback) return "—";
+  return formatoFechaDiaMesAnio(fallback, { conHora: false });
 }
 
 function textoBusquedaCoincide(c: ColaboradorCompleto, q: string): boolean {
@@ -279,12 +265,12 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Modulo</p>
             <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">COLABORADORES</h1>
-            <p className="mt-1 text-base font-medium leading-relaxed text-slate-800">
+            <p className="mt-1 text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
               {soloLectura ? (
                 esRolLegalSoloLectura(appRole) ? (
                   <>
                     Modo <strong>solo consulta</strong> (área legal). Expediente en lectura; sin datos de nómina. Usa <strong>Expediente</strong> para ver el
-                    detalle.
+                    detalle. El <strong>historial MOPER</strong> global y por colaborador está en el modulo <strong>MOPER</strong> (solo lectura).
                   </>
                 ) : (
                   <>
@@ -482,7 +468,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         </div>
 
         <div className="table-wrap">
-          <table className="min-w-full text-left text-sm">
+          <table className="min-w-full text-left">
             <thead className="table-head">
               <tr>
                 {mostrarCheckboxCsv ? <th className="w-10 px-2 py-3"></th> : null}
@@ -518,14 +504,16 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                     <td className="table-cell">{ingresoMostrarEnTabla(c)}</td>
                     <td className="table-cell align-middle">
                       {colaboradorTieneBaja(c) ? (
-                        <span className="inline-flex flex-col gap-0.5">
-                          <span className="inline-block w-fit rounded-md bg-rose-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-rose-900">
+                        <span className="inline-flex flex-col gap-1">
+                          <span className="inline-block w-fit rounded-lg bg-rose-100 px-3 py-1.5 text-sm font-bold uppercase tracking-wide text-rose-900 ring-1 ring-rose-200/80 sm:px-3.5 sm:py-2 sm:text-base">
                             Baja
                           </span>
-                          <span className="font-mono text-[11px] text-slate-600">{String(c.form.fechaBaja ?? "").trim()}</span>
+                          <span className="font-mono text-xs text-slate-600 sm:text-sm">
+                            {formatoFechaDiaMesAnio(String(c.form.fechaBaja ?? "").trim(), { conHora: false })}
+                          </span>
                         </span>
                       ) : (
-                        <span className="inline-block rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-900">
+                        <span className="inline-block rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/80 sm:px-3.5 sm:py-2 sm:text-base">
                           Activo
                         </span>
                       )}
@@ -635,27 +623,28 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
   }, [c.noEmpleado]);
 
   return (
-    <div className="flex flex-col gap-6 text-sm">
+    <div className="flex flex-col gap-6 text-sm sm:text-base">
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Resumen guardado</h3>
-        <ul className="grid gap-2 text-slate-800 sm:grid-cols-2 lg:grid-cols-3">
-          <li>
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500 sm:text-sm">Resumen guardado</h3>
+        <ul className="grid gap-3 text-slate-800 sm:grid-cols-2 lg:grid-cols-3">
+          <li className="min-w-0 break-words">
             <strong className="text-slate-600">ULTIMO SERVICIO (MOPER):</strong> {c.ultimoServicio || "—"}
           </li>
-          <li>
+          <li className="min-w-0 break-words">
             <strong className="text-slate-600">LINEA ACTUAL MOPER:</strong>{" "}
             {servicioLineaColaborador(c) || "—"} — {c.moperActual?.puesto || c.puesto || "—"}
           </li>
-          <li>
-            <strong className="text-slate-600">REGISTRADO EN:</strong> {c.registeredAt || "—"}
+          <li className="min-w-0 break-words">
+            <strong className="text-slate-600">REGISTRADO EN:</strong>{" "}
+            {c.registeredAt ? formatoFechaDiaMesAnio(c.registeredAt) : "—"}
           </li>
         </ul>
       </section>
 
       <div className="space-y-5">
-        <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Expediente ALTAS (por parte)</h3>
+        <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500 sm:text-sm">Expediente ALTAS (por parte)</h3>
         {ocultarNomina ? (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600 sm:text-sm">
             La sección de nómina / datos bancarios no se muestra en tu perfil.
           </p>
         ) : null}
@@ -674,11 +663,11 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
           {c.familiares.length === 0 ? (
             <p className="text-slate-500">SIN REGISTROS DE FAMILIARES.</p>
           ) : (
-            <ul className="list-disc space-y-2 pl-5 text-slate-800">
+            <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-800 sm:text-base">
               {c.familiares.map((f, i) => (
-                <li key={i}>
-                  {f.nombreFamiliar.toUpperCase()} — {f.parentesco.toUpperCase()} — NAC.: {f.fechaNacimiento} — BEN.:{" "}
-                  {f.beneficiarioBancario}
+                <li key={i} className="break-words">
+                  {f.nombreFamiliar.toUpperCase()} — {f.parentesco.toUpperCase()} — NAC.:{" "}
+                  {formatoFechaDiaMesAnio(String(f.fechaNacimiento ?? "").trim(), { conHora: false })} — BEN.: {f.beneficiarioBancario}
                 </li>
               ))}
             </ul>
@@ -691,8 +680,8 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Historial MOPER</h3>
-        <p className="mb-2 text-xs text-slate-500">
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 sm:text-sm">Historial MOPER</h3>
+        <p className="mb-2 text-xs leading-relaxed text-slate-500 sm:text-sm">
           Movimientos registrados desde el modulo MOPER (mas recientes arriba).
           {histCargando ? " CARGANDO…" : ` ${historialMoper.length} MOVIMIENTO(S).`}
         </p>
@@ -708,8 +697,8 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
           </p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-            <table className="min-w-[900px] w-full text-left text-xs">
-              <thead className="border-b border-slate-200 bg-slate-100 text-[11px] font-bold uppercase tracking-wide text-slate-600">
+            <table className="min-w-[900px] w-full text-left text-[13px] sm:text-sm">
+              <thead className="border-b border-slate-200 bg-slate-100 text-[11px] font-bold uppercase tracking-wide text-slate-600 sm:text-xs">
                 <tr>
                   <th className="whitespace-nowrap px-3 py-2">Fecha</th>
                   <th className="whitespace-nowrap px-3 py-2">Serv. inicial</th>
@@ -737,15 +726,17 @@ function ExpedienteBloqueParte({ titulo, grupo }: { titulo: string; grupo?: Form
   const hay = grupo && grupo.entries.length > 0;
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h4 className="mb-3 border-b border-slate-100 pb-2 text-sm font-bold uppercase text-slate-800">{titulo}</h4>
+      <h4 className="mb-3 border-b border-slate-100 pb-2 text-sm font-bold uppercase text-slate-800 sm:text-base">{titulo}</h4>
       {!hay || !grupo ? (
-        <p className="text-xs italic text-slate-500">SIN DATOS CAPTURADOS EN ESTA PARTE.</p>
+        <p className="text-xs italic leading-relaxed text-slate-500 sm:text-sm">SIN DATOS CAPTURADOS EN ESTA PARTE.</p>
       ) : (
         <div className="grid max-h-[min(28rem,50vh)] grid-cols-1 gap-x-6 gap-y-3 overflow-auto sm:grid-cols-2 lg:grid-cols-3">
           {grupo.entries.map(({ key, label, value }) => (
-            <div key={key}>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">{label}</p>
-              <p className="break-words font-mono text-xs text-slate-900">{String(value).toUpperCase()}</p>
+            <div key={key} className="min-w-0">
+              <p className="text-xs font-semibold uppercase leading-snug text-slate-500 sm:text-sm">{label}</p>
+              <p className="mt-0.5 break-words font-mono text-sm uppercase leading-snug text-slate-900 sm:text-base">
+                {String(value).toUpperCase()}
+              </p>
             </div>
           ))}
         </div>
@@ -755,18 +746,19 @@ function ExpedienteBloqueParte({ titulo, grupo }: { titulo: string; grupo?: Form
 }
 
 function HistorialMoperFila({ mov }: { mov: MoperHistorialEntrada }) {
-  const celda = "border-b border-slate-100 px-3 py-2 align-top uppercase text-slate-800";
+  const celda =
+    "border-b border-slate-100 px-2 py-2.5 align-top text-[13px] uppercase leading-snug text-slate-800 sm:px-3 sm:text-sm";
   return (
     <tr className="hover:bg-slate-50">
-      <td className={`${celda} whitespace-nowrap font-mono text-[11px] text-slate-600`}>
-        {formatoFechaMoper(mov.registradoEn)}
+      <td className={`${celda} whitespace-nowrap font-mono text-xs text-slate-600 sm:text-[13px]`}>
+        {formatoFechaDiaMesAnio(mov.registradoEn)}
       </td>
       <td className={celda}>{mov.servicioInicial.trim() || "—"}</td>
       <td className={celda}>{mov.servicioFinal.trim() || "—"}</td>
       <td className={celda}>{mov.puestoInicial.trim() || "—"}</td>
       <td className={celda}>{mov.puestoFinal.trim() || "—"}</td>
-      <td className={celda}>{mov.motivo.trim() || "—"}</td>
-      <td className={celda}>{mov.especificacion.trim() || "—"}</td>
+      <td className={`${celda} max-w-[min(100vw,18rem)] break-words sm:max-w-[14rem]`}>{mov.motivo.trim() || "—"}</td>
+      <td className={`${celda} max-w-[min(100vw,18rem)] break-words sm:max-w-[14rem]`}>{mov.especificacion.trim() || "—"}</td>
     </tr>
   );
 }

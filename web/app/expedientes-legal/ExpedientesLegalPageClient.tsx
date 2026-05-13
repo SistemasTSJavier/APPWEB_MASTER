@@ -8,6 +8,7 @@ import {
   EXPEDIENTE_LEGAL_MAX_BYTES,
 } from "@/lib/expediente-legal-constants";
 import { type AppRole, roleMayEditColaboradores } from "@/lib/app-role";
+import { formatoFechaDiaMesAnio } from "@/lib/fecha-formato-display";
 
 const EXPEDIENTE_LEGAL_MAX_MB = Math.round(EXPEDIENTE_LEGAL_MAX_BYTES / (1024 * 1024));
 
@@ -21,13 +22,7 @@ function coincideNoONombre(c: ColaboradorCompleto, q: string): boolean {
 
 function formatoFecha(iso: string | null): string {
   if (!iso?.trim()) return "—";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso.toUpperCase();
-    return d.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" }).toUpperCase();
-  } catch {
-    return String(iso).toUpperCase();
-  }
+  return formatoFechaDiaMesAnio(iso);
 }
 
 async function assertCabeceraPdf(file: File): Promise<void> {

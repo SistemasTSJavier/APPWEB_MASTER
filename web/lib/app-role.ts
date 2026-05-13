@@ -8,7 +8,7 @@
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura) y MOPER (registra/edita). Sin altas, expedientes legal, servicios ni ficha técnica.
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV (filtros, selección).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
- * - aux_legal / gerente_legal: Colaboradores y Expedientes legal solo consulta.
+ * - aux_legal / gerente_legal: Colaboradores, Expedientes legal e historial MOPER solo consulta.
  */
 export type AppRole =
   | "admin"
@@ -80,7 +80,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua"],
   "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
   "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
-  "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas"],
+  "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
   "/servicios": ["admin", "rh", "aux_rh"],
 };
 
@@ -167,7 +167,15 @@ export function roleMayPurgeMoperHistorial(role: AppRole): boolean {
 }
 
 export function roleMayReadMoperHistorialApi(role: AppRole): boolean {
-  return role === "admin" || role === "rh" || role === "gerente_rh" || role === "mejora_continua" || role === "nominas";
+  return (
+    role === "admin" ||
+    role === "rh" ||
+    role === "gerente_rh" ||
+    role === "mejora_continua" ||
+    role === "nominas" ||
+    role === "aux_legal" ||
+    role === "gerente_legal"
+  );
 }
 
 export function roleMayReadServiciosCatalogo(role: AppRole): boolean {
@@ -191,7 +199,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     },
     { href: "/expedientes-legal", label: "Expedientes legal", roles: ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"] },
     { href: "/ficha-tecnica", label: "Ficha técnica", roles: ["admin", "rh", "aux_rh"] },
-    { href: "/moper", label: "Moper", roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas"] },
+    {
+      href: "/moper",
+      label: "Moper",
+      roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
+    },
   ];
   return items.filter((i) => {
     if (role === "admin") return true;

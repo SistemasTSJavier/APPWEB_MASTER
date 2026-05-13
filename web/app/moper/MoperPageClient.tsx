@@ -15,17 +15,7 @@ import {
   deleteAllMoperHistorial,
 } from "@/lib/moper-historial";
 import type { MoperHistorialEntrada } from "@/lib/moper-historial-types";
-
-function formatoFechaMoper(iso: string): string {
-  if (!iso.trim()) return "—";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso.toUpperCase();
-    return d.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" }).toUpperCase();
-  } catch {
-    return iso.toUpperCase();
-  }
-}
+import { formatoFechaDiaMesAnio } from "@/lib/fecha-formato-display";
 
 export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
   const [noEmpleadoBusqueda, setNoEmpleadoBusqueda] = useState("");
@@ -369,7 +359,8 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
     setOkMsg(null);
   }
 
-  const celda = "border-b border-slate-100 px-3 py-2 align-top text-xs uppercase text-slate-800";
+  const celda =
+    "border-b border-slate-100 px-2 py-2.5 align-top text-[13px] uppercase leading-snug text-slate-800 sm:px-3 sm:text-sm";
 
   return (
     <div className="w-full">
@@ -377,7 +368,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Modulo</p>
             <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">MOPER</h1>
-            <p className="mt-1 max-w-xl text-base font-medium leading-relaxed text-slate-800">
+            <p className="mt-1 max-w-xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
               Cambio de servicio y puesto. Los valores iniciales salen del expediente y del ultimo movimiento. Usa el historial para abrir un colaborador o reutilizar valores de un movimiento anterior.
             </p>
           </div>
@@ -387,7 +378,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
         <section className="card mb-6 flex flex-col gap-3 border border-blue-100 bg-blue-50/60 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0 flex-1 space-y-1">
             <h2 className="text-sm font-bold uppercase text-slate-900">Actualizar expedientes desde historial MOPER</h2>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs leading-relaxed text-slate-600 sm:text-sm">
               Alinea cada expediente (servicio y puesto de <strong>Parte 1</strong>, mas linea vigente) con el <strong>ultimo movimiento</strong> del historial MOPER. El nombre de servicio se toma del <strong>catalogo Servicios</strong> cuando coincide con el texto del historial (misma normalización que en el modulo Servicios). Util si hubo importaciones o datos desfasados.
             </p>
             {syncErr ? (
@@ -428,7 +419,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
               ) : null}
             </div>
           </div>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs leading-relaxed text-slate-600 sm:text-sm">
             {puedeEscribir ? (
               <>
                 Mas recientes primero. <strong>Abrir colaborador</strong> carga la ficha para capturar un nuevo movimiento.{" "}
@@ -461,7 +452,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
                     </option>
                   ))}
                 </select>
-                <span className="block text-[10px] font-medium uppercase leading-tight text-slate-500">
+                <span className="block text-[11px] font-medium uppercase leading-snug text-slate-500 sm:text-xs">
                   Busca coincidencia en texto de servicio inicial o final (como en el listado).
                 </span>
               </label>
@@ -504,7 +495,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
                 </button>
               </div>
             </div>
-            <p className="text-[10px] font-medium uppercase leading-relaxed text-slate-500">
+            <p className="text-[11px] font-medium uppercase leading-relaxed text-slate-500 sm:text-xs">
               Rango de fechas: fecha de <strong>creación del registro MOPER</strong> en el sistema (no la fecha capturada dentro del movimiento).
             </p>
           </div>
@@ -525,7 +516,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
           ) : (
             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <table className="min-w-[960px] w-full text-left">
-                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-600 sm:text-xs">
                   <tr>
                     <th className="whitespace-nowrap px-3 py-2">Fecha</th>
                     <th className="whitespace-nowrap px-3 py-2">N°</th>
@@ -538,8 +529,8 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
                 <tbody>
                   {historialReciente.map((mov, idx) => (
                     <tr key={mov.historialId ?? `${mov.registradoEn}-${mov.noEmpleado}-${idx}`} className="hover:bg-slate-50">
-                      <td className={`${celda} whitespace-nowrap font-mono text-[11px] text-slate-600`}>
-                        {formatoFechaMoper(mov.registradoEn)}
+                      <td className={`${celda} whitespace-nowrap font-mono text-xs text-slate-600 sm:text-[13px]`}>
+                        {formatoFechaDiaMesAnio(mov.registradoEn)}
                       </td>
                       <td className={`${celda} font-mono font-semibold`}>{mov.noEmpleado.trim() || "—"}</td>
                       <td className={celda}>
@@ -552,7 +543,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
                         <span className="mx-1 text-slate-400">→</span>
                         <span>{mov.puestoFinal.trim() || "—"}</span>
                       </td>
-                      <td className={`${celda} max-w-[200px] truncate`} title={mov.motivo}>
+                      <td className={`${celda} max-w-[200px] break-words sm:max-w-[280px]`} title={mov.motivo}>
                         {mov.motivo.trim() || "—"}
                       </td>
                       <td className={`${celda} text-right`}>
@@ -677,7 +668,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="min-w-[900px] w-full text-left">
-                  <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-600 sm:text-xs">
                     <tr>
                       <th className="whitespace-nowrap px-3 py-2">Fecha</th>
                       <th className="min-w-[120px] px-3 py-2">Servicio</th>
@@ -689,8 +680,8 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
                   <tbody>
                     {historialColab.map((mov, idx) => (
                       <tr key={mov.historialId ?? `colab-${mov.registradoEn}-${idx}`} className="hover:bg-slate-50">
-                        <td className={`${celda} whitespace-nowrap font-mono text-[11px] text-slate-600`}>
-                          {formatoFechaMoper(mov.registradoEn)}
+                        <td className={`${celda} whitespace-nowrap font-mono text-xs text-slate-600 sm:text-[13px]`}>
+                          {formatoFechaDiaMesAnio(mov.registradoEn)}
                         </td>
                         <td className={celda}>
                           <span className="text-slate-500">{mov.servicioInicial.trim() || "—"}</span>
@@ -702,7 +693,7 @@ export function MoperPageClient({ puedeEscribir }: { puedeEscribir: boolean }) {
                           <span className="mx-1 text-slate-400">→</span>
                           <span>{mov.puestoFinal.trim() || "—"}</span>
                         </td>
-                        <td className={`${celda} max-w-[220px]`}>{mov.motivo.trim() || "—"}</td>
+                        <td className={`${celda} max-w-[220px] break-words sm:max-w-[320px]`}>{mov.motivo.trim() || "—"}</td>
                         <td className={`${celda} text-right`}>
                           {puedeEscribir ? (
                             <div className="relative z-10 flex flex-wrap justify-end gap-2">
@@ -752,7 +743,7 @@ function Field({
     <label className="space-y-1">
       <span className="form-label uppercase">{label}</span>
       <input className="form-control uppercase" value={value} onChange={(e) => onChange(e.target.value)} />
-      {helper ? <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">{helper}</span> : null}
+      {helper ? <span className="block text-xs font-medium uppercase tracking-wide text-slate-400 sm:text-[11px]">{helper}</span> : null}
     </label>
   );
 }
