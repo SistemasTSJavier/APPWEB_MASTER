@@ -31,5 +31,10 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "cuadricula/node_modules", "cuadricula/dist"]
+  "exclude": [
+    "node_modules",
+    "cuadricula/node_modules",
+    "cuadricula/dist",
+    "cuadricula/vite.config.ts"
+  ]
 }
