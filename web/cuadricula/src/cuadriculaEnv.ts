@@ -10,11 +10,5 @@ export function showCuadriculaDevTools(): boolean {
   if (forced === "1" || forced === "true" || forced === "yes") return true;
   if (forced === "0" || forced === "false" || forced === "no") return false;
 
-  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") {
-    return false;
-  }
-  if (typeof import.meta !== "undefined" && import.meta.env?.PROD) {
-    return false;
-  }
-  return true;
+  return typeof process === "undefined" || process.env.NODE_ENV !== "production";
 }
