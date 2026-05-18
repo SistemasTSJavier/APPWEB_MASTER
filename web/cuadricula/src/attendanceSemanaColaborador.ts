@@ -30,46 +30,38 @@ function aplicarTotalesPorFila(rows: GridRow[], base: GridRow[]): GridRow[] {
 }
 
 /**
- * Fila de asistencia de un colaborador en una semana (lunes = weekIso), fusionando localStorage.
+ * Fila de asistencia de un colaborador en una semana (lunes = weekIso), fusionando localStorage y servidor.
  */
-export function mergeRowForEmployeeInWeek(
+export async function mergeRowForEmployeeInWeek(
   colaboradores: ColaboradorCompleto[],
   plantaNombre: string,
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
   employeeKey: string,
-): GridRow | null {
-  const key = employeeKey.trim();
-  if (!key || !plantaNombre.trim()) return null;
-  const scopeId = plantaToStorageKey(plantaNombre);
-  const activos = colaboradoresActivosPorPlanta(colaboradores, plantaNombre);
-  const c = activos.find((x) => x.noEmpleado.trim() === key);
-  if (!c) return null;
-  const base = activos.map((x) => colaboradorToGridRow(x, catalogo, plantaNombre));
-  const stored = loadAttendanceGridForPlanta(
+): Promise<GridRow | null> {
+  const grid = await mergeGridRowsForPlantaWeek(
+    colaboradores,
+    plantaNombre,
+    catalogo,
     weekStartIso,
-    scopeId,
-    activos.map((x) => x.noEmpleado),
   );
-  const no = noServicioColaborador(c, catalogo);
-  const norm = normalizeStoredRows(stored?.rows ?? [], no);
-  const merged = mergeAttendanceRowsWithStored(base, norm);
-  const r = merged.find((x) => String(x.employeeNo ?? x.id ?? "").trim() === key);
-  return r ? aplicarTotalesPorFila([r], base)[0] ?? null : null;
+  const key = employeeKey.trim();
+  const r = grid.find((x) => String(x.employeeNo ?? x.id ?? "").trim() === key);
+  return r ?? null;
 }
 
-/** Cuadrícula completa de la planta para un lunes (fusiona localStorage). */
-export function mergeGridRowsForPlantaWeek(
+/** Cuadrícula completa de la planta para un lunes (fusiona guardados). */
+export async function mergeGridRowsForPlantaWeek(
   colaboradores: ColaboradorCompleto[],
   plantaNombre: string,
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
-): GridRow[] {
+): Promise<GridRow[]> {
   const scopeId = plantaToStorageKey(plantaNombre);
   if (!scopeId) return [];
   const activos = colaboradoresActivosPorPlanta(colaboradores, plantaNombre);
   const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
-  const stored = loadAttendanceGridForPlanta(
+  const stored = await loadAttendanceGridForPlanta(
     weekStartIso,
     scopeId,
     activos.map((c) => c.noEmpleado),
@@ -89,8 +81,8 @@ export function mergeGridRowsForServiceWeek(
   scopeId: string,
   weekStartIso: string,
   _serviceNoParaTotales: string,
-): GridRow[] {
+): Promise<GridRow[]> {
   const planta = scopeId.startsWith("planta:") ? scopeId.slice(7) : "";
-  if (!planta) return [];
+  if (!planta) return Promise.resolve([]);
   return mergeGridRowsForPlantaWeek(colaboradores, planta, [], weekStartIso);
 }

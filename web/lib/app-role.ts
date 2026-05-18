@@ -196,6 +196,17 @@ export function roleMayEditServiciosCatalogo(role: AppRole): boolean {
 }
 
 /** Importación CSV del catálogo (2 col: nombre + N.º; 3 col: + planta); solo administrador. */
+/** Cuadrícula / asistencia: lectura (GET). */
+export function roleMayReadCuadriculaAsistencia(role: AppRole): boolean {
+  const allowed = SECTION_ROLES["/cuadricula"];
+  return role === "admin" || (allowed != null && (allowed as readonly AppRole[]).includes(role));
+}
+
+/** Cuadrícula / asistencia: guardar (POST). */
+export function roleMayWriteCuadriculaAsistencia(role: AppRole): boolean {
+  return roleMayReadCuadriculaAsistencia(role);
+}
+
 export function roleMayImportServiciosCatalogoDosColumnasAdmin(role: AppRole): boolean {
   return role === "admin";
 }

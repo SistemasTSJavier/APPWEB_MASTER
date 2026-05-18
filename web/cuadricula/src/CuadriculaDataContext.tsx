@@ -34,7 +34,6 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
   const [colaboradores, setColaboradores] = useState<ColaboradorCompleto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);

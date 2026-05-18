@@ -20,14 +20,16 @@ import {
 import {
   hasLegacyCatalogAttendanceForWeek,
   loadAttendanceGrid,
-  loadAttendanceGridForPlanta,
+  loadAttendanceGridForPlantaWithMeta,
   loadLatestPointer,
   mergeAttendanceRowsWithStored,
   normalizeStoredRows,
   parseIsoToLocalDate,
   saveAttendanceGrid,
+  summarizeLocalAttendanceEntries,
   weekStartToIso,
 } from '../attendanceStorage'
+import { syncAllLocalAttendanceToRemote } from '../attendanceRemote'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
 import {
   isAsistenciaCode,
@@ -143,6 +145,8 @@ export function AttendanceView() {
   const [legacyRecoveredHint, setLegacyRecoveredHint] = useState<string | null>(null)
   const importCsvCodesRef = useRef<HTMLInputElement>(null)
   const [importRefresh, setImportRefresh] = useState(0)
+  const [enviandoProduccion, setEnviandoProduccion] = useState(false)
+  const [remoteLoadHint, setRemoteLoadHint] = useState<string | null>(null)
   /** No. empleado (o id fila) para filtrar; vacío = todos. */
   const [focoColaboradorKey, setFocoColaboradorKey] = useState('')
   /** Con colaborador elegido: cuadrícula semanal editable o resumen mensual (solo lectura por semanas). */
@@ -171,27 +175,41 @@ export function AttendanceView() {
     return rows.find((r) => String(r.employeeNo ?? r.id ?? '').trim() === k)?.name ?? k
   }, [rows, focoColaboradorKey])
 
-  const mesResumenFilas = useMemo(() => {
+  const [mesResumenFilas, setMesResumenFilas] = useState<
+    { monday: Date; weekIso: string; row: GridRow | null }[]
+  >([])
+
+  useEffect(() => {
     if (
       !focoColaboradorKey.trim() ||
       vistaColaborador !== 'mes' ||
       !plantaSeleccionada.trim() ||
       !plantaStorageKey
     ) {
-      return []
+      setMesResumenFilas([])
+      return
     }
+    let cancelled = false
     const key = focoColaboradorKey.trim()
-    return mondaysInCalendarMonth(mesConsultaYm).map((monday) => {
-      const wiso = weekStartToIso(monday)
-      const row = mergeRowForEmployeeInWeek(
-        colaboradores,
-        plantaSeleccionada,
-        catalogo,
-        wiso,
-        key,
+    ;(async () => {
+      const filas = await Promise.all(
+        mondaysInCalendarMonth(mesConsultaYm).map(async (monday) => {
+          const wiso = weekStartToIso(monday)
+          const row = await mergeRowForEmployeeInWeek(
+            colaboradores,
+            plantaSeleccionada,
+            catalogo,
+            wiso,
+            key,
+          )
+          return { monday, weekIso: wiso, row }
+        }),
       )
-      return { monday, weekIso: wiso, row }
-    })
+      if (!cancelled) setMesResumenFilas(filas)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [
     focoColaboradorKey,
     vistaColaborador,
@@ -240,44 +258,61 @@ export function AttendanceView() {
       setLastSavedAt(null)
       return
     }
-    const activos = colaboradoresActivosPorPlanta(colaboradores, plantaSeleccionada)
-    const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaSeleccionada))
-    const stored = loadAttendanceGridForPlanta(
-      weekIso,
-      plantaStorageKey,
-      activos.map((c) => c.noEmpleado),
-    )
-    const soloPlanta = loadAttendanceGrid(weekIso, plantaStorageKey)
-    let merged = base
-    if (stored) {
-      setLastSavedAt(stored.savedAt)
-      const norm = normalizeStoredRows(stored.rows)
-      merged = mergeAttendanceRowsWithStored(base, norm)
-      const legacyWeek = hasLegacyCatalogAttendanceForWeek(weekIso, plantaStorageKey)
-      if (legacyWeek && !soloPlanta) {
-        setLegacyRecoveredHint(
-          'Se recuperó asistencia guardada antes por servicio (catálogo). Pulse «Guardar toda la asistencia» para dejarla bajo esta planta.',
-        )
+    let cancelled = false
+    ;(async () => {
+      const activos = colaboradoresActivosPorPlanta(colaboradores, plantaSeleccionada)
+      const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaSeleccionada))
+      const { grid: stored, remote } = await loadAttendanceGridForPlantaWithMeta(
+        weekIso,
+        plantaStorageKey,
+        activos.map((c) => c.noEmpleado),
+      )
+      if (cancelled) return
+      if (
+        remote.status === 'no_config' ||
+        remote.status === 'auth' ||
+        remote.status === 'forbidden' ||
+        remote.status === 'error'
+      ) {
+        setRemoteLoadHint(remote.message ?? 'No se pudo cargar la asistencia del servidor.')
       } else {
+        setRemoteLoadHint(null)
+      }
+      const soloPlanta = loadAttendanceGrid(weekIso, plantaStorageKey)
+      let merged = base
+      if (stored) {
+        setLastSavedAt(stored.savedAt)
+        const norm = normalizeStoredRows(stored.rows)
+        merged = mergeAttendanceRowsWithStored(base, norm)
+        const legacyWeek = hasLegacyCatalogAttendanceForWeek(weekIso, plantaStorageKey)
+        if (legacyWeek && !soloPlanta) {
+          setLegacyRecoveredHint(
+            'Se recuperó asistencia guardada antes por servicio (catálogo). Pulse «Guardar toda la asistencia» para dejarla bajo esta planta.',
+          )
+        } else {
+          setLegacyRecoveredHint(null)
+        }
+      } else {
+        setLastSavedAt(null)
         setLegacyRecoveredHint(null)
       }
-    } else {
-      setLastSavedAt(null)
-      setLegacyRecoveredHint(null)
+      const baseByKey = new Map(base.map((b) => [String(b.employeeNo ?? b.id ?? '').trim(), b]))
+      setRows(
+        merged.map((r) => {
+          const k = String(r.employeeNo ?? r.id ?? '').trim()
+          const br = k ? baseByKey.get(k) : undefined
+          const row: GridRow = {
+            ...r,
+            rowServiceNo: br?.rowServiceNo ?? r.rowServiceNo,
+            servicioLinea: br?.servicioLinea ?? r.servicioLinea,
+          }
+          return withComputedTotals(row, gridRowServiceNo(row))
+        }),
+      )
+    })()
+    return () => {
+      cancelled = true
     }
-    const baseByKey = new Map(base.map((b) => [String(b.employeeNo ?? b.id ?? '').trim(), b]))
-    setRows(
-      merged.map((r) => {
-        const k = String(r.employeeNo ?? r.id ?? '').trim()
-        const br = k ? baseByKey.get(k) : undefined
-        const row: GridRow = {
-          ...r,
-          rowServiceNo: br?.rowServiceNo ?? r.rowServiceNo,
-          servicioLinea: br?.servicioLinea ?? r.servicioLinea,
-        }
-        return withComputedTotals(row, gridRowServiceNo(row))
-      }),
-    )
   }, [plantaSeleccionada, plantaStorageKey, weekIso, colaboradores, catalogo, importRefresh])
 
   useEffect(() => {
@@ -328,7 +363,12 @@ export function AttendanceView() {
     setExportHastaYmd(`${y}-12-31`)
   }, [exportPeriod, exportYearY])
 
-  function exportResumen() {
+  const localGuardadosResumen = useMemo(
+    () => summarizeLocalAttendanceEntries(),
+    [weekIso, plantaSeleccionada, importRefresh, lastSavedAt],
+  )
+
+  async function exportResumen() {
     const nombreArchivoPlanta = plantaSeleccionada.trim() || 'asistencia'
     const restrictKeys = focoColaboradorKey.trim()
       ? [focoColaboradorKey.trim()]
@@ -344,7 +384,7 @@ export function AttendanceView() {
     }
 
     if (exportAlcance === 'todas_plantas') {
-      const full = buildCuadriculaExportTotalsByPlantas({
+      const full = await buildCuadriculaExportTotalsByPlantas({
         desdeIso: exportDesdeYmd.trim(),
         hastaIso: exportHastaYmd.trim(),
         colaboradores,
@@ -393,7 +433,7 @@ export function AttendanceView() {
       return
     }
 
-    const full = buildAttendanceExportDateRangeFullText({
+    const full = await buildAttendanceExportDateRangeFullText({
       serviceNo: '',
       desdeIso: exportDesdeYmd.trim(),
       hastaIso: exportHastaYmd.trim(),
@@ -408,13 +448,13 @@ export function AttendanceView() {
     )
   }
 
-  function descargarCsvAsistenciaSemana(todasLasPlantas: boolean) {
+  async function descargarCsvAsistenciaSemana(todasLasPlantas: boolean) {
     if (mostrarSoloResumenMensual) {
       setSaveMessage('Use la vista semanal del colaborador para descargar o importar el CSV de códigos.')
       return
     }
     if (todasLasPlantas) {
-      const body = buildAttendanceCodesCsvAllPlantasWeek(colaboradores, catalogo, weekIso, ';')
+      const body = await buildAttendanceCodesCsvAllPlantasWeek(colaboradores, catalogo, weekIso, ';')
       if (!body.trim()) {
         setSaveMessage('No hay empleados activos con planta en expediente para armar el CSV.')
         return
@@ -461,7 +501,7 @@ export function AttendanceView() {
     const multiPlanta = csvLayoutHasPlantaColumn(parsed.layout)
 
     if (multiPlanta) {
-      const result = applyAttendanceCsvToAllPlantasWeek({
+      const result = await applyAttendanceCsvToAllPlantasWeek({
         parsedRows: parsed.rows,
         colaboradores,
         catalogo,
@@ -547,7 +587,7 @@ export function AttendanceView() {
       )
       return
     }
-    const ok = saveAttendanceGrid(weekIso, plantaStorageKey, next, '')
+    const ok = await saveAttendanceGrid(weekIso, plantaStorageKey, next, '')
     setRows(next)
     if (ok) {
       setLastSavedAt(new Date().toISOString())
@@ -594,15 +634,14 @@ export function AttendanceView() {
     )
   }
 
-  function guardarTodaAsistencia() {
-    if (mostrarSoloResumenMensual) {
-      setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
-      return
-    }
+  /** Semana en pantalla: todas las plantas → navegador + servidor. */
+  async function guardarSemanaActualTodasPlantas(): Promise<{
+    guardadas: number
+    fallidas: number
+  }> {
     const plantas = listarPlantasDeColaboradores(colaboradores)
     if (plantas.length === 0) {
-      setSaveMessage('No hay plantas en expediente de colaboradores activos para guardar.')
-      return
+      return { guardadas: 0, fallidas: 0 }
     }
     let guardadas = 0
     let fallidas = 0
@@ -614,11 +653,92 @@ export function AttendanceView() {
         planta.trim().toUpperCase() === plantaActualNorm && Boolean(plantaStorageKey)
       const filas = esPlantaEnPantalla
         ? rows
-        : mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso)
-      const ok = saveAttendanceGrid(weekIso, scopeKey, filas, '')
+        : await mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso)
+      const ok = await saveAttendanceGrid(weekIso, scopeKey, filas, '')
       if (ok) guardadas++
       else fallidas++
     }
+    return { guardadas, fallidas }
+  }
+
+  async function guardarYEnviarTodoAlServidor() {
+    if (enviandoProduccion) return
+    setEnviandoProduccion(true)
+    setSaveMessage(null)
+    try {
+      const partes: string[] = []
+
+      if (!mostrarSoloResumenMensual) {
+        const { guardadas, fallidas } = await guardarSemanaActualTodasPlantas()
+        if (guardadas > 0) {
+          const t = new Date().toISOString()
+          if (plantaStorageKey) {
+            setLastSavedAt(t)
+            setLegacyRecoveredHint(null)
+          }
+          partes.push(
+            `Semana en pantalla (${weekRangeLabel}): ${guardadas} planta(s) guardadas en este equipo y en el servidor.`,
+          )
+          if (plantaSeleccionada.trim()) {
+            partes.push(`Incluye los cambios visibles de «${plantaSeleccionada}».`)
+          }
+        }
+        if (fallidas > 0) {
+          partes.push(`${fallidas} planta(s) de la semana actual no se pudieron guardar.`)
+        }
+      }
+
+      const { entries, total, weekCount, plantaCount } = summarizeLocalAttendanceEntries()
+
+      if (total === 0) {
+        partes.push(
+          'No hay bloques de asistencia en este navegador. Capture celdas y use «Guardar semana actual» o importe CSV antes de enviar a producción.',
+        )
+        setSaveMessage(partes.join(' '))
+        return
+      }
+
+      const result = await syncAllLocalAttendanceToRemote(
+        entries.map((e) => ({
+          weekStartIso: e.weekStartIso,
+          scopeKey: e.scopeKey,
+          grid: e.grid,
+          serviceNo: e.grid.serviceNo,
+        })),
+      )
+
+      if (!result) {
+        partes.push(
+          `No se pudo enviar al servidor (${total} bloque(s) en este navegador). Revise Supabase, migración 011_cuadricula_asistencia.sql y variables en producción.`,
+        )
+        setSaveMessage(partes.join(' '))
+        return
+      }
+
+      partes.push(
+        `Enviado a producción (servidor): ${result.uploaded} de ${total} bloque(s) — ${plantaCount} planta(s) × ${weekCount} semana(s).`,
+      )
+      if (result.skipped > 0) {
+        partes.push(`${result.skipped} ya estaban más recientes en el servidor.`)
+      }
+      if (result.failed > 0) {
+        partes.push(`${result.failed} bloque(s) fallaron al subir.`)
+      }
+      partes.push('Abra la URL de producción, misma planta y semana, para comprobar.')
+      setSaveMessage(partes.join(' '))
+      setImportRefresh((n) => n + 1)
+    } finally {
+      setEnviandoProduccion(false)
+    }
+  }
+
+  async function guardarTodaAsistencia() {
+    if (mostrarSoloResumenMensual) {
+      setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
+      return
+    }
+    const { guardadas, fallidas } = await guardarSemanaActualTodasPlantas()
+    setImportRefresh((n) => n + 1)
     if (guardadas === 0) {
       setSaveMessage('No se pudo guardar (cuota, modo privado o datos bloqueados).')
       return
@@ -696,6 +816,34 @@ export function AttendanceView() {
             </button>
           </div>
         ) : null}
+        {remoteLoadHint ? (
+          <div className="topbar__remoteWarn" role="alert">
+            <strong>No se cargó la asistencia del servidor:</strong> {remoteLoadHint}
+          </div>
+        ) : null}
+        <div className="topbar__produccionBanner" role="region" aria-label="Enviar asistencia a producción">
+          <div className="topbar__produccionBannerText">
+            <strong>Enviar a producción (Supabase)</strong>
+            <p>
+              En este navegador hay{' '}
+              <strong>{localGuardadosResumen.total}</strong> bloque(s) guardados (
+              {localGuardadosResumen.plantaCount} planta(s), {localGuardadosResumen.weekCount}{' '}
+              semana(s)). El botón guarda la semana en pantalla (si está en vista semanal) y sube{' '}
+              <strong>todo</strong> el historial local de todas las plantas al servidor, visible en la URL de
+              producción.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn--primary btn--produccion"
+            onClick={() => void guardarYEnviarTodoAlServidor()}
+            disabled={enviandoProduccion || loading}
+          >
+            {enviandoProduccion
+              ? 'Guardando y enviando…'
+              : 'Guardar y enviar toda la asistencia a producción'}
+          </button>
+        </div>
         <div className="topbar__controls">
           <div className="topbar__bar">
             <div className="topbar__toolbarLeft">
@@ -800,15 +948,15 @@ export function AttendanceView() {
                 </button>
               </div>
               <div className="field field--action field--actionToolbar">
-                <span className="field__label">Guardado</span>
+                <span className="field__label">Semana actual</span>
                 <button
                   type="button"
-                  className="btn btn--primary"
-                  onClick={guardarTodaAsistencia}
+                  className="btn"
+                  onClick={() => void guardarTodaAsistencia()}
                   disabled={mostrarSoloResumenMensual || loading}
-                  title="Guarda la semana en pantalla para todas las plantas del expediente (localStorage)"
+                  title="Solo la semana en pantalla, todas las plantas (local + servidor)"
                 >
-                  Guardar toda la asistencia
+                  Guardar semana (todas las plantas)
                 </button>
               </div>
             </div>
@@ -851,6 +999,21 @@ export function AttendanceView() {
             </div>
           </div>
         <div className="topbar__persistRow">
+          <button
+            type="button"
+            className="btn btn--primary btn--produccion persistRow__produccionBtn"
+            onClick={() => void guardarYEnviarTodoAlServidor()}
+            disabled={enviandoProduccion || loading}
+          >
+            {enviandoProduccion
+              ? 'Enviando a producción…'
+              : 'Guardar y enviar TODO a producción'}
+          </button>
+          <p className="persistRow__meta persistRow__meta--inline">
+            {localGuardadosResumen.total > 0
+              ? `${localGuardadosResumen.total} bloque(s) en este navegador (${localGuardadosResumen.plantaCount} plantas, ${localGuardadosResumen.weekCount} semanas).`
+              : 'Aún no hay bloques guardados en este navegador.'}
+          </p>
           {lastSavedAt ? (
             <p className="persistRow__meta">
               <strong>Último guardado</strong> en esta semana/planta:{' '}
@@ -859,7 +1022,7 @@ export function AttendanceView() {
           ) : (
             <p className="persistRow__meta muted">
               Sin guardado previo para esta combinación planta + semana. Capture la
-              cuadrícula y pulse <strong>Guardar toda la asistencia</strong>.
+              cuadrícula y use el botón azul <strong>Guardar y enviar TODO a producción</strong>.
             </p>
           )}
           {latestDifferent ? (
@@ -1027,7 +1190,7 @@ export function AttendanceView() {
           <strong>N.º de servicio</strong> según <strong>Servicios</strong> (referencia por fila). Use{' '}
           <strong>Colaborador</strong> para una persona o el <strong>resumen mensual</strong>. <strong>Número</strong> o <strong>A</strong> → Asist.;{' '}
           <strong>DD</strong>+número → Extra; <strong>F</strong> → Falta; <strong>D</strong> → 1 Desc. por día (aunque esté en D+T+N); INC/VAC/PCGS/PSGS/CAP → su columna.{' '}
-          <strong>Guardar toda la asistencia</strong> guarda la semana en pantalla para todas las plantas (localStorage).
+          <strong>Guardar y enviar TODO a producción</strong> sube todas las plantas y semanas de este navegador a Supabase (visible en producción).
           <strong>Exportar cuadrícula</strong>: totales por semana/mes/año; elija <strong>Todas las plantas</strong> para un CSV con un bloque por planta. Para capturar{' '}
           <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. El archivo puede ser como su
           hoja de planta (SERVICIO… NOMBRE + D/T/N×7) o el formato compacto de 5 columnas + códigos; separador coma o punto y

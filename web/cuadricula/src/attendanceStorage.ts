@@ -52,23 +52,72 @@ export function mergeAttendanceRowsWithStored(base: GridRow[], storedRows: GridR
   })
 }
 
-export function saveAttendanceGrid(
+function scopeKeyFromStorageSegment(segment: string): string {
+  if (segment.startsWith('planta_')) return `planta:${segment.slice(7)}`
+  return segment.replace(/_/g, ':')
+}
+
+/** Todas las cuadrículas guardadas en este navegador (para subir a Supabase). */
+export function listAllLocalAttendanceEntries(): {
+  weekStartIso: string
+  scopeKey: string
+  grid: StoredAttendanceGrid
+}[] {
+  const prefix = `${PREFIX}:grid:`
+  const out: {
+    weekStartIso: string
+    scopeKey: string
+    grid: StoredAttendanceGrid
+  }[] = []
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(prefix)) continue
+      const tail = k.slice(prefix.length)
+      const sep = tail.indexOf(':')
+      if (sep < 0) continue
+      const weekStartIso = tail.slice(0, sep)
+      const segment = tail.slice(sep + 1)
+      const scopeKey = scopeKeyFromStorageSegment(segment)
+      const grid = loadAttendanceGridByScopeSegment(weekStartIso, segment)
+      if (grid?.rows?.length) {
+        out.push({ weekStartIso, scopeKey, grid })
+      }
+    }
+  } catch {
+    /* private mode */
+  }
+  return out
+}
+
+export function summarizeLocalAttendanceEntries(): {
+  total: number
+  weekCount: number
+  plantaCount: number
+  entries: ReturnType<typeof listAllLocalAttendanceEntries>
+} {
+  const entries = listAllLocalAttendanceEntries()
+  const weeks = new Set<string>()
+  const plantas = new Set<string>()
+  for (const e of entries) {
+    weeks.add(e.weekStartIso)
+    plantas.add(e.scopeKey)
+  }
+  return {
+    total: entries.length,
+    weekCount: weeks.size,
+    plantaCount: plantas.size,
+    entries,
+  }
+}
+
+function saveAttendanceGridLocal(
   weekStartIso: string,
   serviceCatalogId: string,
-  rows: GridRow[],
-  serviceNo: string,
+  payload: StoredAttendanceGrid,
 ): boolean {
   const id = serviceCatalogId.trim()
   if (!id) return false
-  const payload: StoredAttendanceGrid = {
-    version: 2,
-    savedAt: new Date().toISOString(),
-    rows: rows.map((r) => {
-      const no = gridRowServiceNo(r) || serviceNo.trim()
-      return withComputedTotals(r, no)
-    }),
-    serviceNo: serviceNo.trim(),
-  }
   const key = gridStorageKey(weekStartIso, id)
   try {
     localStorage.setItem(key, JSON.stringify(payload))
@@ -84,7 +133,30 @@ export function saveAttendanceGrid(
   }
 }
 
-export function loadAttendanceGrid(
+export async function saveAttendanceGrid(
+  weekStartIso: string,
+  serviceCatalogId: string,
+  rows: GridRow[],
+  serviceNo: string,
+): Promise<boolean> {
+  const id = serviceCatalogId.trim()
+  if (!id) return false
+  const payload: StoredAttendanceGrid = {
+    version: 2,
+    savedAt: new Date().toISOString(),
+    rows: rows.map((r) => {
+      const no = gridRowServiceNo(r) || serviceNo.trim()
+      return withComputedTotals(r, no)
+    }),
+    serviceNo: serviceNo.trim(),
+  }
+  const localOk = saveAttendanceGridLocal(weekStartIso, id, payload)
+  const { pushAttendanceGridRemote } = await import('./attendanceRemote')
+  await pushAttendanceGridRemote(weekStartIso, id, payload, serviceNo)
+  return localOk
+}
+
+export function loadAttendanceGridLocal(
   weekStartIso: string,
   serviceCatalogId: string,
 ): StoredAttendanceGrid | null {
@@ -99,6 +171,35 @@ export function loadAttendanceGrid(
     return parsed
   } catch {
     return null
+  }
+}
+
+/** @deprecated Use loadAttendanceGrid */
+export function loadAttendanceGrid(
+  weekStartIso: string,
+  serviceCatalogId: string,
+): StoredAttendanceGrid | null {
+  return loadAttendanceGridLocal(weekStartIso, serviceCatalogId)
+}
+
+export async function loadAttendanceGridAsync(
+  weekStartIso: string,
+  serviceCatalogId: string,
+): Promise<StoredAttendanceGrid | null> {
+  const id = serviceCatalogId.trim()
+  if (!id) return null
+  const local = loadAttendanceGridLocal(weekStartIso, id)
+  try {
+    const { fetchAttendanceGridRemote, mergeStoredAttendanceGrids, pushAttendanceGridRemote } =
+      await import('./attendanceRemote')
+    const remote = await fetchAttendanceGridRemote(weekStartIso, id)
+    const merged = mergeStoredAttendanceGrids(remote, local)
+    if (local?.rows?.length && !remote) {
+      void pushAttendanceGridRemote(weekStartIso, id, local, local.serviceNo ?? '')
+    }
+    return merged
+  } catch {
+    return local
   }
 }
 
@@ -143,11 +244,7 @@ export function hasLegacyCatalogAttendanceForWeek(
   )
 }
 
-/**
- * Carga asistencia por planta y, si no hay guardado con clave `planta:…`,
- * recupera filas de guardados antiguos por id de servicio en catálogo (mismo navegador/semana).
- */
-export function loadAttendanceGridForPlanta(
+function loadAttendanceGridForPlantaLocal(
   weekStartIso: string,
   plantaStorageKey: string,
   employeeNos: Iterable<string>,
@@ -181,7 +278,7 @@ export function loadAttendanceGridForPlanta(
     ingest(loadAttendanceGridByScopeSegment(weekStartIso, seg))
   }
 
-  ingest(loadAttendanceGrid(weekStartIso, scope))
+  ingest(loadAttendanceGridLocal(weekStartIso, scope))
 
   if (rowByEmp.size === 0) return null
   return {
@@ -189,6 +286,62 @@ export function loadAttendanceGridForPlanta(
     savedAt: latestSavedAt || new Date().toISOString(),
     rows: [...rowByEmp.values()],
   }
+}
+
+export type AttendancePlantaLoadResult = {
+  grid: StoredAttendanceGrid | null
+  remote: import('./attendanceRemote').RemoteAttendanceFetchMeta
+}
+
+/** Carga local + servidor (toda la semana remota: planta + claves legado de catálogo). */
+export async function loadAttendanceGridForPlantaWithMeta(
+  weekStartIso: string,
+  plantaStorageKey: string,
+  employeeNos: Iterable<string>,
+): Promise<AttendancePlantaLoadResult> {
+  const scope = plantaStorageKey.trim()
+  if (!scope) {
+    return { grid: null, remote: { status: 'empty' } }
+  }
+  const local = loadAttendanceGridForPlantaLocal(weekStartIso, scope, employeeNos)
+  const {
+    fetchAttendanceWeekRemote,
+    combineRemoteAttendanceForPlanta,
+    mergeStoredAttendanceGrids,
+    pushAttendanceGridRemote,
+  } = await import('./attendanceRemote')
+
+  const { items, meta } = await fetchAttendanceWeekRemote(weekStartIso)
+  const remote = combineRemoteAttendanceForPlanta(scope, employeeNos, items)
+  const merged = mergeStoredAttendanceGrids(remote, local)
+
+  if (local?.rows?.length && !remote) {
+    void pushAttendanceGridRemote(weekStartIso, scope, local, local.serviceNo ?? '')
+  }
+
+  const hasData = Boolean(merged?.rows?.length)
+  const remoteStatus =
+    meta.status === 'ok' || meta.status === 'empty'
+      ? hasData
+        ? { status: 'ok' as const }
+        : meta
+      : meta
+
+  return { grid: merged, remote: remoteStatus }
+}
+
+/** Carga local + servidor (producción comparte Supabase). */
+export async function loadAttendanceGridForPlanta(
+  weekStartIso: string,
+  plantaStorageKey: string,
+  employeeNos: Iterable<string>,
+): Promise<StoredAttendanceGrid | null> {
+  const { grid } = await loadAttendanceGridForPlantaWithMeta(
+    weekStartIso,
+    plantaStorageKey,
+    employeeNos,
+  )
+  return grid
 }
 
 export function loadLatestPointer(): AttendanceLatestPointer | null {

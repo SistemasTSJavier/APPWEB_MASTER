@@ -302,7 +302,7 @@ export function buildCuadriculaExportTotalsSheetsForWeeks(
 /**
  * Exporta totales por semana para todas las semanas que cortan [desdeIso, hastaIso] (fechas inclusive).
  */
-export function buildAttendanceExportDateRangeFullText(opts: {
+export async function buildAttendanceExportDateRangeFullText(opts: {
   serviceNo: string
   desdeIso: string
   hastaIso: string
@@ -310,7 +310,7 @@ export function buildAttendanceExportDateRangeFullText(opts: {
   plantaNombre: string
   catalogo: CatalogoServicioItem[]
   restrictEmployeeKeys?: string[]
-}): string {
+}): Promise<string> {
   const desde = parseIsoYmdToLocalDate(opts.desdeIso)
   const hasta = parseIsoYmdToLocalDate(opts.hastaIso)
   if (!desde || !hasta || desde > hasta) return ''
@@ -318,7 +318,7 @@ export function buildAttendanceExportDateRangeFullText(opts: {
   const weeks: { monday: Date; rows: GridRow[] }[] = []
   for (const monday of mondays) {
     const wiso = weekStartToIso(monday)
-    const merged = mergeGridRowsForPlantaWeek(
+    const merged = await mergeGridRowsForPlantaWeek(
       opts.colaboradores,
       opts.plantaNombre,
       opts.catalogo,
@@ -333,14 +333,14 @@ export function buildAttendanceExportDateRangeFullText(opts: {
 /**
  * Mes: una tabla por semana (totales + fechas de faltas).
  */
-export function buildAttendanceExportMesFullText(opts: {
+export async function buildAttendanceExportMesFullText(opts: {
   serviceNo: string
   monthYm: string
   colaboradores: ColaboradorCompleto[]
   plantaNombre: string
   catalogo: CatalogoServicioItem[]
   restrictEmployeeKeys?: string[]
-}): string {
+}): Promise<string> {
   const { monthYm, colaboradores, plantaNombre, catalogo, restrictEmployeeKeys } = opts
   const [ys, ms] = monthYm.split('-').map((x) => Number(x))
   const y = ys || new Date().getFullYear()
@@ -361,14 +361,14 @@ export function buildAttendanceExportMesFullText(opts: {
 /**
  * Año: una tabla por semana (totales + fechas de faltas).
  */
-export function buildAttendanceExportAnualFullText(opts: {
+export async function buildAttendanceExportAnualFullText(opts: {
   serviceNo: string
   yearY: string
   colaboradores: ColaboradorCompleto[]
   plantaNombre: string
   catalogo: CatalogoServicioItem[]
   restrictEmployeeKeys?: string[]
-}): string {
+}): Promise<string> {
   const y = Number.parseInt(opts.yearY.trim(), 10)
   const yy = Number.isFinite(y) ? y : new Date().getFullYear()
   return buildAttendanceExportDateRangeFullText({
@@ -409,7 +409,7 @@ export function attendanceExportFilenameAllPlantas(desde: Date, hasta: Date): st
  * Totales por semana, un bloque por planta (todas las del expediente).
  * Respeta semana/mes/año vía rango Desde–Hasta.
  */
-export function buildCuadriculaExportTotalsByPlantas(opts: {
+export async function buildCuadriculaExportTotalsByPlantas(opts: {
   desdeIso: string
   hastaIso: string
   colaboradores: ColaboradorCompleto[]
@@ -419,7 +419,7 @@ export function buildCuadriculaExportTotalsByPlantas(opts: {
   plantaEnPantalla?: string
   rowsEnPantalla?: GridRow[]
   weekMondayEnPantalla?: Date
-}): string {
+}): Promise<string> {
   const desde = parseIsoYmdToLocalDate(opts.desdeIso)
   const hasta = parseIsoYmdToLocalDate(opts.hastaIso)
   if (!desde || !hasta || desde > hasta) return ''
@@ -447,7 +447,7 @@ export function buildCuadriculaExportTotalsByPlantas(opts: {
 
       const merged = esSemanaEnPantalla
         ? opts.rowsEnPantalla!
-        : mergeGridRowsForPlantaWeek(
+        : await mergeGridRowsForPlantaWeek(
             opts.colaboradores,
             planta,
             opts.catalogo,

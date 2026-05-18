@@ -611,13 +611,13 @@ function groupCsvRowsByPlanta(
  * Importa la misma semana (`weekIso`) para cada planta presente en el CSV (columna PLANTA).
  * Si el CSV no trae PLANTA, use `fallbackPlantaNombre` (una sola planta).
  */
-export function applyAttendanceCsvToAllPlantasWeek(opts: {
+export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   parsedRows: ParsedAttendanceGridCsvRow[]
   colaboradores: ColaboradorCompleto[]
   catalogo: CatalogoServicioItem[]
   weekIso: string
   fallbackPlantaNombre?: string
-}): AllPlantasCsvImportResult {
+}): Promise<AllPlantasCsvImportResult> {
   const plantasExpediente = listarPlantasDeColaboradores(opts.colaboradores)
   const expedienteNorm = new Map(plantasExpediente.map((p) => [normPlantaCsv(p), p]))
 
@@ -641,7 +641,7 @@ export function applyAttendanceCsvToAllPlantasWeek(opts: {
     const scopeKey = plantaToStorageKey(plantaNombre)
     if (!scopeKey) continue
 
-    const base = mergeGridRowsForPlantaWeek(
+    const base = await mergeGridRowsForPlantaWeek(
       opts.colaboradores,
       plantaNombre,
       opts.catalogo,
@@ -663,7 +663,7 @@ export function applyAttendanceCsvToAllPlantasWeek(opts: {
       colaboradoresByEmp,
     })
 
-    const saved = updatedCount > 0 && saveAttendanceGrid(opts.weekIso, scopeKey, next, '')
+    const saved = updatedCount > 0 && (await saveAttendanceGrid(opts.weekIso, scopeKey, next, ''))
     if (saved) plantsSaved++
     totalUpdated += updatedCount
 
@@ -690,16 +690,16 @@ export function applyAttendanceCsvToAllPlantasWeek(opts: {
 }
 
 /** Un CSV con todas las plantas (misma semana), formato hoja SERVICIO… + D/T/N. */
-export function buildAttendanceCodesCsvAllPlantasWeek(
+export async function buildAttendanceCodesCsvAllPlantasWeek(
   colaboradores: ColaboradorCompleto[],
   catalogo: CatalogoServicioItem[],
   weekIso: string,
   delim: ';' | ',' = ';',
-): string {
+): Promise<string> {
   const plantas = listarPlantasDeColaboradores(colaboradores)
   const parts: string[] = []
   for (const planta of plantas) {
-    const rows = mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso)
+    const rows = await mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso)
     if (rows.length === 0) continue
     const block = buildAttendanceCodesCsvPlantaSheet(rows, planta, delim)
     if (parts.length > 0) parts.push('')
