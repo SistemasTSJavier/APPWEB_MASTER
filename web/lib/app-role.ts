@@ -202,9 +202,19 @@ export function roleMayReadCuadriculaAsistencia(role: AppRole): boolean {
   return role === "admin" || (allowed != null && (allowed as readonly AppRole[]).includes(role));
 }
 
-/** Cuadrícula / asistencia: guardar (POST). */
+/** Cuadrícula: captura y guardado (solo administrador). */
+export function roleMayEditCuadricula(role: AppRole): boolean {
+  return role === "admin";
+}
+
+/** Importar CSV de códigos de asistencia (semana / todas las plantas). */
+export function roleMayImportCuadriculaAsistenciaCsv(role: AppRole): boolean {
+  return role === "admin";
+}
+
+/** Cuadrícula / asistencia: guardar en servidor (POST / sync). */
 export function roleMayWriteCuadriculaAsistencia(role: AppRole): boolean {
-  return roleMayReadCuadriculaAsistencia(role);
+  return roleMayEditCuadricula(role);
 }
 
 export function roleMayImportServiciosCatalogoDosColumnasAdmin(role: AppRole): boolean {

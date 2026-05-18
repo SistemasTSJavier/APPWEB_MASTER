@@ -43,7 +43,7 @@ const filasIniciales = (): Record<IncidenciasSubId, IncidenciaFila[]> => ({
 })
 
 export function IncidenciasView() {
-  const { empleadosBusqueda, loading, error, reload } = useCuadriculaData()
+  const { empleadosBusqueda, loading, error, reload, puedeEditar } = useCuadriculaData()
   const [sub, setSub] = useState<IncidenciasSubId>('vacaciones')
   const [filasPorSub, setFilasPorSub] =
     useState<Record<IncidenciasSubId, IncidenciaFila[]>>(filasIniciales)
@@ -53,6 +53,7 @@ export function IncidenciasView() {
   const filas = filasPorSub[sub]
 
   function elegirEmpleado(emp: EmpleadoIncidenciaMock) {
+    if (!puedeEditar) return
     const nueva = nuevaFilaDesdeEmpleado(emp, columnKeys)
     setFilasPorSub((prev) => ({
       ...prev,
@@ -87,12 +88,14 @@ export function IncidenciasView() {
                   Reintentar
                 </button>
               </p>
-            ) : (
+            ) : puedeEditar ? (
               <EmployeeSearchBar
                 empleados={empleadosBusqueda}
                 onSelect={elegirEmpleado}
                 ariaPrefix="inc-buscar"
               />
+            ) : (
+              <p className="hint">Solo lectura. La captura está reservada al administrador.</p>
             )}
           </div>
         </div>
@@ -162,6 +165,8 @@ export function IncidenciasView() {
                           onChange={(e) =>
                             actualizarManual(fila.id, col.key, e.target.value)
                           }
+                          readOnly={!puedeEditar}
+                          disabled={!puedeEditar}
                           aria-label={col.header}
                         />
                       </td>

@@ -32,10 +32,11 @@ function nuevaFilaComidas(emp: EmpleadoIncidenciaMock): ComidasFila {
 }
 
 export function ComidasView() {
-  const { empleadosBusqueda, loading, error, reload } = useCuadriculaData()
+  const { empleadosBusqueda, loading, error, reload, puedeEditar } = useCuadriculaData()
   const [filas, setFilas] = useState<ComidasFila[]>([])
 
   function onEmpleado(emp: EmpleadoIncidenciaMock) {
+    if (!puedeEditar) return
     setFilas((prev) => [...prev, nuevaFilaComidas(emp)])
   }
 
@@ -64,12 +65,14 @@ export function ComidasView() {
                   Reintentar
                 </button>
               </p>
-            ) : (
+            ) : puedeEditar ? (
               <EmployeeSearchBar
                 empleados={empleadosBusqueda}
                 onSelect={onEmpleado}
                 ariaPrefix="comidas-buscar"
               />
+            ) : (
+              <p className="hint">Solo lectura. La captura está reservada al administrador.</p>
             )}
           </div>
         </div>
@@ -110,6 +113,8 @@ export function ComidasView() {
                       className="incManualInput"
                       value={fila.dia}
                       onChange={(e) => actualizar(fila.id, 'dia', e.target.value)}
+                      readOnly={!puedeEditar}
+                      disabled={!puedeEditar}
                       aria-label="Día"
                     />
                   </td>
@@ -119,6 +124,8 @@ export function ComidasView() {
                       className="incManualInput"
                       value={fila.turno}
                       onChange={(e) => actualizar(fila.id, 'turno', e.target.value)}
+                      readOnly={!puedeEditar}
+                      disabled={!puedeEditar}
                       aria-label="Turno"
                     />
                   </td>
@@ -128,6 +135,8 @@ export function ComidasView() {
                       className="incManualInput"
                       value={fila.motivo}
                       onChange={(e) => actualizar(fila.id, 'motivo', e.target.value)}
+                      readOnly={!puedeEditar}
+                      disabled={!puedeEditar}
                       aria-label="Motivo"
                     />
                   </td>
@@ -139,6 +148,8 @@ export function ComidasView() {
                       onChange={(e) =>
                         actualizar(fila.id, 'comentarios', e.target.value)
                       }
+                      readOnly={!puedeEditar}
+                      disabled={!puedeEditar}
                       aria-label="Comentarios"
                     />
                   </td>

@@ -30,7 +30,6 @@ import {
   weekStartToIso,
 } from '../attendanceStorage'
 import { syncAllLocalAttendanceToRemote } from '../attendanceRemote'
-import { showCuadriculaDevTools } from '../cuadriculaEnv'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
 import {
   isAsistenciaCode,
@@ -118,14 +117,24 @@ function cellInputTitle(
   _serviceNo: string,
   locked: boolean,
   vacant: boolean,
+  readOnly: boolean,
 ): string | undefined {
+  if (readOnly) return 'Solo lectura: la captura está reservada al administrador.'
   if (locked && !vacant) return 'Día futuro: podrá capturarse cuando llegue la fecha.'
   return undefined
 }
 
 export function AttendanceView() {
-  const devTools = showCuadriculaDevTools()
-  const { catalogo, colaboradores, loading, error, reload } = useCuadriculaData()
+  const {
+    catalogo,
+    colaboradores,
+    loading,
+    error,
+    reload,
+    puedeEditar,
+    puedeImportarCsv,
+    showMigrationTools,
+  } = useCuadriculaData()
   const [rows, setRows] = useState<GridRow[]>([])
   const [plantaSeleccionada, setPlantaSeleccionada] = useState('')
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(new Date()))
@@ -367,8 +376,11 @@ export function AttendanceView() {
   }, [exportPeriod, exportYearY])
 
   const localGuardadosResumen = useMemo(
-    () => (devTools ? summarizeLocalAttendanceEntries() : { total: 0, weekCount: 0, plantaCount: 0, entries: [] }),
-    [devTools, weekIso, plantaSeleccionada, importRefresh, lastSavedAt],
+    () =>
+      showMigrationTools
+        ? summarizeLocalAttendanceEntries()
+        : { total: 0, weekCount: 0, plantaCount: 0, entries: [] },
+    [showMigrationTools, weekIso, plantaSeleccionada, importRefresh, lastSavedAt],
   )
 
   async function exportResumen() {
@@ -481,6 +493,7 @@ export function AttendanceView() {
   }
 
   async function onImportCsvCodesChange(e: ChangeEvent<HTMLInputElement>) {
+    if (!puedeImportarCsv) return
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
@@ -625,6 +638,7 @@ export function AttendanceView() {
     turn: Turn,
     next: string,
   ) {
+    if (!puedeEditar) return
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== rowId) return r
@@ -735,29 +749,6 @@ export function AttendanceView() {
     }
   }
 
-  async function guardarPlantaActual() {
-    if (mostrarSoloResumenMensual) {
-      setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
-      return
-    }
-    if (!plantaStorageKey) {
-      setSaveMessage('Seleccione una planta.')
-      return
-    }
-    const ok = await saveAttendanceGrid(weekIso, plantaStorageKey, rows, '')
-    setImportRefresh((n) => n + 1)
-    if (!ok) {
-      setSaveMessage('No se pudo guardar la asistencia.')
-      return
-    }
-    const t = new Date().toISOString()
-    setLastSavedAt(t)
-    setLegacyRecoveredHint(null)
-    setSaveMessage(
-      `Asistencia guardada: «${plantaSeleccionada}», semana ${weekRangeLabel}.`,
-    )
-  }
-
   async function guardarTodaAsistencia() {
     if (mostrarSoloResumenMensual) {
       setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
@@ -847,7 +838,12 @@ export function AttendanceView() {
             <strong>No se cargó la asistencia del servidor:</strong> {remoteLoadHint}
           </div>
         ) : null}
-        {devTools ? (
+        {!puedeEditar ? (
+          <p className="topbar__readonlyBanner" role="status">
+            <strong>Solo lectura.</strong> La captura y el guardado de asistencia están reservados al administrador.
+          </p>
+        ) : null}
+        {showMigrationTools ? (
           <div className="topbar__produccionBanner" role="region" aria-label="Enviar asistencia a producción">
             <div className="topbar__produccionBannerText">
               <strong>Enviar a producción (Supabase)</strong>
@@ -973,24 +969,20 @@ export function AttendanceView() {
                   Semana siguiente →
                 </button>
               </div>
-              <div className="field field--action field--actionToolbar">
-                <span className="field__label">{devTools ? 'Semana actual' : 'Guardado'}</span>
-                <button
-                  type="button"
-                  className={devTools ? 'btn' : 'btn btn--primary'}
-                  onClick={() =>
-                    void (devTools ? guardarTodaAsistencia() : guardarPlantaActual())
-                  }
-                  disabled={mostrarSoloResumenMensual || loading || !plantaSeleccionada.trim()}
-                  title={
-                    devTools
-                      ? 'Semana en pantalla, todas las plantas'
-                      : 'Guarda la planta y semana visibles en el servidor'
-                  }
-                >
-                  {devTools ? 'Guardar semana (todas las plantas)' : 'Guardar'}
-                </button>
-              </div>
+              {puedeEditar ? (
+                <div className="field field--action field--actionToolbar">
+                  <span className="field__label">Semana actual</span>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => void guardarTodaAsistencia()}
+                    disabled={mostrarSoloResumenMensual || loading || !plantaSeleccionada.trim()}
+                    title="Guarda la semana en pantalla para todas las plantas en el servidor"
+                  >
+                    Guardar semana (todas las plantas)
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="topbar__legend">
@@ -1031,7 +1023,7 @@ export function AttendanceView() {
             </div>
           </div>
         <div className="topbar__persistRow">
-          {devTools ? (
+          {showMigrationTools ? (
             <>
               <button
                 type="button"
@@ -1061,7 +1053,7 @@ export function AttendanceView() {
               <strong>Guardar</strong>.
             </p>
           )}
-          {devTools && latestDifferent ? (
+          {showMigrationTools && latestDifferent ? (
             <button type="button" className="btn btn--linkish" onClick={irAlUltimoGuardado}>
               Ir al último guardado globalmente (
               {latestLabel ?? 'Planta'},{' '}
@@ -1074,7 +1066,7 @@ export function AttendanceView() {
             </p>
           ) : null}
           {saveMessage ? <p className="persistRow__flash">{saveMessage}</p> : null}
-          {devTools && !mostrarSoloResumenMensual ? (
+          {puedeImportarCsv && !mostrarSoloResumenMensual ? (
             <div className="persistRow__csvBlock">
               <p className="persistRow__csvLead">
                 <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Con columna{' '}
@@ -1226,9 +1218,17 @@ export function AttendanceView() {
           <strong>N.º de servicio</strong> según <strong>Servicios</strong> (referencia por fila). Use{' '}
           <strong>Colaborador</strong> para una persona o el <strong>resumen mensual</strong>. <strong>Número</strong> o <strong>A</strong> → Asist.;{' '}
           <strong>DD</strong>+número → Extra; <strong>F</strong> → Falta; <strong>D</strong> → 1 Desc. por día (aunque esté en D+T+N); INC/VAC/PCGS/PSGS/CAP → su columna.{' '}
-          Pulse <strong>Guardar</strong> para conservar la planta y semana en el servidor.{' '}
+          {puedeEditar ? (
+            <>
+              Pulse <strong>Guardar semana (todas las plantas)</strong> para conservar en el servidor.{' '}
+            </>
+          ) : (
+            <>
+              <strong>Solo lectura</strong> (excepto administrador).{' '}
+            </>
+          )}
           <strong>Exportar cuadrícula</strong>: totales por semana/mes/año; elija <strong>Todas las plantas</strong> para un CSV con un bloque por planta.{' '}
-          {devTools ? (
+          {puedeImportarCsv ? (
             <>
               Para capturar <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. El archivo puede ser como su
               hoja de planta (SERVICIO… NOMBRE + D/T/N×7) o el formato compacto de 5 columnas + códigos; separador coma o punto y
@@ -1345,20 +1345,22 @@ export function AttendanceView() {
                 {row.shifts.map((day, dayIndex) =>
                   TURNS.map((turn) => {
                     const locked = dayLocked[dayIndex] ?? false
-                    const disabled = row.vacant || locked
+                    const cellReadOnly = !puedeEditar
+                    const disabled = row.vacant || locked || cellReadOnly
                     return (
                       <td key={`${row.id}-${dayIndex}-${turn}`} className="td td--cell">
                         <input
-                          className={`${cellClass(day[turn], rowNo)}${locked && !row.vacant ? ' cell--future' : ''}`}
+                          className={`${cellClass(day[turn], rowNo)}${locked && !row.vacant ? ' cell--future' : ''}${cellReadOnly ? ' cell--readonly' : ''}`}
                           value={day[turn]}
                           onChange={(e) =>
                             updateCell(row.id, dayIndex, turn, e.target.value)
                           }
                           aria-label={`${row.position} ${WEEK_COLUMNS[dayIndex]?.weekday} ${turn}`}
                           disabled={disabled}
-                          list="attendanceCodes"
+                          readOnly={cellReadOnly && !row.vacant && !locked}
+                          list={puedeEditar ? 'attendanceCodes' : undefined}
                           maxLength={12}
-                          title={cellInputTitle(day[turn], rowNo, locked, row.vacant)}
+                          title={cellInputTitle(day[turn], rowNo, locked, row.vacant, cellReadOnly)}
                         />
                       </td>
                     )

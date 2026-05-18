@@ -349,6 +349,23 @@
   background: #fafbfc;
 }
 
+.topbar__readonlyBanner {
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  background: #eff6ff;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #1e40af;
+}
+
+.sheet .cell--readonly {
+  background: #f8f9fa;
+  color: #5f6368;
+  cursor: default;
+}
+
 .topbar__remoteWarn {
   margin: 0 0 0.65rem;
   padding: 0.65rem 0.85rem;

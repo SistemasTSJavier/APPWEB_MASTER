@@ -1,9 +1,15 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { AppRole } from "@/lib/app-role";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { colaboradorToEmpleadoIncidencia, colaboradoresActivosTodos } from "./cuadriculaColaboradoresBridge";
+import {
+  canEditCuadricula,
+  canImportCuadriculaSemanaCsv,
+  showCuadriculaMigrationTools,
+} from "./cuadriculaPermissions";
 
 type CuadriculaDataState = {
   catalogo: CatalogoServicioItem[];
@@ -11,6 +17,10 @@ type CuadriculaDataState = {
   loading: boolean;
   error: string | null;
   reload: () => void;
+  appRole: AppRole | null;
+  puedeEditar: boolean;
+  puedeImportarCsv: boolean;
+  showMigrationTools: boolean;
   /** Lista para buscadores (incidencias / comidas): activos, expediente real. */
   empleadosBusqueda: ReturnType<typeof colaboradorToEmpleadoIncidencia>[];
 };
@@ -34,19 +44,23 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
   const [colaboradores, setColaboradores] = useState<ColaboradorCompleto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [appRole, setAppRole] = useState<AppRole | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [cat, coll] = await Promise.all([
+      const [cat, coll, me] = await Promise.all([
         fetchJson<{ items: CatalogoServicioItem[] }>("/api/servicios"),
         fetchJson<ColaboradorCompleto[]>("/api/colaboradores"),
+        fetchJson<{ role: AppRole | null }>("/api/auth/me"),
       ]);
       setCatalogo(Array.isArray(cat.items) ? cat.items : []);
       setColaboradores(Array.isArray(coll) ? coll : []);
+      setAppRole(me.role ?? null);
     } catch (e) {
       setCatalogo([]);
       setColaboradores([]);
+      setAppRole(null);
       setError(e instanceof Error ? e.message : "ERROR AL CARGAR CATALOGO O COLABORADORES.");
     } finally {
       setLoading(false);
@@ -62,6 +76,10 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
     [colaboradores],
   );
 
+  const puedeEditar = canEditCuadricula(appRole);
+  const puedeImportarCsv = canImportCuadriculaSemanaCsv(appRole);
+  const showMigrationTools = showCuadriculaMigrationTools(appRole);
+
   const value = useMemo(
     () => ({
       catalogo,
@@ -69,9 +87,24 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       reload: load,
+      appRole,
+      puedeEditar,
+      puedeImportarCsv,
+      showMigrationTools,
       empleadosBusqueda,
     }),
-    [catalogo, colaboradores, loading, error, load, empleadosBusqueda],
+    [
+      catalogo,
+      colaboradores,
+      loading,
+      error,
+      load,
+      appRole,
+      puedeEditar,
+      puedeImportarCsv,
+      showMigrationTools,
+      empleadosBusqueda,
+    ],
   );
 
   return <CuadriculaDataContext.Provider value={value}>{children}</CuadriculaDataContext.Provider>;
