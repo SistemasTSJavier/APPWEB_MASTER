@@ -1492,3 +1492,166 @@
   text-align: center;
   font-size: 0.78rem;
 }
+
+.th--faltaFechas,
+.td--faltaFechas {
+  text-align: left;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  min-width: 10rem;
+  max-width: 22rem;
+  white-space: normal;
+}
+
+.th--weekCodes,
+.td--weekCodes {
+  text-align: left;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  min-width: 14rem;
+  max-width: 28rem;
+  white-space: normal;
+}
+
+.tr--monthTotal .td {
+  background: #f8f9fa;
+  border-top: 2px solid #dadce0;
+}
+
+.attendanceView--consulta .topbar {
+  max-width: 56rem;
+}
+
+.consultaIntro {
+  margin: 0 0 0.75rem;
+  max-width: 42rem;
+}
+
+.consultaPlaceholder {
+  margin: 0.5rem 0 0;
+}
+
+.cardLike {
+  margin-bottom: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+}
+
+.consultaSearch__hint {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  color: #5f6368;
+}
+
+.consultaSearch__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem 0.75rem;
+}
+
+.consultaSearch__inputWrap {
+  position: relative;
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+
+.input--search {
+  width: 100%;
+  text-transform: uppercase;
+}
+
+.consultaSearch__hits {
+  position: absolute;
+  z-index: 40;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.consultaSearch__hit {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.consultaSearch__hit:hover,
+.consultaSearch__hit:focus-visible {
+  background: #e8f0fe;
+}
+
+.consultaSearch__hitName {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #202124;
+}
+
+.consultaSearch__hitMeta {
+  display: block;
+  font-size: 0.72rem;
+  color: #5f6368;
+  margin-top: 0.1rem;
+}
+
+.consultaMeta__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.65rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.consultaMeta__label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5f6368;
+}
+
+.consultaMeta__value {
+  margin: 0.15rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #202124;
+}
+
+.consultaMeta__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.25rem;
+}
+
+.field--checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: #3c4043;
+  padding-bottom: 0.35rem;
+}
+
+.field--checkbox input {
+  margin: 0;
+}
+
+.consultaResumen {
+  margin-top: 0.25rem;
+}

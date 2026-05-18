@@ -2,6 +2,7 @@ import { useState } from 'react'
 import './App.css'
 import { APP_MODULES, type ModuleId } from './modules'
 import { AttendanceView } from './views/AttendanceView'
+import { AsistenciaConsultaView } from './views/AsistenciaConsultaView'
 import { BajasView } from './views/BajasView'
 import { ComidasView } from './views/ComidasView'
 import { IncidenciasView } from './views/IncidenciasView'
@@ -34,6 +35,7 @@ export default function App() {
 
       <div className="shellMain">
         {module === 'asistencia' && <AttendanceView />}
+        {module === 'consulta_asistencia' && <AsistenciaConsultaView />}
         {module === 'bajas' && <BajasView />}
         {module === 'incidencias' && <IncidenciasView />}
         {module === 'comidas' && <ComidasView />}

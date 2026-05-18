@@ -71,7 +71,8 @@ export function mondaysIntersectingDateRange(desde: Date, hasta: Date): Date[] {
 }
 
 export function isFaltaCode(raw: string): boolean {
-  return /^F[1-9]\d*$/i.test(raw.trim())
+  const u = raw.trim().toUpperCase()
+  return u === 'F' || /^F[1-9]\d*$/i.test(u)
 }
 
 export interface DayMeta {
@@ -200,8 +201,8 @@ function csvSemicolonLine(cells: string[]): string {
 
 const TURNS_FALTA: Turn[] = ['D', 'T', 'N']
 
-/** Fechas (dd/mm/aaaa) con falta numerada en la semana, sin repetir. */
-function collectFaltaDatesForRow(row: GridRow, dayMetas: DayMeta[]): string {
+/** Fechas (dd/mm/aaaa) con falta en la semana, sin repetir día. */
+export function collectFaltaDatesForRow(row: GridRow, dayMetas: DayMeta[]): string {
   const seen = new Set<string>()
   const ordered: string[] = []
   for (let dayIndex = 0; dayIndex < dayMetas.length; dayIndex++) {

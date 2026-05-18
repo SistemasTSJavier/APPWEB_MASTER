@@ -54,6 +54,7 @@ import {
 import { useCuadriculaData } from '../CuadriculaDataContext'
 import { WEEK_COLUMNS, type GridRow, type Turn } from '../mockData'
 import { TOTAL_COLUMN_HELP, WEEK_TOTALS_LEGEND } from '../weekTotalsLegend'
+import { ColaboradorAsistenciaResumenPanel } from '../components/ColaboradorAsistenciaResumenPanel'
 import {
   applyAttendanceCsvToAllPlantasWeek,
   attendanceCodesCsvFilename,
@@ -1252,70 +1253,12 @@ export function AttendanceView() {
           </p>
         ) : null}
         {mostrarSoloResumenMensual ? (
-          <div className="monthFocoPanel">
-            <h2 className="monthFocoPanel__title">
-              Resumen mensual — {nombreFocoColaborador}{' '}
-              <span className="monthFocoPanel__sub">({mesConsultaYm})</span>
-            </h2>
-            <p className="monthFocoPanel__hint">
-              Totales por semana (lun–dom) según datos guardados en este equipo para la planta actual. Para capturar celdas use{' '}
-              <strong>Vista del colaborador → Semanal</strong> y las flechas de semana.
-            </p>
-            <div className="monthFocoPanel__scroll">
-              <table className="sheet sheet--monthFoco" aria-label="Resumen mensual de asistencia">
-                <thead>
-                  <tr className="theadSub">
-                    <th className="th th--monthWeek">Semana (lun–dom)</th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.asist}>
-                      Asist.
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.extra}>
-                      Extra
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.desc}>
-                      Desc.
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.falta}>
-                      Falta
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.inc}>
-                      Inc.
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.pcgs}>
-                      PCGS
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.psgs}>
-                      PSGS
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.vac}>
-                      Vac.
-                    </th>
-                    <th className="th th--total" title={TOTAL_COLUMN_HELP.cap}>
-                      Cap.
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mesResumenFilas.map(({ monday, weekIso, row }) => (
-                    <tr key={weekIso}>
-                      <td className="td td--monthWeek">
-                        {formatDateEs(monday)} – {formatDateEs(addDays(monday, 6))}
-                      </td>
-                      <td className="td td--total">{row?.totals.asist ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.extra ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.desc ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.falta ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.inc ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.pcgs ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.psgs ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.vac ?? '—'}</td>
-                      <td className="td td--total">{row?.totals.cap ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <ColaboradorAsistenciaResumenPanel
+            titulo={`Resumen mensual — ${nombreFocoColaborador}`}
+            subtitulo="Totales por semana (lun–dom) según datos guardados para la planta actual. Para capturar celdas use Vista del colaborador → Semanal."
+            mesYm={mesConsultaYm}
+            filas={mesResumenFilas}
+          />
         ) : null}
         {!mostrarSoloResumenMensual ? (
         <table className="sheet" aria-label="Cuadrícula de asistencia">

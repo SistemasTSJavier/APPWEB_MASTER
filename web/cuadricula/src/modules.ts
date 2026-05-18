@@ -1,5 +1,6 @@
 export type ModuleId =
   | 'asistencia'
+  | 'consulta_asistencia'
   | 'bajas'
   | 'incidencias'
   | 'comidas'
@@ -13,6 +14,11 @@ export interface AppModule {
 
 export const APP_MODULES: AppModule[] = [
   { id: 'asistencia', label: 'Asistencia', hint: 'Cuadrícula semanal por planta' },
+  {
+    id: 'consulta_asistencia',
+    label: 'Consulta asistencia',
+    hint: 'Buscar colaborador y ver resumen por semana',
+  },
   { id: 'bajas', label: 'Bajas', hint: 'Bajas y movimientos de personal' },
   {
     id: 'incidencias',
