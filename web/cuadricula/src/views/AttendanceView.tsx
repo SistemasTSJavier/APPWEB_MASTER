@@ -30,6 +30,7 @@ import {
   weekStartToIso,
 } from '../attendanceStorage'
 import { syncAllLocalAttendanceToRemote } from '../attendanceRemote'
+import { showCuadriculaDevTools } from '../cuadriculaEnv'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
 import {
   isAsistenciaCode,
@@ -122,6 +123,7 @@ function cellInputTitle(
 }
 
 export function AttendanceView() {
+  const devTools = showCuadriculaDevTools()
   const { catalogo, colaboradores, loading, error, reload } = useCuadriculaData()
   const [rows, setRows] = useState<GridRow[]>([])
   const [plantaSeleccionada, setPlantaSeleccionada] = useState('')
@@ -364,8 +366,8 @@ export function AttendanceView() {
   }, [exportPeriod, exportYearY])
 
   const localGuardadosResumen = useMemo(
-    () => summarizeLocalAttendanceEntries(),
-    [weekIso, plantaSeleccionada, importRefresh, lastSavedAt],
+    () => (devTools ? summarizeLocalAttendanceEntries() : { total: 0, weekCount: 0, plantaCount: 0, entries: [] }),
+    [devTools, weekIso, plantaSeleccionada, importRefresh, lastSavedAt],
   )
 
   async function exportResumen() {
@@ -732,6 +734,29 @@ export function AttendanceView() {
     }
   }
 
+  async function guardarPlantaActual() {
+    if (mostrarSoloResumenMensual) {
+      setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
+      return
+    }
+    if (!plantaStorageKey) {
+      setSaveMessage('Seleccione una planta.')
+      return
+    }
+    const ok = await saveAttendanceGrid(weekIso, plantaStorageKey, rows, '')
+    setImportRefresh((n) => n + 1)
+    if (!ok) {
+      setSaveMessage('No se pudo guardar la asistencia.')
+      return
+    }
+    const t = new Date().toISOString()
+    setLastSavedAt(t)
+    setLegacyRecoveredHint(null)
+    setSaveMessage(
+      `Asistencia guardada: «${plantaSeleccionada}», semana ${weekRangeLabel}.`,
+    )
+  }
+
   async function guardarTodaAsistencia() {
     if (mostrarSoloResumenMensual) {
       setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
@@ -821,29 +846,29 @@ export function AttendanceView() {
             <strong>No se cargó la asistencia del servidor:</strong> {remoteLoadHint}
           </div>
         ) : null}
-        <div className="topbar__produccionBanner" role="region" aria-label="Enviar asistencia a producción">
-          <div className="topbar__produccionBannerText">
-            <strong>Enviar a producción (Supabase)</strong>
-            <p>
-              En este navegador hay{' '}
-              <strong>{localGuardadosResumen.total}</strong> bloque(s) guardados (
-              {localGuardadosResumen.plantaCount} planta(s), {localGuardadosResumen.weekCount}{' '}
-              semana(s)). El botón guarda la semana en pantalla (si está en vista semanal) y sube{' '}
-              <strong>todo</strong> el historial local de todas las plantas al servidor, visible en la URL de
-              producción.
-            </p>
+        {devTools ? (
+          <div className="topbar__produccionBanner" role="region" aria-label="Enviar asistencia a producción">
+            <div className="topbar__produccionBannerText">
+              <strong>Enviar a producción (Supabase)</strong>
+              <p>
+                En este navegador hay{' '}
+                <strong>{localGuardadosResumen.total}</strong> bloque(s) guardados (
+                {localGuardadosResumen.plantaCount} planta(s), {localGuardadosResumen.weekCount}{' '}
+                semana(s)). El botón guarda la semana en pantalla y sube todo el historial local al servidor.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn--primary btn--produccion"
+              onClick={() => void guardarYEnviarTodoAlServidor()}
+              disabled={enviandoProduccion || loading}
+            >
+              {enviandoProduccion
+                ? 'Guardando y enviando…'
+                : 'Guardar y enviar toda la asistencia a producción'}
+            </button>
           </div>
-          <button
-            type="button"
-            className="btn btn--primary btn--produccion"
-            onClick={() => void guardarYEnviarTodoAlServidor()}
-            disabled={enviandoProduccion || loading}
-          >
-            {enviandoProduccion
-              ? 'Guardando y enviando…'
-              : 'Guardar y enviar toda la asistencia a producción'}
-          </button>
-        </div>
+        ) : null}
         <div className="topbar__controls">
           <div className="topbar__bar">
             <div className="topbar__toolbarLeft">
@@ -948,15 +973,21 @@ export function AttendanceView() {
                 </button>
               </div>
               <div className="field field--action field--actionToolbar">
-                <span className="field__label">Semana actual</span>
+                <span className="field__label">{devTools ? 'Semana actual' : 'Guardado'}</span>
                 <button
                   type="button"
-                  className="btn"
-                  onClick={() => void guardarTodaAsistencia()}
-                  disabled={mostrarSoloResumenMensual || loading}
-                  title="Solo la semana en pantalla, todas las plantas (local + servidor)"
+                  className={devTools ? 'btn' : 'btn btn--primary'}
+                  onClick={() =>
+                    void (devTools ? guardarTodaAsistencia() : guardarPlantaActual())
+                  }
+                  disabled={mostrarSoloResumenMensual || loading || !plantaSeleccionada.trim()}
+                  title={
+                    devTools
+                      ? 'Semana en pantalla, todas las plantas'
+                      : 'Guarda la planta y semana visibles en el servidor'
+                  }
                 >
-                  Guardar semana (todas las plantas)
+                  {devTools ? 'Guardar semana (todas las plantas)' : 'Guardar'}
                 </button>
               </div>
             </div>
@@ -999,21 +1030,25 @@ export function AttendanceView() {
             </div>
           </div>
         <div className="topbar__persistRow">
-          <button
-            type="button"
-            className="btn btn--primary btn--produccion persistRow__produccionBtn"
-            onClick={() => void guardarYEnviarTodoAlServidor()}
-            disabled={enviandoProduccion || loading}
-          >
-            {enviandoProduccion
-              ? 'Enviando a producción…'
-              : 'Guardar y enviar TODO a producción'}
-          </button>
-          <p className="persistRow__meta persistRow__meta--inline">
-            {localGuardadosResumen.total > 0
-              ? `${localGuardadosResumen.total} bloque(s) en este navegador (${localGuardadosResumen.plantaCount} plantas, ${localGuardadosResumen.weekCount} semanas).`
-              : 'Aún no hay bloques guardados en este navegador.'}
-          </p>
+          {devTools ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--primary btn--produccion persistRow__produccionBtn"
+                onClick={() => void guardarYEnviarTodoAlServidor()}
+                disabled={enviandoProduccion || loading}
+              >
+                {enviandoProduccion
+                  ? 'Enviando a producción…'
+                  : 'Guardar y enviar TODO a producción'}
+              </button>
+              <p className="persistRow__meta persistRow__meta--inline">
+                {localGuardadosResumen.total > 0
+                  ? `${localGuardadosResumen.total} bloque(s) en este navegador (${localGuardadosResumen.plantaCount} plantas, ${localGuardadosResumen.weekCount} semanas).`
+                  : 'Aún no hay bloques guardados en este navegador.'}
+              </p>
+            </>
+          ) : null}
           {lastSavedAt ? (
             <p className="persistRow__meta">
               <strong>Último guardado</strong> en esta semana/planta:{' '}
@@ -1021,11 +1056,11 @@ export function AttendanceView() {
             </p>
           ) : (
             <p className="persistRow__meta muted">
-              Sin guardado previo para esta combinación planta + semana. Capture la
-              cuadrícula y use el botón azul <strong>Guardar y enviar TODO a producción</strong>.
+              Sin guardado previo para esta combinación planta + semana. Capture la cuadrícula y pulse{' '}
+              <strong>Guardar</strong>.
             </p>
           )}
-          {latestDifferent ? (
+          {devTools && latestDifferent ? (
             <button type="button" className="btn btn--linkish" onClick={irAlUltimoGuardado}>
               Ir al último guardado globalmente (
               {latestLabel ?? 'Planta'},{' '}
@@ -1038,7 +1073,7 @@ export function AttendanceView() {
             </p>
           ) : null}
           {saveMessage ? <p className="persistRow__flash">{saveMessage}</p> : null}
-          {!mostrarSoloResumenMensual ? (
+          {devTools && !mostrarSoloResumenMensual ? (
             <div className="persistRow__csvBlock">
               <p className="persistRow__csvLead">
                 <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Con columna{' '}
@@ -1190,11 +1225,16 @@ export function AttendanceView() {
           <strong>N.º de servicio</strong> según <strong>Servicios</strong> (referencia por fila). Use{' '}
           <strong>Colaborador</strong> para una persona o el <strong>resumen mensual</strong>. <strong>Número</strong> o <strong>A</strong> → Asist.;{' '}
           <strong>DD</strong>+número → Extra; <strong>F</strong> → Falta; <strong>D</strong> → 1 Desc. por día (aunque esté en D+T+N); INC/VAC/PCGS/PSGS/CAP → su columna.{' '}
-          <strong>Guardar y enviar TODO a producción</strong> sube todas las plantas y semanas de este navegador a Supabase (visible en producción).
-          <strong>Exportar cuadrícula</strong>: totales por semana/mes/año; elija <strong>Todas las plantas</strong> para un CSV con un bloque por planta. Para capturar{' '}
-          <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. El archivo puede ser como su
-          hoja de planta (SERVICIO… NOMBRE + D/T/N×7) o el formato compacto de 5 columnas + códigos; separador coma o punto y
-          coma; <strong>NO DE EMPLE</strong> / No. empleado como texto en Excel. Códigos:{' '}
+          Pulse <strong>Guardar</strong> para conservar la planta y semana en el servidor.{' '}
+          <strong>Exportar cuadrícula</strong>: totales por semana/mes/año; elija <strong>Todas las plantas</strong> para un CSV con un bloque por planta.{' '}
+          {devTools ? (
+            <>
+              Para capturar <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. El archivo puede ser como su
+              hoja de planta (SERVICIO… NOMBRE + D/T/N×7) o el formato compacto de 5 columnas + códigos; separador coma o punto y
+              coma; <strong>NO DE EMPLE</strong> / No. empleado como texto en Excel.{' '}
+            </>
+          ) : null}
+          Códigos:{' '}
           {CODE_HINTS.join(', ')}, <strong>A</strong> o número (Asist.), <strong>DD</strong>+n.º (Extra, p. ej. DD937).
         </p>
         </div>
