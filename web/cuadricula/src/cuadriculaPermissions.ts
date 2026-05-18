@@ -5,12 +5,12 @@ import {
 } from "@/lib/app-role";
 import { showCuadriculaDevTools } from "./cuadriculaEnv";
 
-/** Captura en celdas y guardar (solo admin). */
+/** Captura en celdas y guardar (admin y editor_cuadricula). */
 export function canEditCuadricula(role: AppRole | null | undefined): boolean {
   return role != null && roleMayEditCuadricula(role);
 }
 
-/** Importar CSV semana / todas las plantas (admin, también en producción). */
+/** Importar CSV semana / todas las plantas (admin o editor_cuadricula, también en producción). */
 export function canImportCuadriculaSemanaCsv(role: AppRole | null | undefined): boolean {
   return role != null && roleMayImportCuadriculaAsistenciaCsv(role);
 }

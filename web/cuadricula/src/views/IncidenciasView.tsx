@@ -95,7 +95,7 @@ export function IncidenciasView() {
                 ariaPrefix="inc-buscar"
               />
             ) : (
-              <p className="hint">Solo lectura. La captura está reservada al administrador.</p>
+              <p className="hint">Solo lectura. Su rol no permite captura en este módulo.</p>
             )}
           </div>
         </div>

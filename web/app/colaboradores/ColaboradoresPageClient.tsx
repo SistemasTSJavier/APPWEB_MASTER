@@ -294,6 +294,11 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                   Modo <strong>solo consulta</strong> de expedientes aqui. Para registrar o editar movimientos de servicio y puesto usa el modulo{" "}
                   <strong>MOPER</strong>.
                 </>
+              ) : appRole === "editor_cuadricula" ? (
+                <>
+                  Modo <strong>solo consulta</strong> de expedientes. La captura de asistencia está en el modulo <strong>Cuadrícula</strong>. El historial MOPER
+                  se consulta en <strong>MOPER</strong> (solo lectura).
+                </>
               ) : (
                 <>
                   Modo <strong>solo consulta</strong> (nominas). Usa <strong>Expediente</strong> para ver el detalle. Los movimientos MOPER los consultas en el

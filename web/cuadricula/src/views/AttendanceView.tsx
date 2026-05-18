@@ -119,7 +119,7 @@ function cellInputTitle(
   vacant: boolean,
   readOnly: boolean,
 ): string | undefined {
-  if (readOnly) return 'Solo lectura: la captura está reservada al administrador.'
+  if (readOnly) return 'Solo lectura: su rol no permite captura en cuadrícula.'
   if (locked && !vacant) return 'Día futuro: podrá capturarse cuando llegue la fecha.'
   return undefined
 }
@@ -840,7 +840,7 @@ export function AttendanceView() {
         ) : null}
         {!puedeEditar ? (
           <p className="topbar__readonlyBanner" role="status">
-            <strong>Solo lectura.</strong> La captura y el guardado de asistencia están reservados al administrador.
+            <strong>Solo lectura.</strong> La captura y el guardado de asistencia requieren rol de administrador o editor de cuadrícula.
           </p>
         ) : null}
         {showMigrationTools ? (
@@ -1224,7 +1224,7 @@ export function AttendanceView() {
             </>
           ) : (
             <>
-              <strong>Solo lectura</strong> (excepto administrador).{' '}
+              <strong>Solo lectura</strong> (sin permiso de edición).{' '}
             </>
           )}
           <strong>Exportar cuadrícula</strong>: totales por semana/mes/año; elija <strong>Todas las plantas</strong> para un CSV con un bloque por planta.{' '}

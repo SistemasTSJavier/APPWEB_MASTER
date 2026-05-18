@@ -9,6 +9,7 @@
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV (filtros, selección).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
  * - aux_legal / gerente_legal: Colaboradores, Expedientes legal e historial MOPER solo consulta.
+ * - editor_cuadricula: inicio, Bajas, Colaboradores y MOPER solo consulta; Cuadrícula con captura/guardado e import CSV.
  */
 export type AppRole =
   | "admin"
@@ -18,11 +19,15 @@ export type AppRole =
   | "gerente_rh"
   | "aux_rh"
   | "aux_legal"
-  | "gerente_legal";
+  | "gerente_legal"
+  | "editor_cuadricula";
 
 /** Correos previstos para usuarios legales (referencia al crear usuarios en Supabase). */
 export const AUX_LEGAL_EMAIL = "auxlegal@tacticalsupport.com.mx";
 export const GERENTE_LEGAL_EMAIL = "gerentelegal@tacticalsupport.com.mx";
+
+/** Coordinador centro de control: editor de cuadrícula (metadata app_role: editor_cuadricula). */
+export const EDITOR_CUADRICULA_EMAIL = "coordinadorcentrodecontrol@tacticalsupport.com.mx";
 
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -47,6 +52,11 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   gerente_legal: "gerente_legal",
   "gerente legal": "gerente_legal",
   gerentelegal: "gerente_legal",
+  editor_cuadricula: "editor_cuadricula",
+  "editor cuadricula": "editor_cuadricula",
+  "editor cuadrícula": "editor_cuadricula",
+  coordinador_centro_control: "editor_cuadricula",
+  "coordinador centro de control": "editor_cuadricula",
 };
 
 export function parseAppRole(raw: unknown): AppRole | null {
@@ -64,6 +74,7 @@ export const APP_ROLE_LABEL: Record<AppRole, string> = {
   aux_rh: "Aux RH",
   aux_legal: "Aux legal",
   gerente_legal: "Gerente legal",
+  editor_cuadricula: "Editor cuadrícula",
 };
 
 /** Primera sección de la ruta, p. ej. `/colaboradores/xxx` → `/colaboradores` */
@@ -75,13 +86,13 @@ export function routeSection(pathname: string): string {
 }
 
 const SECTION_ROLES: Record<string, readonly AppRole[]> = {
-  "/": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
+  "/": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/altas": ["admin", "rh", "aux_rh"],
-  "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua"],
-  "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
-  "/cuadricula": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas"],
+  "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "editor_cuadricula"],
+  "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
+  "/cuadricula": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
   "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
-  "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
+  "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/servicios": ["admin", "rh", "aux_rh"],
 };
 
@@ -118,7 +129,8 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
     role === "rh" ||
     role === "aux_rh" ||
     role === "aux_legal" ||
-    role === "gerente_legal"
+    role === "gerente_legal" ||
+    role === "editor_cuadricula"
   );
 }
 
@@ -150,7 +162,8 @@ export function roleMayReadColaboradoresApi(role: AppRole): boolean {
     role === "mejora_continua" ||
     role === "nominas" ||
     role === "aux_legal" ||
-    role === "gerente_legal"
+    role === "gerente_legal" ||
+    role === "editor_cuadricula"
   );
 }
 
@@ -175,7 +188,8 @@ export function roleMayReadMoperHistorialApi(role: AppRole): boolean {
     role === "mejora_continua" ||
     role === "nominas" ||
     role === "aux_legal" ||
-    role === "gerente_legal"
+    role === "gerente_legal" ||
+    role === "editor_cuadricula"
   );
 }
 
@@ -187,7 +201,8 @@ export function roleMayReadServiciosCatalogo(role: AppRole): boolean {
     role === "aux_rh" ||
     role === "gerente_rh" ||
     role === "mejora_continua" ||
-    role === "nominas"
+    role === "nominas" ||
+    role === "editor_cuadricula"
   );
 }
 
@@ -202,14 +217,14 @@ export function roleMayReadCuadriculaAsistencia(role: AppRole): boolean {
   return role === "admin" || (allowed != null && (allowed as readonly AppRole[]).includes(role));
 }
 
-/** Cuadrícula: captura y guardado (solo administrador). */
+/** Cuadrícula: captura y guardado (administrador y editor de cuadrícula). */
 export function roleMayEditCuadricula(role: AppRole): boolean {
-  return role === "admin";
+  return role === "admin" || role === "editor_cuadricula";
 }
 
 /** Importar CSV de códigos de asistencia (semana / todas las plantas). */
 export function roleMayImportCuadriculaAsistenciaCsv(role: AppRole): boolean {
-  return role === "admin";
+  return roleMayEditCuadricula(role);
 }
 
 /** Cuadrícula / asistencia: guardar en servidor (POST / sync). */
@@ -226,23 +241,23 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
     { href: "/servicios", label: "Servicios", roles: ["admin", "rh", "aux_rh"] },
-    { href: "/bajas", label: "Bajas", roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua"] },
+    { href: "/bajas", label: "Bajas", roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "editor_cuadricula"] },
     {
       href: "/cuadricula",
       label: "Cuadrícula",
-      roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas"],
+      roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
     },
     {
       href: "/colaboradores",
       label: "Colaboradores",
-      roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
+      roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
     },
     { href: "/expedientes-legal", label: "Expedientes legal", roles: ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"] },
     { href: "/ficha-tecnica", label: "Ficha técnica", roles: ["admin", "rh", "aux_rh"] },
     {
       href: "/moper",
       label: "Moper",
-      roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
+      roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
     },
   ];
   return items.filter((i) => {
