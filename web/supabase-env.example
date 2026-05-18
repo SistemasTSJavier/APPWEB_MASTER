@@ -17,7 +17,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # Prueba: http://localhost:3000/api/supabase/status (campo serverDataConfigured)
 #
-# Migraciones SQL (orden): 001…004 y 005_ficha_fotos_storage.sql (bucket colaboradores-fotos para Ficha técnica).
+# Migraciones SQL (orden): 001…004, 005_ficha_fotos_storage, 008_catalogo_servicios_numero, 009_catalogo_servicios_numero_quita_unique (mismo N.º en varios servicios).
 # Si al subir foto dice que no existe el bucket: Supabase → SQL → pega 005_ficha_fotos_storage.sql → Run.
 # (Editor SQL del proyecto Supabase). Si ves "permission denied for table" con service_role bien configurada, ejecuta 003.
 #

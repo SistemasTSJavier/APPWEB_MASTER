@@ -76,6 +76,8 @@ function mergeAltasForm(fieldMap: Partial<Record<CsvFieldKey, string>>, formExtr
   set("nombreCompleto", g(fieldMap, "nombreCompleto"));
   set("puesto", g(fieldMap, "puesto"));
   set("servicio", g(fieldMap, "servicio"));
+  set("noServicio", g(fieldMap, "noServicio"));
+  set("planta", g(fieldMap, "planta"));
   set("posicion", g(fieldMap, "posicion"));
   set("localForaneo", g(fieldMap, "localForaneo") || "LOCAL");
   set("numeroFolio", g(fieldMap, "numeroFolio"));

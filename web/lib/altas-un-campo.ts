@@ -1,4 +1,5 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
+import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 
 /** Campos editables solo con N° de empleado (panel admin en Altas). */
@@ -8,6 +9,8 @@ export const ALTAS_CAMPOS_UNA_COLUMNA: { id: string; label: string; esFecha?: bo
   { id: "fechaBaja", label: "Fecha de baja", esFecha: true },
   { id: "reingreso", label: "Reingreso", esFecha: true },
   { id: "servicio", label: "Servicio (Parte 1 / alta)" },
+  { id: "noServicio", label: "N.º servicio (Parte 1)" },
+  { id: "planta", label: "Planta (Parte 1)" },
   { id: "puesto", label: "Puesto" },
   { id: "posicion", label: "Posicion" },
   { id: "imss", label: "IMSS (NSS en expediente)" },
@@ -77,6 +80,14 @@ export function aplicarUnSoloCampoColaborador(
   }
   if (campo === "posicion") {
     return { ...existing, posicion: valor, form: { ...form, posicion: valor } };
+  }
+  if (campo === "noServicio") {
+    form.noServicio = valor;
+    return limpiarPosicionDuplicadaDeNoServicio({ ...existing, form }, valor);
+  }
+  if (campo === "planta") {
+    form.planta = valor;
+    return { ...existing, form };
   }
   if (campo === "imss") {
     form.imss = valor;

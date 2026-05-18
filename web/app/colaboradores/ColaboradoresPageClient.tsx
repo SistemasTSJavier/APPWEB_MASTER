@@ -20,7 +20,13 @@ import {
 import type { AppRole } from "@/lib/app-role";
 import { esRolLegalSoloLectura, roleMayEditColaboradores, roleMayExportColaboradoresCsv } from "@/lib/app-role";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
+import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import { formatoDesdeYyyyMmDd, formatoFechaDiaMesAnio } from "@/lib/fecha-formato-display";
+import {
+  noServicioColaborador,
+  plantaColaborador,
+  posicionLaboralColaborador,
+} from "@/lib/colaboradores-catalogo-display";
 
 function fechaEnRangoIngreso(fechaNormColaborador: string, desde: string, hasta: string): boolean {
   const desdeN = desde.trim() ? normalizarFechaParaInputDate(desde.trim()) || desde.trim() : "";
@@ -66,7 +72,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
   const puedeExportarCsv = roleMayExportColaboradoresCsv(appRole);
   const mostrarCheckboxCsv = puedeEditar || puedeExportarCsv;
   const soloLectura = appRole === "mejora_continua" || esRolLegalSoloLectura(appRole);
-  const colSpan = mostrarCheckboxCsv ? 10 : 9;
+  const colSpan = mostrarCheckboxCsv ? 8 : 7;
 
   const [rows, setRows] = useState<ColaboradorCompleto[]>([]);
   const [listaError, setListaError] = useState<string | null>(null);
@@ -309,7 +315,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
             <h2 className="text-sm font-bold uppercase text-slate-900">Importar una columna (CSV)</h2>
             <p className="text-xs font-medium leading-relaxed text-slate-700">
               Archivo con <strong>dos columnas</strong>: primero el <strong>N° de empleado</strong> (cabeceras como NO_EMPLEADO, NO DE EMPLEADO, CLAVE) y
-              <strong> una sola columna de dato</strong> (ej. ESTADO CIVIL, CURP, TELEFONO, SERVICIO). Se detecta el campo por el nombre de la cabecera. Solo se
+              <strong> una sola columna de dato</strong> (ej. ESTADO CIVIL, CURP, TELEFONO, SERVICIO, PLANTA, NO_SERVICIO). Se detecta el campo por el nombre de la cabecera. Solo se
               actualizan expedientes que <strong>ya existen</strong>; si el N° no esta en el sistema, la fila se <strong>ignora</strong>. Celdas vacias en
               la columna de dato no cambian el valor guardado. Si la columna es <strong>SERVICIO</strong> (o equivalente reconocido), se alinea tambien la
               linea vigente del listado (<code className="rounded bg-white/80 px-1">moperActual</code> y campos de servicio en expediente), igual que al guardar desde el editor.
@@ -468,25 +474,35 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         </div>
 
         <div className="table-wrap">
-          <table className="min-w-full text-left">
+          <table className="w-max min-w-full border-collapse text-left text-sm sm:text-[15px]">
+            <colgroup>
+              {mostrarCheckboxCsv ? <col className="w-10" /> : null}
+              <col className="w-[5.5rem]" />
+              <col className="w-[6.75rem]" />
+              <col className="min-w-[12rem] w-[26%]" />
+              <col className="min-w-[9rem] w-[18%]" />
+              <col className="w-[7rem]" />
+              <col className="w-[6.5rem]" />
+              <col className="w-[8.5rem]" />
+            </colgroup>
             <thead className="table-head">
               <tr>
-                {mostrarCheckboxCsv ? <th className="w-10 px-2 py-3"></th> : null}
-                <th className="px-4 py-3">N°</th>
-                <th className="px-4 py-3">NOMBRE</th>
-                <th className="px-4 py-3">SERVICIO (VIGENTE)</th>
-                <th className="px-4 py-3">INGRESO</th>
-                <th className="px-4 py-3 whitespace-nowrap">ESTADO</th>
-                <th className="px-4 py-3">NSS</th>
-                <th className="px-4 py-3">POSICION</th>
-                <th className="px-4 py-3">PUESTO</th>
-                <th className="px-4 py-3 w-48 text-right">ACCIONES</th>
+                {mostrarCheckboxCsv ? <th className="w-10 px-2 py-2.5"></th> : null}
+                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">NO. EMPLEADO</th>
+                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">FECHA INGRESO</th>
+                <th className="px-3 py-2.5 sm:px-4">NOMBRE</th>
+                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">SERVICIO</th>
+                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">PUESTO</th>
+                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">ESTADO</th>
+                <th className="sticky right-0 z-10 whitespace-nowrap bg-slate-100 px-3 py-2.5 text-right shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.12)] sm:px-4">
+                  ACCIONES
+                </th>
               </tr>
             </thead>
             <tbody>
               {filtrados.map((c) => (
                 <Fragment key={c.noEmpleado}>
-                  <tr className="table-row-hover">
+                  <tr className="group table-row-hover">
                     {mostrarCheckboxCsv ? (
                       <td className="table-cell px-2">
                         <input
@@ -498,31 +514,40 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                         />
                       </td>
                     ) : null}
-                    <td className="table-cell font-mono font-medium">{c.noEmpleado}</td>
-                    <td className="table-cell font-medium text-slate-900">{c.nombreCompleto || "—"}</td>
-                    <td className="table-cell text-slate-700">{servicioLineaColaborador(c) || "—"}</td>
-                    <td className="table-cell">{ingresoMostrarEnTabla(c)}</td>
-                    <td className="table-cell align-middle">
+                    <td className="table-cell whitespace-nowrap font-mono font-medium">{c.noEmpleado}</td>
+                    <td className="table-cell whitespace-nowrap tabular-nums">{ingresoMostrarEnTabla(c)}</td>
+                    <td
+                      className="table-cell min-w-[12rem] max-w-[24rem] font-medium leading-snug text-slate-900"
+                      title={c.nombreCompleto || undefined}
+                    >
+                      <span className="line-clamp-2 break-words">{c.nombreCompleto || "—"}</span>
+                    </td>
+                    <td className="table-cell whitespace-nowrap text-slate-700" title={servicioLineaColaborador(c) || undefined}>
+                      {servicioLineaColaborador(c) || "—"}
+                    </td>
+                    <td className="table-cell whitespace-nowrap" title={c.moperActual?.puesto || c.puesto || undefined}>
+                      {c.moperActual?.puesto?.trim() || c.puesto?.trim() || "—"}
+                    </td>
+                    <td className="table-cell align-middle whitespace-nowrap">
                       {colaboradorTieneBaja(c) ? (
-                        <span className="inline-flex flex-col gap-1">
-                          <span className="inline-block w-fit rounded-lg bg-rose-100 px-3 py-1.5 text-sm font-bold uppercase tracking-wide text-rose-900 ring-1 ring-rose-200/80 sm:px-3.5 sm:py-2 sm:text-base">
-                            Baja
-                          </span>
-                          <span className="font-mono text-xs text-slate-600 sm:text-sm">
-                            {formatoFechaDiaMesAnio(String(c.form.fechaBaja ?? "").trim(), { conHora: false })}
-                          </span>
+                        <span
+                          className="inline-block rounded-md bg-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-slate-800 ring-1 ring-slate-300/80"
+                          title={
+                            formatoFechaDiaMesAnio(String(c.form.fechaBaja ?? "").trim(), { conHora: false })
+                              ? `Baja: ${formatoFechaDiaMesAnio(String(c.form.fechaBaja ?? "").trim(), { conHora: false })}`
+                              : undefined
+                          }
+                        >
+                          Inactivo
                         </span>
                       ) : (
-                        <span className="inline-block rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/80 sm:px-3.5 sm:py-2 sm:text-base">
+                        <span className="inline-block rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/80">
                           Activo
                         </span>
                       )}
                     </td>
-                    <td className="table-cell">{c.nss || "—"}</td>
-                    <td className="table-cell">{c.posicion || "—"}</td>
-                    <td className="table-cell">{c.puesto || "—"}</td>
-                    <td className="table-cell text-right">
-                      <div className="flex flex-col items-end gap-1 sm:flex-row sm:justify-end sm:gap-2">
+                    <td className="table-cell sticky right-0 z-10 bg-white text-right shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.08)] group-hover:bg-slate-50/95">
+                      <div className="flex flex-col items-end gap-1 whitespace-nowrap sm:flex-row sm:justify-end sm:gap-2">
                         <button
                           type="button"
                           className="link-action text-sm uppercase"
@@ -563,7 +588,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                   ) : expandido === c.noEmpleado ? (
                     <tr className="bg-slate-50">
                       <td colSpan={colSpan} className="border-t border-slate-200 px-4 py-4">
-                        <DetalleExpediente c={c} ocultarNomina={soloLectura} />
+                        <DetalleExpediente c={c} ocultarNomina={soloLectura} catalogoServicios={catalogoServicios} />
                       </td>
                     </tr>
                   ) : null}
@@ -583,7 +608,15 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
   );
 }
 
-function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocultarNomina?: boolean }) {
+function DetalleExpediente({
+  c,
+  ocultarNomina,
+  catalogoServicios = [],
+}: {
+  c: ColaboradorCompleto;
+  ocultarNomina?: boolean;
+  catalogoServicios?: CatalogoServicioItem[];
+}) {
   const partesAltas = useMemo(() => (ocultarNomina ? ([1, 2, 3] as const) : ([1, 2, 3, 4] as const)), [ocultarNomina]);
   const gruposPartes = useMemo(() => groupFormByAltasPartes(c.form), [c.form]);
   const porParte = useMemo(() => {
@@ -628,11 +661,27 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
         <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500 sm:text-sm">Resumen guardado</h3>
         <ul className="grid gap-3 text-slate-800 sm:grid-cols-2 lg:grid-cols-3">
           <li className="min-w-0 break-words">
-            <strong className="text-slate-600">ULTIMO SERVICIO (MOPER):</strong> {c.ultimoServicio || "—"}
+            <strong className="text-slate-600">SERVICIO (VIGENTE):</strong> {servicioLineaColaborador(c) || "—"}
           </li>
           <li className="min-w-0 break-words">
-            <strong className="text-slate-600">LINEA ACTUAL MOPER:</strong>{" "}
-            {servicioLineaColaborador(c) || "—"} — {c.moperActual?.puesto || c.puesto || "—"}
+            <strong className="text-slate-600">N.º SERVICIO:</strong> {noServicioColaborador(c, catalogoServicios) || "—"}
+          </li>
+          <li className="min-w-0 break-words">
+            <strong className="text-slate-600">POSICIÓN (PUESTO EN PLANTA):</strong>{" "}
+            {posicionLaboralColaborador(c, catalogoServicios) || "—"}
+          </li>
+          <li className="min-w-0 break-words">
+            <strong className="text-slate-600">PLANTA:</strong> {plantaColaborador(c, catalogoServicios) || "—"}
+          </li>
+          <li className="min-w-0 break-words">
+            <strong className="text-slate-600">PUESTO (VIGENTE):</strong> {c.moperActual?.puesto || c.puesto || "—"}
+          </li>
+          <li className="min-w-0 break-words">
+            <strong className="text-slate-600">NSS (IMSS):</strong>{" "}
+            {String(c.form?.imss ?? c.nss ?? "").trim() || "—"}
+          </li>
+          <li className="min-w-0 break-words">
+            <strong className="text-slate-600">ULTIMO SERVICIO (MOPER):</strong> {c.ultimoServicio || "—"}
           </li>
           <li className="min-w-0 break-words">
             <strong className="text-slate-600">REGISTRADO EN:</strong>{" "}
@@ -653,6 +702,7 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
             key={`parte-${num}`}
             titulo={ALTAS_ETIQUETA_PARTE_IMPORT[num] ?? `PARTE ${num}`}
             grupo={porParte.get(num)}
+            form={c.form ?? {}}
           />
         ))}
 
@@ -674,9 +724,11 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
           )}
         </section>
 
-        <ExpedienteBloqueParte titulo={ALTAS_ETIQUETA_PARTE_IMPORT[6] ?? "MOPER"} grupo={porParte.get(6)} />
+        <ExpedienteBloqueParte titulo={ALTAS_ETIQUETA_PARTE_IMPORT[6] ?? "MOPER"} grupo={porParte.get(6)} form={c.form ?? {}} />
 
-        {otrosCampos ? <ExpedienteBloqueParte titulo={otrosCampos.titulo} grupo={otrosCampos} /> : null}
+        {otrosCampos ? (
+          <ExpedienteBloqueParte titulo={otrosCampos.titulo} grupo={otrosCampos} form={c.form ?? {}} />
+        ) : null}
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -722,8 +774,20 @@ function DetalleExpediente({ c, ocultarNomina }: { c: ColaboradorCompleto; ocult
   );
 }
 
-function ExpedienteBloqueParte({ titulo, grupo }: { titulo: string; grupo?: FormParteGrupo }) {
+function ExpedienteBloqueParte({
+  titulo,
+  grupo,
+  form = {},
+}: {
+  titulo: string;
+  grupo?: FormParteGrupo;
+  form?: Record<string, string>;
+}) {
   const hay = grupo && grupo.entries.length > 0;
+  const fechaNacimientoExp =
+    String(form.fechaNacimiento ?? "").trim() ||
+    String(grupo?.entries.find((e) => e.key === "fechaNacimiento")?.value ?? "").trim();
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h4 className="mb-3 border-b border-slate-100 pb-2 text-sm font-bold uppercase text-slate-800 sm:text-base">{titulo}</h4>
@@ -731,14 +795,21 @@ function ExpedienteBloqueParte({ titulo, grupo }: { titulo: string; grupo?: Form
         <p className="text-xs italic leading-relaxed text-slate-500 sm:text-sm">SIN DATOS CAPTURADOS EN ESTA PARTE.</p>
       ) : (
         <div className="grid max-h-[min(28rem,50vh)] grid-cols-1 gap-x-6 gap-y-3 overflow-auto sm:grid-cols-2 lg:grid-cols-3">
-          {grupo.entries.map(({ key, label, value }) => (
-            <div key={key} className="min-w-0">
-              <p className="text-xs font-semibold uppercase leading-snug text-slate-500 sm:text-sm">{label}</p>
-              <p className="mt-0.5 break-words font-mono text-sm uppercase leading-snug text-slate-900 sm:text-base">
-                {String(value).toUpperCase()}
-              </p>
-            </div>
-          ))}
+          {grupo.entries.map(({ key, label, value }) => {
+            const mostrar =
+              key === "edad"
+                ? textoEdadDesdeExpediente(fechaNacimientoExp, String(value))
+                : String(value);
+            const etiqueta = key === "edad" ? `${label} (AL DÍA DE HOY)` : label;
+            return (
+              <div key={key} className="min-w-0">
+                <p className="text-xs font-semibold uppercase leading-snug text-slate-500 sm:text-sm">{etiqueta}</p>
+                <p className="mt-0.5 break-words font-mono text-sm uppercase leading-snug text-slate-900 sm:text-base">
+                  {mostrar.trim() ? mostrar.toUpperCase() : "—"}
+                </p>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

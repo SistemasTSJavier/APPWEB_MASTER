@@ -1,7 +1,39 @@
 import { foldSpanishForAsciiKeys } from "@/lib/text-es-mx";
 
-/** Parser CSV mínimo (comillas dobles, comas, saltos de línea \n / \r\n). */
-export function parseCsvContent(text: string): string[][] {
+function countDelimsOutsideQuotes(line: string, delim: string): number {
+  let n = 0;
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (c === '"') {
+      if (line[i + 1] === '"') {
+        i++;
+        continue;
+      }
+      inQ = !inQ;
+      continue;
+    }
+    if (!inQ && c === delim) n++;
+  }
+  return n;
+}
+
+/** Primera línea no vacía: el delimitador con más ocurrencias (Excel MX suele usar `;`). */
+export function detectCsvDelimiter(text: string): string {
+  const firstLine =
+    text
+      .replace(/^\uFEFF/, "")
+      .split(/\r\n|\n|\r/)
+      .find((l) => l.trim()) ?? "";
+  const semi = countDelimsOutsideQuotes(firstLine, ";");
+  const comma = countDelimsOutsideQuotes(firstLine, ",");
+  const tab = countDelimsOutsideQuotes(firstLine, "\t");
+  if (semi > comma && semi >= tab && semi > 0) return ";";
+  if (tab > comma && tab > semi && tab > 0) return "\t";
+  return ",";
+}
+
+function parseCsvWithDelimiter(text: string, delimiter: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -29,7 +61,7 @@ export function parseCsvContent(text: string): string[][] {
       i++;
       continue;
     }
-    if (c === ",") {
+    if (c === delimiter) {
       row.push(cell);
       cell = "";
       i++;
@@ -50,6 +82,24 @@ export function parseCsvContent(text: string): string[][] {
   row.push(cell);
   if (row.some((x) => String(x ?? "").trim() !== "")) rows.push(row);
   return rows;
+}
+
+/** Parser CSV mínimo (comillas dobles, delimitador auto en la 1.ª línea, saltos \n / \r\n). */
+export function parseCsvContent(text: string): string[][] {
+  const delim = detectCsvDelimiter(text);
+  return parseCsvWithDelimiter(text, delim);
+}
+
+/** Normaliza celdas numéricas exportadas por Excel (p. ej. `903.0`, `1006.0`). */
+export function normalizarCeldaCsvNumerica(raw: string): string {
+  let t = String(raw ?? "").trim();
+  if (!t) return "";
+  if (/^\d+\.0+$/.test(t)) return t.replace(/\.0+$/, "");
+  const asNum = Number(t);
+  if (Number.isFinite(asNum) && Number.isInteger(asNum) && /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(t)) {
+    return String(asNum);
+  }
+  return t;
 }
 
 /** Encabezado CSV → clave `snake_case`: español (México), conserva **ñ**, quita tildes en vocales. */

@@ -10,6 +10,7 @@ import {
 } from "@/lib/colaboradores-store";
 import { colaboradorTieneBaja, fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
+import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import { importColaboradoresDesdeCsv, generarCsvPlantillaAltas } from "@/lib/altas-csv-import";
 import {
   ALTAS_ETIQUETA_PARTE_IMPORT,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/altas-import-partes";
 import { downloadCsv } from "@/lib/colaboradores-csv";
 import { type CatalogoServicioItem, fetchServiciosCatalogo } from "@/lib/servicios-catalogo-client";
+import { catalogoPorNombre } from "@/lib/colaboradores-catalogo-display";
 import type { AppRole } from "@/lib/app-role";
 import { roleMayWriteAltas } from "@/lib/app-role";
 import { aplicarUnSoloCampoColaborador } from "@/lib/altas-un-campo";
@@ -72,6 +74,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     nombreCompleto: "",
     puesto: "",
     servicio: "",
+    noServicio: "",
+    planta: "",
     posicion: "",
     localForaneo: "LOCAL",
     numeroFolio: "",
@@ -250,7 +254,15 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   }, [coincidenciaNombreBaja?.mejor.noEmpleado, coincidenciaNombreBaja?.total]);
 
   function updateField(name: string, value: string) {
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [name]: value };
+      if (name === "fechaNacimiento") {
+        const fn = normalizarFechaParaInputDate(value.trim());
+        const ed = fn ? edadAniosAlaFecha(fn) : null;
+        next.edad = ed != null ? String(ed) : "";
+      }
+      return next;
+    });
   }
 
   function addFamiliar() {
@@ -307,6 +319,9 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     for (const [k, v] of Object.entries(form)) {
       flatForm[k] = String(v ?? "");
     }
+    const fnNorm = normalizarFechaParaInputDate(flatForm.fechaNacimiento?.trim() ?? "");
+    const edadCalc = fnNorm ? edadAniosAlaFecha(fnNorm) : null;
+    if (edadCalc != null) flatForm.edad = String(edadCalc);
 
     const servicioAlta = form.servicio.trim();
 
@@ -465,11 +480,11 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           <section className="card mb-4 border-2 border-blue-900/25 bg-gradient-to-br from-blue-50 to-slate-50 space-y-4">
             <h2 className="text-base font-bold uppercase text-slate-900">Administrador: CSV de correccion (dos columnas)</h2>
             <p className="text-sm font-medium text-slate-800">
-              Archivo con solo dos columnas: una es el numero de empleado (ej. <code className="rounded bg-white px-1">no_de_empleado</code>) y la
-              otra el nombre del dato que falta o esta mal (ej. <code className="rounded bg-white px-1">curp</code>,{" "}
-              <code className="rounded bg-white px-1">servicio</code>, <code className="rounded bg-white px-1">fecha_de_ingreso</code>). Los
-              encabezados usan el mismo criterio que el CSV masivo de colaboradores. Cada fila actualiza solo ese campo; el resto del expediente no
-              cambia.
+              Archivo con solo dos columnas: una es el numero de empleado (ej.{" "}
+              <code className="rounded bg-white px-1">no_de_empleado</code>) y la otra el campo a corregir (ej.{" "}
+              <code className="rounded bg-white px-1">planta</code>, <code className="rounded bg-white px-1">curp</code>,{" "}
+              <code className="rounded bg-white px-1">servicio</code>, <code className="rounded bg-white px-1">fecha_de_ingreso</code>). Los encabezados
+              usan el mismo criterio que el CSV masivo de colaboradores. Cada fila actualiza solo ese campo; el resto del expediente no cambia.
             </p>
             <input
               ref={csvCorreccionDosRef}
@@ -814,7 +829,20 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                     className="form-control uppercase"
                     list="lista-catalogo-servicios-altas"
                     value={form.servicio}
-                    onChange={(e) => updateField("servicio", e.target.value)}
+                    onChange={(e) => {
+                      const nombre = e.target.value;
+                      const match = catalogoPorNombre(catalogoServicios, nombre);
+                      setForm((f) => ({
+                        ...f,
+                        servicio: nombre,
+                        ...(match
+                          ? {
+                              noServicio: (match.numero_servicio ?? "").trim(),
+                              planta: (match.planta ?? "").trim(),
+                            }
+                          : {}),
+                      }));
+                    }}
                     placeholder={catalogoServicios.length ? "ELIGE DE LA LISTA O ESCRIBE…" : "CAPTURA O CONFIGURA CATÁLOGO EN SERVICIOS"}
                     autoComplete="off"
                   />
@@ -830,6 +858,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                     . Tambien puedes escribir un servicio que no este en la lista.
                   </p>
                 </label>
+                <Field label="N.º SERVICIO" value={form.noServicio} onChange={(v) => updateField("noServicio", v)} />
+                <Field label="PLANTA" value={form.planta} onChange={(v) => updateField("planta", v)} />
                 <Field label="POSICION" value={form.posicion} onChange={(v) => updateField("posicion", v)} />
                 <SelectField
                   label="LOCAL/FORANEO"
@@ -856,7 +886,12 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 <Field label="APELLIDO MATERNO" value={form.apellidoMaterno} onChange={(v) => updateField("apellidoMaterno", v)} />
                 <Field label="NOMBRE(S)" value={form.nombres} onChange={(v) => updateField("nombres", v)} />
                 <Field label="FECHA DE NACIMIENTO" type="date" value={form.fechaNacimiento} onChange={(v) => updateField("fechaNacimiento", v)} />
-                <Field label="EDAD" type="number" value={form.edad} onChange={(v) => updateField("edad", v)} />
+                <Field
+                  label="EDAD (AL DÍA DE HOY)"
+                  value={textoEdadDesdeExpediente(form.fechaNacimiento, form.edad)}
+                  onChange={() => {}}
+                  readOnly
+                />
                 <Field label="ESTADO CIVIL" value={form.estadoCivil} onChange={(v) => updateField("estadoCivil", v)} />
                 <Field label="CURP" value={form.curp} onChange={(v) => updateField("curp", v)} />
                 <Field label="RFC" value={form.rfc} onChange={(v) => updateField("rfc", v)} />

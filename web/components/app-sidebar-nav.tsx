@@ -66,12 +66,14 @@ export function AppSidebarNav({
           {email}
         </p>
         <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-200">{APP_ROLE_LABEL[role]}</p>
-        <a
-          href="/auth/signout"
-          className="mt-2 inline-block text-sm font-bold text-sky-200 underline-offset-2 hover:text-white hover:underline md:mt-3"
-        >
-          Cerrar sesión
-        </a>
+        <form action="/auth/signout" method="post" className="mt-2 md:mt-3">
+          <button
+            type="submit"
+            className="text-sm font-bold text-sky-200 underline-offset-2 hover:text-white hover:underline"
+          >
+            Cerrar sesión
+          </button>
+        </form>
       </div>
     </aside>
   );

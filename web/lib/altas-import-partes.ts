@@ -1,4 +1,5 @@
 import { parseCsvContent } from "@/lib/csv";
+import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
 import {
   ENCABEZADOS_CSV_FAMILIARES_ANCHO,
   familiaresDesdeFilaAncha,
@@ -121,6 +122,8 @@ export function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>)
   put("nombreCompleto", "nombreCompleto");
   put("puesto", "puesto");
   put("servicio", "servicio");
+  put("noServicio", "noServicio");
+  put("planta", "planta");
   put("posicion", "posicion");
   put("localForaneo", "localForaneo");
   put("numeroFolio", "numeroFolio");
@@ -187,12 +190,19 @@ export function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>)
 }
 
 export function aplicarSnapDesdePick(base: ColaboradorCompleto, picked: Partial<Record<CsvFieldKey, string>>): ColaboradorCompleto {
-  const n = { ...base };
+  let n = { ...base };
   if (picked.nombreCompleto !== undefined) n.nombreCompleto = g(picked, "nombreCompleto");
   if (picked.fechaIngreso !== undefined) n.fechaIngreso = g(picked, "fechaIngreso");
   if (picked.servicio !== undefined) n.servicioAsignado = g(picked, "servicio");
   if (picked.puesto !== undefined) n.puesto = g(picked, "puesto");
-  if (picked.posicion !== undefined) n.posicion = g(picked, "posicion");
+  if (picked.posicion !== undefined) {
+    n.posicion = g(picked, "posicion");
+    n.form = { ...n.form, posicion: g(picked, "posicion") };
+  }
+  if (picked.noServicio !== undefined) {
+    const v = g(picked, "noServicio");
+    if (v) n = limpiarPosicionDuplicadaDeNoServicio(n, v);
+  }
   if (picked.imss !== undefined) n.nss = g(picked, "imss");
   if (picked.ultimoServicio !== undefined) n.ultimoServicio = g(picked, "ultimoServicio");
   if (picked.registradoAt !== undefined) {

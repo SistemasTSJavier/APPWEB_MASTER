@@ -10,7 +10,9 @@ import {
   etiquetaCampoExpediente,
 } from "@/lib/altas-expediente-partes";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
+import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
+import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
 
 const DATE_KEYS = new Set([
   "fechaIngreso",
@@ -29,7 +31,7 @@ const TEXTAREA_KEYS = new Set([
   "documentacionOriginal",
 ]);
 
-const NUMBER_KEYS = new Set(["edad", "sueldoMensual"]);
+const NUMBER_KEYS = new Set(["sueldoMensual"]);
 
 function formInicialDesdeColaborador(c: ColaboradorCompleto): Record<string, string> {
   const o: Record<string, string> = { ...c.form };
@@ -89,6 +91,10 @@ export function EditorExpedienteCompleto({ colaborador, catalogoServicios, onCan
         noEmpleado1: colaborador.noEmpleado,
       };
 
+      const fnNorm = normalizarFechaParaInputDate(String(form.fechaNacimiento ?? "").trim());
+      const edadCalc = fnNorm ? edadAniosAlaFecha(fnNorm) : null;
+      if (edadCalc != null) form.edad = String(edadCalc);
+
       const nombreT = (form.nombreCompleto ?? "").trim() || colaborador.nombreCompleto;
       const srv = (form.servicio ?? "").trim();
       const pst = (form.puesto ?? "").trim();
@@ -104,7 +110,7 @@ export function EditorExpedienteCompleto({ colaborador, catalogoServicios, onCan
         (f) => f.nombreFamiliar.trim() || f.parentesco.trim() || f.fechaNacimiento.trim(),
       );
 
-      const actualizado: ColaboradorCompleto = {
+      let actualizado: ColaboradorCompleto = {
         ...colaborador,
         nombreCompleto: nombreT,
         fechaIngreso: (form.fechaIngreso ?? "").trim() || colaborador.fechaIngreso,
@@ -117,6 +123,7 @@ export function EditorExpedienteCompleto({ colaborador, catalogoServicios, onCan
         familiares: famFiltrados,
         form,
       };
+      actualizado = limpiarPosicionDuplicadaDeNoServicio(actualizado);
 
       await upsertColaboradorCompleto(actualizado);
       await onGuardado(actualizado);
@@ -150,7 +157,22 @@ export function EditorExpedienteCompleto({ colaborador, catalogoServicios, onCan
             className="form-control uppercase"
             list={dlId}
             value={raw}
-            onChange={(e) => setKey(key, e.target.value)}
+            onChange={(e) => {
+              const nombre = e.target.value;
+              const match = catalogoServicios.find(
+                (s) => s.nombre.trim().replace(/\s+/g, " ").toUpperCase() === nombre.trim().replace(/\s+/g, " ").toUpperCase(),
+              );
+              setFormValues((prev) => ({
+                ...prev,
+                servicio: nombre,
+                ...(match
+                  ? {
+                      noServicio: (match.numero_servicio ?? "").trim(),
+                      planta: (match.planta ?? "").trim(),
+                    }
+                  : {}),
+              }));
+            }}
             autoComplete="off"
           />
           <datalist id={dlId}>
@@ -163,6 +185,20 @@ export function EditorExpedienteCompleto({ colaborador, catalogoServicios, onCan
               Catálogo servicios
             </Link>
           </p>
+        </label>
+      );
+    }
+
+    if (key === "noServicio" || key === "planta") {
+      return (
+        <label key={key} className="space-y-1">
+          <span className="form-label uppercase">{label}</span>
+          <input
+            className={`form-control ${key === "noServicio" ? "" : "uppercase"}`}
+            value={raw}
+            onChange={(e) => setKey(key, e.target.value)}
+            autoComplete="off"
+          />
         </label>
       );
     }
@@ -203,6 +239,24 @@ export function EditorExpedienteCompleto({ colaborador, catalogoServicios, onCan
         <label key={key} className="space-y-1">
           <span className="form-label uppercase">{label}</span>
           <input className="form-control uppercase" type="date" value={v} onChange={(e) => setKey(key, e.target.value)} />
+        </label>
+      );
+    }
+
+    if (key === "edad") {
+      const muestra = textoEdadDesdeExpediente(String(formValues.fechaNacimiento ?? ""), raw);
+      return (
+        <label key={key} className="space-y-1">
+          <span className="form-label uppercase">{label}</span>
+          <input
+            className="form-control uppercase bg-slate-100 text-slate-700"
+            readOnly
+            value={muestra ? muestra.toUpperCase() : ""}
+            aria-readonly="true"
+          />
+          <span className="text-[10px] font-medium uppercase leading-tight text-slate-500">
+            Años cumplidos al día de hoy según fecha de nacimiento
+          </span>
         </label>
       );
     }

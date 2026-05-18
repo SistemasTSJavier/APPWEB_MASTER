@@ -36,6 +36,8 @@ export const CSV_TABLE_KEYS: Record<CsvMysqlTable, readonly CsvFieldKey[]> = {
     "puestoFinal",
     "servicio",
     "servicioFinal",
+    "noServicio",
+    "planta",
     "posicion",
     "localForaneo",
     "numeroFolio",

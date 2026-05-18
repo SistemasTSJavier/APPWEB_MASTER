@@ -1,4 +1,4 @@
-import { canonCsvHeader } from "@/lib/csv";
+import { canonCsvHeader, normalizarCeldaCsvNumerica } from "@/lib/csv";
 
 /** Nombre interno de campo tras leer una fila del CSV (cabeceras flexibles). */
 export type CsvFieldKey =
@@ -14,6 +14,8 @@ export type CsvFieldKey =
   | "puestoFinal"
   | "servicio"
   | "servicioFinal"
+  | "noServicio"
+  | "planta"
   | "posicion"
   | "localForaneo"
   | "numeroFolio"
@@ -96,6 +98,22 @@ const HEADER_TO_FIELD: Record<string, CsvFieldKey> = {
   servicio_asignado: "servicio",
   servicio_cliente_lugar: "servicio",
   servicio_final: "servicioFinal",
+  no_servicio: "noServicio",
+  numero_servicio: "noServicio",
+  numero_de_servicio: "noServicio",
+  n_servicio: "noServicio",
+  n_de_servicio: "noServicio",
+  no_de_servicio: "noServicio",
+  num_servicio: "noServicio",
+  nro_servicio: "noServicio",
+  nro_de_servicio: "noServicio",
+  no_srv: "noServicio",
+  no_serv: "noServicio",
+  servicio_no: "noServicio",
+  planta: "planta",
+  planta_sitio: "planta",
+  planta_o_sitio: "planta",
+  sitio_planta: "planta",
   posicion: "posicion",
   local_foraneo: "localForaneo",
   local_o_foraneo: "localForaneo",
@@ -612,9 +630,43 @@ function matchNominaColumnFuzzy(canon: string): CsvFieldKey | undefined {
   return undefined;
 }
 
+/** Columnas tipo «N.º servicio» / «número de servicio» que no están en HEADER_TO_FIELD literal. */
+function matchNoServicioColumnFuzzy(canon: string): CsvFieldKey | undefined {
+  if (!canon.includes("servicio")) return undefined;
+  /** POSICION / POSICION EN SERVICIO = puesto laboral, no N.º de catálogo. */
+  if (canon.includes("posicion")) return undefined;
+  if (
+    canon === "servicio" ||
+    canon === "servicio_asignado" ||
+    canon === "servicio_cliente_lugar" ||
+    canon === "servicio_final" ||
+    canon === "ultimo_servicio" ||
+    canon === "ultimo_servicio_moper"
+  ) {
+    return undefined;
+  }
+  if (canon.includes("ultimo") || canon.includes("final") || canon.includes("cliente") || canon.includes("lugar")) {
+    return undefined;
+  }
+  if (
+    canon.includes("no_") ||
+    canon.includes("numero") ||
+    canon.includes("num_") ||
+    canon.includes("nro") ||
+    canon.startsWith("n_") ||
+    canon.includes("clave_serv") ||
+    /^num\d*_serv/.test(canon)
+  ) {
+    return "noServicio";
+  }
+  return undefined;
+}
+
 export function resolveFieldKeyFromCanonHeader(canon: string): CsvFieldKey | undefined {
   const direct = HEADER_TO_FIELD[canon];
   if (direct) return direct;
+  const noSrv = matchNoServicioColumnFuzzy(canon);
+  if (noSrv) return noSrv;
   const docFicha = matchDocumentosFichaColumnFuzzy(canon);
   if (docFicha) return docFicha;
   const salud = matchSaludColumnFuzzy(canon);
@@ -635,10 +687,13 @@ export function buildHeaderFieldIndex(headerRow: string[]): Map<number, CsvField
   return map;
 }
 
+const NUMERIC_CSV_FIELDS = new Set<CsvFieldKey>(["noEmpleado", "noServicio", "posicion", "imss", "numeroFolio"]);
+
 export function rowToFieldMap(cells: string[], index: Map<number, CsvFieldKey>): Partial<Record<CsvFieldKey, string>> {
   const out: Partial<Record<CsvFieldKey, string>> = {};
   index.forEach((field, colIdx) => {
-    const v = (cells[colIdx] ?? "").trim();
+    let v = (cells[colIdx] ?? "").trim();
+    if (NUMERIC_CSV_FIELDS.has(field)) v = normalizarCeldaCsvNumerica(v);
     if (v !== "") out[field] = v;
   });
   return out;

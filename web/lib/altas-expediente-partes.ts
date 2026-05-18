@@ -14,6 +14,8 @@ export const ALTAS_FORM_KEYS_PARTE: Record<number, readonly string[]> = {
     "nombreCompleto",
     "puesto",
     "servicio",
+    "noServicio",
+    "planta",
     "posicion",
     "localForaneo",
     "numeroFolio",
@@ -83,6 +85,8 @@ const LABELS: Record<string, string> = {
   nombreCompleto: "NOMBRE COMPLETO",
   puesto: "PUESTO",
   servicio: "SERVICIO (CLIENTE/LUGAR)",
+  noServicio: "N.º SERVICIO",
+  planta: "PLANTA",
   posicion: "POSICION",
   localForaneo: "LOCAL/FORANEO",
   numeroFolio: "NUMERO DE EXPEDIENTE",
@@ -165,8 +169,17 @@ export function groupFormByAltasPartes(form: Record<string, string>): FormParteG
     const keys = ALTAS_FORM_KEYS_PARTE[p] ?? [];
     const entries: FormParteGrupo["entries"] = [];
     for (const k of keys) {
-      const raw = form[k];
-      if (raw === undefined || String(raw).trim() === "") continue;
+      let raw = form[k];
+      const vacio = raw === undefined || String(raw).trim() === "";
+
+      /** Mostrar EDAD si hay fecha de nacimiento aunque el campo guardado esté vacío (se calcula al ver). */
+      if (k === "edad" && vacio && String(form.fechaNacimiento ?? "").trim() !== "") {
+        entries.push({ key: k, label: etiquetaCampoExpediente(k), value: "" });
+        used.add(k);
+        continue;
+      }
+
+      if (vacio) continue;
       used.add(k);
       entries.push({ key: k, label: etiquetaCampoExpediente(k), value: String(raw) });
     }

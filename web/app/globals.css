@@ -89,6 +89,7 @@ body {
   }
   .table-wrap {
     @apply overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-sm shadow-slate-900/[0.03];
+    -webkit-overflow-scrolling: touch;
   }
   .table-head {
     @apply bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-900 sm:text-sm;

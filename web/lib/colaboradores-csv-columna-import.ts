@@ -11,6 +11,7 @@ import {
   mergeFormPreserve,
 } from "@/lib/altas-import-partes";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
+import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
 import { alinearColaboradorTrasImportColumnaServicio } from "@/lib/servicio-agrupacion";
 
 function g(p: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
@@ -43,10 +44,18 @@ export function analizarCabecerasCsvUnaColumna(headerRow: string[]): CabecerasUn
     };
   }
   if (dataCols.length === 0) {
+    const sinMapear = headers
+      .map((h, i) => ({ h, i }))
+      .filter(({ h, i }) => h.trim() && !fieldIndex.has(i))
+      .map(({ h }) => h);
+    const extra =
+      sinMapear.length > 0
+        ? ` Columna no reconocida: «${sinMapear.join("», «")}». N.º servicio: NO_SERVICIO o NO. SERVICIO. POSICION es otro campo (puesto en planta).`
+        : "";
     return {
       ok: false,
       message:
-        "NO SE DETECTO COLUMNA DE DATOS. Ademas del N° empleado debe haber UNA columna (ej. ESTADO CIVIL, CURP, TELEFONO, etc.).",
+        `NO SE DETECTO COLUMNA DE DATOS. Ademas del N° empleado debe haber UNA columna reconocida (ej. NO. SERVICIO, CURP, PLANTA).${extra}`,
     };
   }
   if (dataCols.length > 1) {
@@ -86,6 +95,14 @@ export function procesarCsvActualizacionUnaColumna(
   const rows = parseCsvContent(stripped);
   if (rows.length < 2) {
     return { ok: false, message: "EL CSV DEBE TENER ENCABEZADOS Y AL MENOS UNA FILA DE DATOS." };
+  }
+  const colCount = Math.max(...rows.map((r) => r.length), 0);
+  if (colCount < 2) {
+    return {
+      ok: false,
+      message:
+        "SOLO SE DETECTO UNA COLUMNA. Guarda el CSV con dos columnas (empleado + dato). En Excel (España) el separador suele ser punto y coma (;).",
+    };
   }
   const headerRow = rows[0]!.map((c) => String(c ?? "").trim());
   const head = analizarCabecerasCsvUnaColumna(headerRow);
@@ -136,6 +153,9 @@ export function procesarCsvActualizacionUnaColumna(
       if (valorServicio) {
         merged = alinearColaboradorTrasImportColumnaServicio(merged, valorServicio);
       }
+    }
+    if (dataFieldKey === "noServicio") {
+      merged = limpiarPosicionDuplicadaDeNoServicio(merged, g(picked, "noServicio"));
     }
 
     toWrite.set(no, merged);

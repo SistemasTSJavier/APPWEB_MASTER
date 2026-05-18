@@ -4,7 +4,7 @@
  * Resumen:
  * - admin: acceso total.
  * - rh: acceso total operativo (incl. MOPER).
- * - aux_rh: todas las secciones excepto MOPER; puede registrar/editar (no solo ver).
+ * - aux_rh: todas las secciones excepto MOPER; puede registrar/editar (no solo ver). Incluye Cuadrícula.
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura) y MOPER (registra/edita). Sin altas, expedientes legal, servicios ni ficha técnica.
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV (filtros, selección).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
@@ -79,6 +79,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/altas": ["admin", "rh", "aux_rh"],
   "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua"],
   "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
+  "/cuadricula": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas"],
   "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
   "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal"],
   "/servicios": ["admin", "rh", "aux_rh"],
@@ -178,12 +179,25 @@ export function roleMayReadMoperHistorialApi(role: AppRole): boolean {
   );
 }
 
+/** Lectura del catálogo (lista desplegable): operación y cuadrícula (nóminas, gerente RH, mejora). */
 export function roleMayReadServiciosCatalogo(role: AppRole): boolean {
-  return role === "admin" || role === "rh" || role === "aux_rh";
+  return (
+    role === "admin" ||
+    role === "rh" ||
+    role === "aux_rh" ||
+    role === "gerente_rh" ||
+    role === "mejora_continua" ||
+    role === "nominas"
+  );
 }
 
 export function roleMayEditServiciosCatalogo(role: AppRole): boolean {
   return role === "admin" || role === "rh" || role === "aux_rh";
+}
+
+/** Importación CSV del catálogo (2 col: nombre + N.º; 3 col: + planta); solo administrador. */
+export function roleMayImportServiciosCatalogoDosColumnasAdmin(role: AppRole): boolean {
+  return role === "admin";
 }
 
 /** Enlaces del panel lateral en la página de inicio (según rol). */
@@ -192,6 +206,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
     { href: "/servicios", label: "Servicios", roles: ["admin", "rh", "aux_rh"] },
     { href: "/bajas", label: "Bajas", roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua"] },
+    {
+      href: "/cuadricula",
+      label: "Cuadrícula",
+      roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas"],
+    },
     {
       href: "/colaboradores",
       label: "Colaboradores",

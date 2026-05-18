@@ -9,6 +9,7 @@ import {
   sueldoFormateado,
   txt,
 } from "@/lib/ficha-tecnica-model";
+import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 
 const LOGO_FICHA_SRC = "/logo_ficha_tecnica.png";
 
@@ -138,7 +139,10 @@ export function FichaTecnicaVista({ colaborador: c, ocultarNomina }: Props) {
         <Celda label="APELLIDO PATERNO" value={displayOrDash(txt(f.apellidoPaterno))} />
         <Celda label="APELLIDO MATERNO" value={displayOrDash(txt(f.apellidoMaterno))} />
         <Celda label="NOMBRE(S)" value={displayOrDash(txt(f.nombres) || txt(c.nombreCompleto))} />
-        <Celda label="EDAD" value={displayOrDash(txt(f.edad))} />
+        <Celda
+          label="EDAD"
+          value={textoEdadDesdeExpediente(String(f.fechaNacimiento ?? ""), String(f.edad ?? ""))}
+        />
         <Celda label="ESTATURA" value={displayOrDash(estatura)} />
         <Celda label="PESO" value={displayOrDash(peso)} />
         <Celda label="ESTADO CIVIL" value={estadoCivil} />

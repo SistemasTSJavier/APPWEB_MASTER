@@ -12,7 +12,16 @@ function publicApiPath(pathname: string): boolean {
   return pathname === "/api/supabase/status" || pathname === "/api/auth/me";
 }
 
-export async function middleware(request: NextRequest) {
+/** Rutas de auth que no requieren sesión (login, callback OAuth, cerrar sesión). */
+function isAuthPublicPath(pathname: string): boolean {
+  return (
+    pathname === "/login" ||
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/auth/signout")
+  );
+}
+
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -33,7 +42,9 @@ export async function middleware(request: NextRequest) {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) => supabaseResponse.cookies.set(name, value, options));
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options),
+          );
         },
       },
     });
@@ -44,8 +55,7 @@ export async function middleware(request: NextRequest) {
       user = data.user ?? null;
     }
   } catch {
-    /** Fallo de red / TLS / DNS al llamar a Supabase Auth desde Edge (p. ej. `fetch failed`). */
-    if (pathname === "/login" || pathname.startsWith("/auth/callback")) {
+    if (isAuthPublicPath(pathname)) {
       return supabaseResponse;
     }
     if (pathname.startsWith("/api/")) {
@@ -68,17 +78,20 @@ export async function middleware(request: NextRequest) {
       if (publicApiPath(pathname)) return supabaseResponse;
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
-    if (pathname === "/login" || pathname.startsWith("/auth/callback")) {
+    if (isAuthPublicPath(pathname)) {
       return supabaseResponse;
     }
     const login = new URL("/login", request.url);
     return NextResponse.redirect(login);
   }
 
-  const role: AppRole | null = parseAppRole(user.user_metadata?.app_role ?? user.app_metadata?.app_role);
+  const role: AppRole | null = parseAppRole(
+    user.user_metadata?.app_role ?? user.app_metadata?.app_role,
+  );
 
   if (!role) {
     if (pathname === "/login") return supabaseResponse;
+    if (pathname.startsWith("/auth/signout")) return supabaseResponse;
     if (pathname.startsWith("/api/") && publicApiPath(pathname)) return supabaseResponse;
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Usuario sin app_role en metadata" }, { status: 403 });
