@@ -25,6 +25,12 @@ import {
   buildVacantesCsvTemplate,
   importVacantesCsvToCatalog,
 } from '../vacantesCsvImport'
+import {
+  fetchVacantesCatalogRemote,
+  pullVacantesCatalogFromRemoteToLocal,
+  syncLocalVacantesCatalogToRemote,
+} from '../vacantesRemote'
+import { saveVacantesCatalogoDirect } from '@/lib/vacantes-catalog'
 
 export function VacantesView() {
   const { colaboradores, catalogo, loading, error, reload, puedeEditar } = useCuadriculaData()
@@ -35,6 +41,7 @@ export function VacantesView() {
   const [notas, setNotas] = useState('')
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [filtroPlantaLista, setFiltroPlantaLista] = useState('')
+  const [syncBusy, setSyncBusy] = useState(false)
   const importCsvRef = useRef<HTMLInputElement>(null)
 
   const recargarCatalogo = useCallback(() => {
@@ -46,6 +53,20 @@ export function VacantesView() {
     const onUpdate = () => recargarCatalogo()
     window.addEventListener(VACANTES_CATALOG_UPDATED_EVENT, onUpdate)
     return () => window.removeEventListener(VACANTES_CATALOG_UPDATED_EVENT, onUpdate)
+  }, [recargarCatalogo])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const local = loadVacantesCatalogo()
+      if (local.length > 0) return
+      const remote = await fetchVacantesCatalogRemote()
+      if (cancelled || remote.meta.status !== 'ok' || remote.items.length === 0) return
+      if (saveVacantesCatalogoDirect(remote.items)) recargarCatalogo()
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [recargarCatalogo])
 
   const plantasOpciones = useMemo(
@@ -174,6 +195,32 @@ export function VacantesView() {
     }
   }
 
+  async function subirVacantesAProduccion() {
+    if (!puedeEditar || syncBusy) return
+    setSyncBusy(true)
+    setMensaje(null)
+    try {
+      const r = await syncLocalVacantesCatalogToRemote()
+      setMensaje(r.message)
+      if (r.ok) recargarCatalogo()
+    } finally {
+      setSyncBusy(false)
+    }
+  }
+
+  async function descargarVacantesDesdeProduccion() {
+    if (!puedeEditar || syncBusy) return
+    setSyncBusy(true)
+    setMensaje(null)
+    try {
+      const r = await pullVacantesCatalogFromRemoteToLocal()
+      setMensaje(r.message)
+      if (r.ok) recargarCatalogo()
+    } finally {
+      setSyncBusy(false)
+    }
+  }
+
   function onQuitar(id: string) {
     if (!puedeEditar) return
     if (!removeVacanteFromCatalog(id)) {
@@ -223,6 +270,35 @@ export function VacantesView() {
                   ))}
                 </select>
               </label>
+              {puedeEditar ? (
+                <div className="field field--action">
+                  <span className="field__label">Producción (Supabase)</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={() => void subirVacantesAProduccion()}
+                      disabled={loading || syncBusy || catalogoVacantes.length === 0}
+                      title="Sube el catálogo de este navegador a la base de datos compartida"
+                    >
+                      {syncBusy ? 'Sincronizando…' : 'Subir vacantes locales → producción'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => void descargarVacantesDesdeProduccion()}
+                      disabled={loading || syncBusy}
+                      title="Reemplaza el catálogo local con el de producción"
+                    >
+                      Cargar desde producción
+                    </button>
+                  </div>
+                  <p className="mt-1 max-w-xl text-[11px] leading-snug text-slate-600">
+                    Local: {catalogoVacantes.length} vacante(s). Use «Subir» después de registrar o importar CSV en este
+                    equipo. Requiere migración <strong>012_cuadricula_vacantes_catalog</strong> en Supabase.
+                  </p>
+                </div>
+              ) : null}
               {puedeEditar ? (
                 <div className="field field--action">
                   <span className="field__label">CSV</span>

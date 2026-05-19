@@ -6,16 +6,21 @@ import {
   reconcileRowServiceNo,
 } from '@/lib/colaboradores-catalogo-display'
 import type { CatalogoServicioItem } from '@/lib/servicios-catalogo-client'
-import { mergeGridRowsForPlantaWeek } from './attendanceSemanaColaborador'
 import { reassignFaltaSequence } from './attendanceFaltaSequence'
 import { saveAttendanceGrid } from './attendanceStorage'
 import { withComputedTotals } from './attendanceTotals'
+import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import {
-  colaboradoresActivosPorPlanta,
+  colaboradorToGridRow,
   listarPlantasDeColaboradores,
   gridRowServiceNo,
   plantaToStorageKey,
 } from './cuadriculaColaboradoresBridge'
+import { enrichGridRowsEstatus } from './attendancePlantaMerge'
+import {
+  mergeGridRowsForPlantaWeek,
+  mergeGridRowsForPlantaWeekForCsvImport,
+} from './attendanceSemanaColaborador'
 import { sortGridRowsByPosicion } from './attendanceGridSort'
 import { celdasIdentificacionAsistencia } from './attendanceGridColumns'
 import type { GridRow } from './mockData'
@@ -446,7 +451,30 @@ export function pickCsvRowForGridRow(
 export type MergeCsvReconcileOpts = {
   catalogo: CatalogoServicioItem[]
   plantaNombre: string
+  /** Expediente por N.º de empleado (canónico); incluye bajas para historial en importación. */
   colaboradoresByEmp: Map<string, ColaboradorCompleto>
+  /** Si true, filas del CSV sin fila en cuadrícula se crean por N.º de empleado (activos y bajas). */
+  agregarFilasCsvPorEmpNo?: boolean
+  /** Lista completa para estatus/fecha de baja en filas añadidas. */
+  todosColaboradores?: ColaboradorCompleto[]
+}
+
+/** Mapa N.º empleado → colaborador; duplicados: prioriza activo sobre baja. */
+export function mapaColaboradoresPorNoEmpleadoCanon(
+  lista: ColaboradorCompleto[],
+): Map<string, ColaboradorCompleto> {
+  const map = new Map<string, ColaboradorCompleto>()
+  for (const c of lista) {
+    const k = canonicalEmpNoForCsvMatch(c.noEmpleado)
+    if (!k) continue
+    const prev = map.get(k)
+    if (!prev) {
+      map.set(k, c)
+      continue
+    }
+    if (colaboradorTieneBaja(prev) && !colaboradorTieneBaja(c)) map.set(k, c)
+  }
+  return map
 }
 
 export function mergeCsvShiftsIntoGridRows(
@@ -505,19 +533,62 @@ export function mergeCsvShiftsIntoGridRows(
     return withComputedTotals(merged, gridRowServiceNo(merged))
   })
 
+  const appended: GridRow[] = []
   const csvEmployeesNotInGrid: string[] = []
-  for (const [canon, rows] of csvByEmp) {
-    if (csvEmpMatched.has(canon)) continue
-    csvEmployeesNotInGrid.push(rows[0]!.employeeNo)
+
+  if (reconcile?.agregarFilasCsvPorEmpNo) {
+    for (const [canon, candidates] of csvByEmp) {
+      if (csvEmpMatched.has(canon)) continue
+      const col = reconcile.colaboradoresByEmp.get(canon)
+      if (!col) {
+        csvEmployeesNotInGrid.push(candidates[0]!.employeeNo)
+        continue
+      }
+      const synthetic = colaboradorToGridRow(col, reconcile.catalogo, reconcile.plantaNombre)
+      const { row: imp, ambiguous } = pickCsvRowForGridRow(synthetic, candidates)
+      if (!imp) {
+        if (ambiguous) ambiguousEmployeeNos.push(candidates[0]!.employeeNo)
+        else csvEmployeesNotInGrid.push(candidates[0]!.employeeNo)
+        continue
+      }
+      csvEmpMatched.add(canon)
+      updatedCount++
+      const shifts = reassignFaltaSequence(imp.shifts)
+      let row: GridRow = { ...synthetic, shifts }
+      row.rowServiceNo = reconcileRowServiceNo(
+        {
+          rowServiceNo: imp.numeroServicioCsv?.trim() || synthetic.rowServiceNo,
+          servicioLinea: imp.servicioNombreCsv?.trim() || synthetic.servicioLinea,
+        },
+        col,
+        reconcile.catalogo,
+        reconcile.plantaNombre,
+      )
+      appended.push(withComputedTotals(row, gridRowServiceNo(row)))
+    }
+  } else {
+    for (const [canon, rows] of csvByEmp) {
+      if (csvEmpMatched.has(canon)) continue
+      csvEmployeesNotInGrid.push(rows[0]!.employeeNo)
+    }
   }
 
+  const allRows = appended.length > 0 ? [...next, ...appended] : next
+  const finalRows =
+    reconcile && appended.length > 0
+      ? enrichGridRowsEstatus(
+          allRows,
+          reconcile.todosColaboradores ?? [...reconcile.colaboradoresByEmp.values()],
+        )
+      : allRows
+
   return {
-    next,
+    next: finalRows,
     updatedCount,
     csvEmployeesNotInGrid,
     gridEmployeesNotInCsv,
     ambiguousEmployeeNos,
-    gridEmployeeCount: gridCanonKeys.size,
+    gridEmployeeCount: gridCanonKeys.size + appended.length,
   }
 }
 
@@ -634,16 +705,13 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
     const scopeKey = plantaToStorageKey(plantaNombre)
     if (!scopeKey) continue
 
-    const base = await mergeGridRowsForPlantaWeek(
+    const base = await mergeGridRowsForPlantaWeekForCsvImport(
       opts.colaboradores,
       plantaNombre,
       opts.catalogo,
       opts.weekIso,
     )
-    const activos = colaboradoresActivosPorPlanta(opts.colaboradores, plantaNombre)
-    const colaboradoresByEmp = new Map(
-      activos.map((c) => [canonicalEmpNoForCsvMatch(c.noEmpleado), c] as const),
-    )
+    const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(opts.colaboradores)
     const {
       next,
       updatedCount,
@@ -654,6 +722,8 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
       catalogo: opts.catalogo,
       plantaNombre,
       colaboradoresByEmp,
+      agregarFilasCsvPorEmpNo: true,
+      todosColaboradores: opts.colaboradores,
     })
 
     const saved = updatedCount > 0 && (await saveAttendanceGrid(opts.weekIso, scopeKey, next, ''))

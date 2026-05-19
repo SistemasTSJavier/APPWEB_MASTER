@@ -6,6 +6,8 @@ import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { colaboradorToEmpleadoIncidencia, colaboradoresActivosTodos } from "./cuadriculaColaboradoresBridge";
 import { canEditCuadricula, canImportCuadriculaSemanaCsv } from "./cuadriculaPermissions";
+import { loadVacantesCatalogo, saveVacantesCatalogoDirect } from "@/lib/vacantes-catalog";
+import { fetchVacantesCatalogRemote } from "./vacantesRemote";
 
 type CuadriculaDataState = {
   catalogo: CatalogoServicioItem[];
@@ -52,6 +54,12 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       setCatalogo(Array.isArray(cat.items) ? cat.items : []);
       setColaboradores(Array.isArray(coll) ? coll : []);
       setAppRole(me.role ?? null);
+      if (loadVacantesCatalogo().length === 0) {
+        const remote = await fetchVacantesCatalogRemote();
+        if (remote.meta.status === "ok" && remote.items.length > 0) {
+          saveVacantesCatalogoDirect(remote.items);
+        }
+      }
     } catch (e) {
       setCatalogo([]);
       setColaboradores([]);

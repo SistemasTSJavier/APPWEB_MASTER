@@ -46,6 +46,7 @@ import {
 } from '../cuadriculaColaboradoresBridge'
 import {
   mergeGridRowsForPlantaWeek,
+  mergeGridRowsForPlantaWeekForCsvImport,
   mergeRowForEmployeeInWeek,
 } from '../attendanceSemanaColaborador'
 import { useCuadriculaData } from '../CuadriculaDataContext'
@@ -60,6 +61,7 @@ import {
   canonicalEmpNoForCsvMatch,
   csvDelimiterUserHint,
   csvLayoutHasPlantaColumn,
+  mapaColaboradoresPorNoEmpleadoCanon,
   mergeCsvShiftsIntoGridRows,
   parseAttendanceGridCodesCsv,
 } from '../attendanceGridCsvImport'
@@ -155,6 +157,7 @@ export function AttendanceView() {
   const importCsvCodesRef = useRef<HTMLInputElement>(null)
   const [importRefresh, setImportRefresh] = useState(0)
   const [remoteLoadHint, setRemoteLoadHint] = useState<string | null>(null)
+  const [guardandoTodasPlantas, setGuardandoTodasPlantas] = useState(false)
   /** No. empleado (o id fila) para filtrar; vacío = todos. */
   const [focoColaboradorKey, setFocoColaboradorKey] = useState('')
   /** Con colaborador elegido: cuadrícula semanal editable o resumen mensual (solo lectura por semanas). */
@@ -295,7 +298,7 @@ export function AttendanceView() {
         const legacyWeek = hasLegacyCatalogAttendanceForWeek(weekIso, plantaStorageKey)
         if (legacyWeek && !soloPlanta) {
           setLegacyRecoveredHint(
-            'Se recuperó asistencia guardada antes por servicio (catálogo). Pulse «Guardar toda la asistencia» para dejarla bajo esta planta.',
+            'Se recuperó asistencia guardada antes por servicio (catálogo). Pulse «Guardar todas las plantas» para dejarla bajo esta planta.',
           )
         } else {
           setLegacyRecoveredHint(null)
@@ -526,7 +529,7 @@ export function AttendanceView() {
         return
       }
       const parts: string[] = [
-        `Importación multi-planta: ${result.totalUpdated} empleado(s) en ${result.plantsSaved} planta(s), semana ${weekRangeLabel}. Separador: ${delimHint}.`,
+        `Importación multi-planta: ${result.totalUpdated} empleado(s), semana ${weekRangeLabel}. Ya guardado en ${result.plantsSaved} planta(s) (no necesita pulsar «Guardar todas las plantas» salvo que edite celdas después). Separador: ${delimHint}.`,
       ]
       for (const p of result.plantas) {
         if (p.updatedCount > 0) {
@@ -567,10 +570,13 @@ export function AttendanceView() {
       return
     }
 
-    const activosImport = colaboradoresActivosPorPlanta(colaboradores, plantaSeleccionada)
-    const colaboradoresByEmp = new Map(
-      activosImport.map((c) => [canonicalEmpNoForCsvMatch(c.noEmpleado), c] as const),
+    const baseImport = await mergeGridRowsForPlantaWeekForCsvImport(
+      colaboradores,
+      plantaSeleccionada,
+      catalogo,
+      weekIso,
     )
+    const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(colaboradores)
     const {
       next,
       updatedCount,
@@ -578,10 +584,12 @@ export function AttendanceView() {
       gridEmployeesNotInCsv,
       gridEmployeeCount,
       ambiguousEmployeeNos,
-    } = mergeCsvShiftsIntoGridRows(rows, parsed.rows, {
+    } = mergeCsvShiftsIntoGridRows(baseImport, parsed.rows, {
       catalogo,
       plantaNombre: plantaSeleccionada,
       colaboradoresByEmp,
+      agregarFilasCsvPorEmpNo: true,
+      todosColaboradores: colaboradores,
     })
     if (updatedCount === 0) {
       setSaveMessage(
@@ -599,7 +607,7 @@ export function AttendanceView() {
     }
     const parts: string[] = [
       ok
-        ? `Importación (una planta): ${updatedCount} de ${gridEmployeeCount} empleado(s) actualizados — «${plantaSeleccionada}», ${weekRangeLabel}. Separador: ${delimHint}.`
+        ? `Importación (una planta): ${updatedCount} de ${gridEmployeeCount} empleado(s) — «${plantaSeleccionada}», ${weekRangeLabel}. Ya guardado en esta planta. Para el resto use CSV con columna PLANTA o «Guardar todas las plantas». Separador: ${delimHint}.`
         : `Importación: ${updatedCount} de ${gridEmployeeCount} en pantalla; no se pudo guardar en localStorage. Separador: ${delimHint}.`,
     ]
     if (csvEmployeesNotInGrid.length > 0) {
@@ -671,7 +679,19 @@ export function AttendanceView() {
       setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
       return
     }
-    const { guardadas, fallidas } = await guardarSemanaActualTodasPlantas()
+    if (plantasOpciones.length === 0) {
+      setSaveMessage('No hay plantas en expediente para guardar.')
+      return
+    }
+    setGuardandoTodasPlantas(true)
+    setSaveMessage(null)
+    let guardadas = 0
+    let fallidas = 0
+    try {
+      ;({ guardadas, fallidas } = await guardarSemanaActualTodasPlantas())
+    } finally {
+      setGuardandoTodasPlantas(false)
+    }
     setImportRefresh((n) => n + 1)
     if (guardadas === 0) {
       setSaveMessage('No se pudo guardar (cuota, modo privado o datos bloqueados).')
@@ -870,10 +890,15 @@ export function AttendanceView() {
                     type="button"
                     className="btn btn--primary btn--compact"
                     onClick={() => void guardarTodaAsistencia()}
-                    disabled={mostrarSoloResumenMensual || loading || !plantaSeleccionada.trim()}
-                    title="Guarda la semana en pantalla para todas las plantas"
+                    disabled={
+                      mostrarSoloResumenMensual ||
+                      loading ||
+                      guardandoTodasPlantas ||
+                      plantasOpciones.length === 0
+                    }
+                    title="Guarda la semana visible (lun–dom) en todas las plantas a la vez (local y servidor)"
                   >
-                    Guardar semana
+                    {guardandoTodasPlantas ? 'Guardando…' : 'Guardar todas las plantas'}
                   </button>
                 </div>
               ) : null}
@@ -953,9 +978,9 @@ export function AttendanceView() {
               <p className="persistRow__csvLead">
                 <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Con columna{' '}
                 <strong>PLANTA</strong> y <strong>NO SERVICIO</strong> (formato SERVICIO, NO SERVICIO, PLANTA, POSICION… + D/T/N×7) un solo
-                archivo actualiza <strong>todas las plantas</strong>: empareja por <strong>NO DE EMPLE</strong> y, si hay varios servicios en la
-                misma planta, por <strong>NO SERVICIO</strong> de cada bloque. Si PLANTA viene vacía, se infiere del catálogo por N.º de servicio.
-                Sin columna PLANTA, elija la planta arriba.
+                archivo actualiza <strong>todas las plantas</strong>. Empareja por <strong>NO DE EMPLEADO</strong> (también colaboradores en{' '}
+                <strong>baja</strong>, solo al importar, para conservar historial). Si hay varios servicios en la misma planta, usa{' '}
+                <strong>NO SERVICIO</strong>. Si PLANTA viene vacía, se infiere del catálogo. Sin columna PLANTA, elija la planta arriba.
               </p>
               <div className="persistRow__csvActions">
                 <button
@@ -1109,7 +1134,7 @@ export function AttendanceView() {
           <strong>DD</strong>+número → Extra; <strong>F</strong> → Falta; <strong>D</strong> → 1 Desc. por día (aunque esté en D+T+N); INC/VAC/PCGS/PSGS/CAP → su columna.{' '}
           {puedeEditar ? (
             <>
-              Pulse <strong>Guardar semana (todas las plantas)</strong> para conservar en el servidor.{' '}
+              Pulse <strong>Guardar todas las plantas</strong> para conservar la semana en pantalla en cada planta (sin ir una por una).{' '}
             </>
           ) : (
             <>
@@ -1121,7 +1146,7 @@ export function AttendanceView() {
             <>
               Para capturar <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. El archivo puede ser como su
               hoja de planta (SERVICIO… NOMBRE + D/T/N×7) o el formato compacto de 5 columnas + códigos; separador coma o punto y
-              coma; <strong>NO DE EMPLE</strong> / No. empleado como texto en Excel.{' '}
+              coma; <strong>NO DE EMPLEADO</strong> como texto en Excel. Al importar también aplica a colaboradores en <strong>baja</strong> (historial).{' '}
             </>
           ) : null}
           Códigos:{' '}

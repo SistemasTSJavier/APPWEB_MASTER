@@ -13,9 +13,11 @@ import {
   colaboradorToGridRow,
   colaboradoresActivosPorPlanta,
   mapaColaboradoresActivosPorPlanta,
+  mapaColaboradoresParaAsistenciaPorPlanta,
   gridRowServiceNo,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
+import { appendFilasGuardadasFueraDeBase } from "./attendancePlantaMerge";
 import type { GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
 
@@ -61,9 +63,54 @@ async function mergePlantaWeekBlock(
   );
 
   let merged = base;
-  if (stored?.rows?.length) {
-    const norm = normalizeStoredRows(stored.rows);
-    merged = mergeAttendanceRowsWithStoredAndVacantes(base, norm);
+  const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
+  if (normStored.length) {
+    merged = mergeAttendanceRowsWithStoredAndVacantes(base, normStored);
+  } else {
+    merged = mergeAttendanceRowsWithStoredAndVacantes(base, []);
+  }
+
+  merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaNombre));
+
+  return {
+    rows: aplicarTotalesPorFila(merged, base),
+    savedAt: stored?.savedAt ?? null,
+  };
+}
+
+async function mergePlantaWeekBlockForCsvImport(
+  colaboradoresPlanta: ColaboradorCompleto[],
+  todosColaboradores: ColaboradorCompleto[],
+  plantaNombre: string,
+  catalogo: CatalogoServicioItem[],
+  weekStartIso: string,
+  prefetchedWeek: AttendanceWeekPrefetch | null,
+): Promise<{ rows: GridRow[]; savedAt: string | null }> {
+  const scopeId = plantaToStorageKey(plantaNombre);
+  if (!scopeId || colaboradoresPlanta.length === 0) {
+    return { rows: [], savedAt: null };
+  }
+
+  const base = colaboradoresPlanta.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
+  const empKeys = colaboradoresPlanta.map((c) => c.noEmpleado);
+  const { grid: stored } = await loadAttendanceGridForPlantaWithMeta(
+    weekStartIso,
+    scopeId,
+    empKeys,
+    prefetchedWeek,
+  );
+
+  let merged = base;
+  const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
+  if (normStored.length) {
+    merged = mergeAttendanceRowsWithStoredAndVacantes(base, normStored);
+    merged = appendFilasGuardadasFueraDeBase(
+      merged,
+      normStored,
+      todosColaboradores,
+      plantaNombre,
+      catalogo,
+    );
   } else {
     merged = mergeAttendanceRowsWithStoredAndVacantes(base, []);
   }
@@ -109,6 +156,30 @@ export async function mergeGridRowsForPlantaWeek(
   const activos = mapa.get(plantaNombre.trim().toUpperCase()) ?? [];
   const { rows } = await mergePlantaWeekBlock(
     activos,
+    plantaNombre,
+    catalogo,
+    weekStartIso,
+    prefetchedWeek ?? null,
+  );
+  return rows;
+}
+
+/**
+ * Cuadrícula para importar CSV: incluye activos y bajas de la planta (historial por N.º de empleado).
+ */
+export async function mergeGridRowsForPlantaWeekForCsvImport(
+  colaboradores: ColaboradorCompleto[],
+  plantaNombre: string,
+  catalogo: CatalogoServicioItem[],
+  weekStartIso: string,
+  prefetchedWeek?: AttendanceWeekPrefetch | null,
+): Promise<GridRow[]> {
+  const mapa = mapaColaboradoresParaAsistenciaPorPlanta(colaboradores);
+  const enPlanta = mapa.get(plantaNombre.trim().toUpperCase()) ?? [];
+  enPlanta.sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+  const { rows } = await mergePlantaWeekBlockForCsvImport(
+    enPlanta,
+    colaboradores,
     plantaNombre,
     catalogo,
     weekStartIso,
