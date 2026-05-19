@@ -1668,6 +1668,91 @@
   }
 }
 
+/* Captura «Todas las plantas»: columna PLANTA fija + 7 identificación */
+.sheet.sheet--captureTodasPlantas {
+  --tp1: 4.75rem;
+  --tp2: 5.5rem;
+  --tp3: 5.5rem;
+  --tp4: 5.5rem;
+  --tp5: 4.75rem;
+  --tp6: 14rem;
+  --tp7: 5.5rem;
+  --tp8: 4.25rem;
+  --tl1: 0;
+  --tl2: var(--tp1);
+  --tl3: calc(var(--tp1) + var(--tp2));
+  --tl4: calc(var(--tp1) + var(--tp2) + var(--tp3));
+  --tl5: calc(var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4));
+  --tl6: calc(var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4) + var(--tp5));
+  --tl7: calc(var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4) + var(--tp5) + var(--tp6));
+  --tl8: calc(
+    var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4) + var(--tp5) + var(--tp6) + var(--tp7)
+  );
+}
+
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(1),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(1) {
+  left: var(--tl1);
+  width: var(--tp1);
+  min-width: var(--tp1);
+  max-width: var(--tp1);
+}
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(2),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(2) {
+  left: var(--tl2);
+  width: var(--tp2);
+  min-width: var(--tp2);
+  max-width: var(--tp2);
+}
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(3),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(3) {
+  left: var(--tl3);
+  width: var(--tp3);
+  min-width: var(--tp3);
+  max-width: var(--tp3);
+}
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(4),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(4) {
+  left: var(--tl4);
+  width: var(--tp4);
+  min-width: var(--tp4);
+  max-width: var(--tp4);
+}
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(5),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(5) {
+  left: var(--tl5);
+  width: var(--tp5);
+  min-width: var(--tp5);
+  max-width: var(--tp5);
+}
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(6),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(6) {
+  left: var(--tl6);
+  width: var(--tp6);
+  min-width: var(--tp6);
+  max-width: var(--tp6);
+}
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(7),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(7) {
+  left: var(--tl7);
+  width: var(--tp7);
+  min-width: var(--tp7);
+  max-width: var(--tp7);
+}
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(8),
+.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(8) {
+  left: var(--tl8);
+  width: var(--tp8);
+  min-width: var(--tp8);
+  max-width: var(--tp8);
+}
+
+@media (min-width: 48rem) {
+  .attendanceView--todasPlantas .sheet.sheet--captureTodasPlantas {
+    width: max(100%, 90rem);
+  }
+}
+
 /* ——— Asistencia: hoja más ancha + resumen mensual por colaborador ——— */
 
 .attendanceView--wideGrid .sheetWrap {
