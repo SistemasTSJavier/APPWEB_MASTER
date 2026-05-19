@@ -26,10 +26,8 @@ import {
   normalizeStoredRows,
   parseIsoToLocalDate,
   saveAttendanceGrid,
-  summarizeLocalAttendanceEntries,
   weekStartToIso,
 } from '../attendanceStorage'
-import { syncAllLocalAttendanceToRemote } from '../attendanceRemote'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
 import {
   isAsistenciaCode,
@@ -133,7 +131,6 @@ export function AttendanceView() {
     reload,
     puedeEditar,
     puedeImportarCsv,
-    showMigrationTools,
   } = useCuadriculaData()
   const [rows, setRows] = useState<GridRow[]>([])
   const [plantaSeleccionada, setPlantaSeleccionada] = useState('')
@@ -157,7 +154,6 @@ export function AttendanceView() {
   const [legacyRecoveredHint, setLegacyRecoveredHint] = useState<string | null>(null)
   const importCsvCodesRef = useRef<HTMLInputElement>(null)
   const [importRefresh, setImportRefresh] = useState(0)
-  const [enviandoProduccion, setEnviandoProduccion] = useState(false)
   const [remoteLoadHint, setRemoteLoadHint] = useState<string | null>(null)
   /** No. empleado (o id fila) para filtrar; vacío = todos. */
   const [focoColaboradorKey, setFocoColaboradorKey] = useState('')
@@ -374,14 +370,6 @@ export function AttendanceView() {
     setExportDesdeYmd(`${y}-01-01`)
     setExportHastaYmd(`${y}-12-31`)
   }, [exportPeriod, exportYearY])
-
-  const localGuardadosResumen = useMemo(
-    () =>
-      showMigrationTools
-        ? summarizeLocalAttendanceEntries()
-        : { total: 0, weekCount: 0, plantaCount: 0, entries: [] },
-    [showMigrationTools, weekIso, plantaSeleccionada, importRefresh, lastSavedAt],
-  )
 
   async function exportResumen() {
     const nombreArchivoPlanta = plantaSeleccionada.trim() || 'asistencia'
@@ -678,77 +666,6 @@ export function AttendanceView() {
     return { guardadas, fallidas }
   }
 
-  async function guardarYEnviarTodoAlServidor() {
-    if (enviandoProduccion) return
-    setEnviandoProduccion(true)
-    setSaveMessage(null)
-    try {
-      const partes: string[] = []
-
-      if (!mostrarSoloResumenMensual) {
-        const { guardadas, fallidas } = await guardarSemanaActualTodasPlantas()
-        if (guardadas > 0) {
-          const t = new Date().toISOString()
-          if (plantaStorageKey) {
-            setLastSavedAt(t)
-            setLegacyRecoveredHint(null)
-          }
-          partes.push(
-            `Semana en pantalla (${weekRangeLabel}): ${guardadas} planta(s) guardadas en este equipo y en el servidor.`,
-          )
-          if (plantaSeleccionada.trim()) {
-            partes.push(`Incluye los cambios visibles de «${plantaSeleccionada}».`)
-          }
-        }
-        if (fallidas > 0) {
-          partes.push(`${fallidas} planta(s) de la semana actual no se pudieron guardar.`)
-        }
-      }
-
-      const { entries, total, weekCount, plantaCount } = summarizeLocalAttendanceEntries()
-
-      if (total === 0) {
-        partes.push(
-          'No hay bloques de asistencia en este navegador. Capture celdas y use «Guardar semana actual» o importe CSV antes de enviar a producción.',
-        )
-        setSaveMessage(partes.join(' '))
-        return
-      }
-
-      const result = await syncAllLocalAttendanceToRemote(
-        entries.map((e) => ({
-          weekStartIso: e.weekStartIso,
-          scopeKey: e.scopeKey,
-          grid: e.grid,
-          serviceNo: e.grid.serviceNo,
-        })),
-      )
-
-      if (!result) {
-        partes.push(
-          `No se pudo enviar al servidor (${total} bloque(s) en este navegador). Revise Supabase, migración 011_cuadricula_asistencia.sql y variables en producción.`,
-        )
-        setSaveMessage(partes.join(' '))
-        return
-      }
-
-      partes.push(
-        `Enviado a producción (servidor): ${result.uploaded} de ${total} bloque(s) — ${plantaCount} planta(s) × ${weekCount} semana(s).`,
-      )
-      if (result.skipped > 0) {
-        partes.push(`${result.skipped} ya estaban más recientes en el servidor.`)
-      }
-      if (result.failed > 0) {
-        partes.push(`${result.failed} bloque(s) fallaron al subir.`)
-      }
-      partes.push('Abra la URL de producción, misma planta y semana, para comprobar.')
-      setSaveMessage(partes.join(' '))
-      setImportRefresh((n) => n + 1)
-    } finally {
-      setEnviandoProduccion(false)
-    }
-  }
-
   async function guardarTodaAsistencia() {
     if (mostrarSoloResumenMensual) {
       setSaveMessage('Cambie a vista semanal para guardar la cuadrícula.')
@@ -814,8 +731,8 @@ export function AttendanceView() {
     : null
 
   return (
-    <div className="attendanceView attendanceView--wideGrid">
-      <header className="topbar">
+    <div className="attendanceView attendanceView--wideGrid attendanceView--captureGrid">
+      <header className="topbar topbar--capture">
         <div className="topbar__title">
           <h1>Cuadrícula semanal</h1>
           <span className="badge">Asistencia</span>
@@ -843,36 +760,13 @@ export function AttendanceView() {
             <strong>Solo lectura.</strong> La captura y el guardado de asistencia requieren rol de administrador o editor de cuadrícula.
           </p>
         ) : null}
-        {showMigrationTools ? (
-          <div className="topbar__produccionBanner" role="region" aria-label="Enviar asistencia a producción">
-            <div className="topbar__produccionBannerText">
-              <strong>Enviar a producción (Supabase)</strong>
-              <p>
-                En este navegador hay{' '}
-                <strong>{localGuardadosResumen.total}</strong> bloque(s) guardados (
-                {localGuardadosResumen.plantaCount} planta(s), {localGuardadosResumen.weekCount}{' '}
-                semana(s)). El botón guarda la semana en pantalla y sube todo el historial local al servidor.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn btn--primary btn--produccion"
-              onClick={() => void guardarYEnviarTodoAlServidor()}
-              disabled={enviandoProduccion || loading}
-            >
-              {enviandoProduccion
-                ? 'Guardando y enviando…'
-                : 'Guardar y enviar toda la asistencia a producción'}
-            </button>
-          </div>
-        ) : null}
-        <div className="topbar__controls">
-          <div className="topbar__bar">
-            <div className="topbar__toolbarLeft">
-              <label className="field">
+        <div className="topbar__controls topbar__controls--capture">
+          <div className="topbar__bar captureToolbar">
+            <div className="captureToolbar__fields">
+              <label className="field field--compact">
                 <span className="field__label">Planta</span>
                 <select
-                  className="select"
+                  className="select select--compact"
                   value={plantaSeleccionada}
                   onChange={(e) => setPlantaSeleccionada(e.target.value)}
                   disabled={loading}
@@ -891,10 +785,10 @@ export function AttendanceView() {
                   (columna planta).
                 </p>
               ) : null}
-              <label className="field field--grow">
+              <label className="field field--compact field--grow">
                 <span className="field__label">Colaborador</span>
                 <select
-                  className="select"
+                  className="select select--compact"
                   value={focoColaboradorKey}
                   onChange={(e) => {
                     const v = e.target.value
@@ -920,10 +814,10 @@ export function AttendanceView() {
               </label>
               {focoColaboradorKey.trim() ? (
                 <>
-                  <label className="field">
-                    <span className="field__label">Vista del colaborador</span>
+                  <label className="field field--compact">
+                    <span className="field__label">Vista colaborador</span>
                     <select
-                      className="select"
+                      className="select select--compact"
                       value={vistaColaborador}
                       onChange={(e) =>
                         setVistaColaborador(e.target.value as 'semana' | 'mes')
@@ -935,10 +829,10 @@ export function AttendanceView() {
                     </select>
                   </label>
                   {vistaColaborador === 'mes' ? (
-                    <label className="field">
-                      <span className="field__label">Mes a consultar</span>
+                    <label className="field field--compact">
+                      <span className="field__label">Mes</span>
                       <input
-                        className="input input--month"
+                        className="input input--month input--compact"
                         type="month"
                         value={mesConsultaYm}
                         onChange={(e) => setMesConsultaYm(e.target.value)}
@@ -948,44 +842,71 @@ export function AttendanceView() {
                   ) : null}
                 </>
               ) : null}
-              <div className="weekNav">
+              <div className="weekNav weekNav--compact">
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn--compact"
                   disabled={mostrarSoloResumenMensual}
                   onClick={() => setWeekStart((d) => addDays(d, -7))}
-                  title="Retrocede 7 días: semana de lunes a domingo"
+                  title="Semana anterior"
                 >
-                  ← Semana anterior
+                  ←
                 </button>
-                <div className="weekNav__range">{weekRangeLabel}</div>
+                <div className="weekNav__range weekNav__range--compact">{weekRangeLabel}</div>
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn--compact"
                   disabled={mostrarSoloResumenMensual}
                   onClick={() => setWeekStart((d) => addDays(d, 7))}
-                  title="Avanza 7 días: siguiente lunes a domingo"
+                  title="Semana siguiente"
                 >
-                  Semana siguiente →
+                  →
                 </button>
               </div>
               {puedeEditar ? (
-                <div className="field field--action field--actionToolbar">
-                  <span className="field__label">Semana actual</span>
+                <div className="field field--compact field--action field--actionToolbar">
+                  <span className="field__label">Guardar</span>
                   <button
                     type="button"
-                    className="btn btn--primary"
+                    className="btn btn--primary btn--compact"
                     onClick={() => void guardarTodaAsistencia()}
                     disabled={mostrarSoloResumenMensual || loading || !plantaSeleccionada.trim()}
-                    title="Guarda la semana en pantalla para todas las plantas en el servidor"
+                    title="Guarda la semana en pantalla para todas las plantas"
                   >
-                    Guardar semana (todas las plantas)
+                    Guardar semana
                   </button>
                 </div>
               ) : null}
             </div>
+          </div>
 
-            <div className="topbar__legend">
+          {(lastSavedAt || saveMessage || latestDifferent || legacyRecoveredHint) ? (
+            <div className="captureStatusBar" role="status">
+              {lastSavedAt ? (
+                <span className="captureStatusBar__item">
+                  <strong>Guardado:</strong> {formatSavedAt(lastSavedAt)}
+                </span>
+              ) : (
+                <span className="captureStatusBar__item captureStatusBar__item--muted">
+                  Sin guardado para esta planta y semana
+                </span>
+              )}
+              {latestDifferent ? (
+                <button type="button" className="btn btn--linkish btn--linkishCompact" onClick={irAlUltimoGuardado}>
+                  Ir al último guardado
+                </button>
+              ) : null}
+              {legacyRecoveredHint ? (
+                <span className="captureStatusBar__item captureStatusBar__item--warn">{legacyRecoveredHint}</span>
+              ) : null}
+              {saveMessage ? <span className="captureStatusBar__item captureStatusBar__item--ok">{saveMessage}</span> : null}
+            </div>
+          ) : null}
+
+          <details className="attPanel">
+            <summary className="attPanel__summary">Leyenda — totales semana</summary>
+            <div className="attPanel__body attPanel__body--legend">
+              <div className="topbar__legend topbar__legend--panel">
               <table
                 className="sheet sheet--legend"
                 aria-label="Totales semana: códigos en cuadrícula"
@@ -1020,52 +941,13 @@ export function AttendanceView() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
-          </div>
-        <div className="topbar__persistRow">
-          {showMigrationTools ? (
-            <>
-              <button
-                type="button"
-                className="btn btn--primary btn--produccion persistRow__produccionBtn"
-                onClick={() => void guardarYEnviarTodoAlServidor()}
-                disabled={enviandoProduccion || loading}
-              >
-                {enviandoProduccion
-                  ? 'Enviando a producción…'
-                  : 'Guardar y enviar TODO a producción'}
-              </button>
-              <p className="persistRow__meta persistRow__meta--inline">
-                {localGuardadosResumen.total > 0
-                  ? `${localGuardadosResumen.total} bloque(s) en este navegador (${localGuardadosResumen.plantaCount} plantas, ${localGuardadosResumen.weekCount} semanas).`
-                  : 'Aún no hay bloques guardados en este navegador.'}
-              </p>
-            </>
-          ) : null}
-          {lastSavedAt ? (
-            <p className="persistRow__meta">
-              <strong>Último guardado</strong> en esta semana/planta:{' '}
-              {formatSavedAt(lastSavedAt)}. Al volver a entrar se restaura automáticamente.
-            </p>
-          ) : (
-            <p className="persistRow__meta muted">
-              Sin guardado previo para esta combinación planta + semana. Capture la cuadrícula y pulse{' '}
-              <strong>Guardar</strong>.
-            </p>
-          )}
-          {showMigrationTools && latestDifferent ? (
-            <button type="button" className="btn btn--linkish" onClick={irAlUltimoGuardado}>
-              Ir al último guardado globalmente (
-              {latestLabel ?? 'Planta'},{' '}
-              semana {latest!.weekStartIso})
-            </button>
-          ) : null}
-          {legacyRecoveredHint ? (
-            <p className="persistRow__meta" style={{ color: '#b45309' }}>
-              {legacyRecoveredHint}
-            </p>
-          ) : null}
-          {saveMessage ? <p className="persistRow__flash">{saveMessage}</p> : null}
+          </details>
+
+          <details className="attPanel">
+            <summary className="attPanel__summary">Importar y exportar CSV</summary>
+            <div className="attPanel__body">
           {puedeImportarCsv && !mostrarSoloResumenMensual ? (
             <div className="persistRow__csvBlock">
               <p className="persistRow__csvLead">
@@ -1109,9 +991,10 @@ export function AttendanceView() {
                 </button>
               </div>
             </div>
-          ) : null}
-        </div>
-        <div className="topbar__exportRow">
+          ) : (
+            <p className="persistRow__meta muted">La importación CSV requiere permiso de edición.</p>
+          )}
+            <div className="topbar__exportRow topbar__exportRow--panel">
           <label className="field">
             <span className="field__label">Alcance</span>
             <select
@@ -1212,8 +1095,14 @@ export function AttendanceView() {
               Exportar (.csv para Excel)
             </button>
           </div>
-        </div>
-        <p className="hint">
+            </div>
+            </div>
+          </details>
+
+          <details className="attPanel">
+            <summary className="attPanel__summary">Ayuda y códigos de captura</summary>
+            <div className="attPanel__body">
+        <p className="hint attPanel__hint">
           El listado de <strong>Planta</strong> sale solo de colaboradores activos (campo planta en expediente). Cada fila usa su{' '}
           <strong>N.º de servicio</strong> según <strong>Servicios</strong> (referencia por fila). Use{' '}
           <strong>Colaborador</strong> para una persona o el <strong>resumen mensual</strong>. <strong>Número</strong> o <strong>A</strong> → Asist.;{' '}
@@ -1238,10 +1127,12 @@ export function AttendanceView() {
           Códigos:{' '}
           {CODE_HINTS.join(', ')}, <strong>A</strong> o número (Asist.), <strong>DD</strong>+n.º (Extra, p. ej. DD937).
         </p>
+            </div>
+          </details>
         </div>
       </header>
 
-      <div className="sheetWrap">
+      <div className="sheetWrap sheetWrap--capture">
         {!plantaSeleccionada ? (
           <p className="hint" style={{ padding: '1rem' }}>
             Elija una planta para listar empleados y capturar asistencia.
@@ -1261,7 +1152,7 @@ export function AttendanceView() {
           />
         ) : null}
         {!mostrarSoloResumenMensual ? (
-        <table className="sheet" aria-label="Cuadrícula de asistencia">
+        <table className="sheet sheet--captureGrid" aria-label="Cuadrícula de asistencia">
           <thead>
             <tr>
               <th colSpan={7} className="th th--block th--band th--bandId">
@@ -1388,11 +1279,7 @@ export function AttendanceView() {
         ))}
       </datalist>
 
-      <footer className="footer">
-        La semana de asistencia es de lunes a domingo; las flechas mueven 7 días. Los
-        guardados son por <strong>planta + semana (lunes)</strong> en este navegador (localStorage).
-        Si capturó antes por servicio, el sistema intenta recuperar esos datos al elegir planta.
-      </footer>
+      <footer className="footer footer--captureHidden" aria-hidden="true" />
     </div>
   )
 }

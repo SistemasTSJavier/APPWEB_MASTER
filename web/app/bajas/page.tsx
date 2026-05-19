@@ -6,5 +6,10 @@ import { BajasPageClient } from "@/app/bajas/BajasPageClient";
 export default async function BajasPage() {
   const auth = await getAuthedUserWithRole();
   if (!auth) redirect("/login");
-  return <BajasPageClient readOnly={!roleMayEditColaboradores(auth.role)} />;
+  return (
+    <BajasPageClient
+      readOnly={!roleMayEditColaboradores(auth.role)}
+      appRole={auth.role}
+    />
+  );
 }

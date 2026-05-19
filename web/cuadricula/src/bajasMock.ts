@@ -10,6 +10,8 @@ export interface BajasRow {
   fechaIngreso: string
   noEmpleado: string
   nombres: string
+  /** Fecha de baja en expediente (display). */
+  fechaBaja?: string
   shifts: { D: string; T: string; N: string }[]
 }
 

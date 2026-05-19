@@ -7,7 +7,11 @@ import {
 } from "@/lib/colaboradores-catalogo-display";
 
 export { plantaExpedienteColaborador } from "@/lib/colaboradores-catalogo-display";
-import { colaboradorTieneBaja, fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
+import {
+  colaboradorTieneBaja,
+  fechaBajaNormalizadaColaborador,
+  fechaIngresoNormalizadaColaborador,
+} from "@/lib/colaboradores-baja";
 import { formatoDesdeYyyyMmDd } from "@/lib/fecha-formato-display";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { claveServicioAgrupada, servicioLineaColaborador } from "@/lib/servicio-agrupacion";
@@ -68,9 +72,69 @@ export function coincideColaboradorPlantaExpediente(c: ColaboradorCompleto, plan
 
 /** Activos con la misma planta en expediente. */
 export function colaboradoresActivosPorPlanta(lista: ColaboradorCompleto[], planta: string): ColaboradorCompleto[] {
+  return lista.filter((c) => !colaboradorTieneBaja(c) && coincideColaboradorPlantaExpediente(c, planta));
+}
+
+/** Activos y dados de baja con la misma planta (lista de asistencia con historial). */
+export function colaboradoresParaAsistenciaPorPlanta(
+  lista: ColaboradorCompleto[],
+  planta: string,
+): ColaboradorCompleto[] {
   return lista
-    .filter((c) => !colaboradorTieneBaja(c) && coincideColaboradorPlantaExpediente(c, planta))
+    .filter((c) => coincideColaboradorPlantaExpediente(c, planta))
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+}
+
+/** Plantas en expediente (activos y bajas) para selector de cuadrícula. */
+export function listarPlantasParaAsistencia(lista: ColaboradorCompleto[]): string[] {
+  const set = new Set<string>();
+  for (const c of lista) {
+    const p = normTxt(plantaExpedienteColaborador(c));
+    if (p) set.add(p);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+}
+
+/** Agrupa por planta todos los colaboradores con planta en expediente (incluye bajas). */
+export function mapaColaboradoresParaAsistenciaPorPlanta(
+  lista: ColaboradorCompleto[],
+): Map<string, ColaboradorCompleto[]> {
+  const map = new Map<string, ColaboradorCompleto[]>();
+  for (const c of lista) {
+    const p = normTxt(plantaExpedienteColaborador(c));
+    if (!p) continue;
+    const bucket = map.get(p);
+    if (bucket) bucket.push(c);
+    else map.set(p, [c]);
+  }
+  return map;
+}
+
+/** Servicios distintos (línea vigente) entre colaboradores activos, para filtro en vista global. */
+export function listarServiciosLineaActivos(lista: ColaboradorCompleto[]): string[] {
+  const set = new Set<string>();
+  for (const c of lista) {
+    if (colaboradorTieneBaja(c)) continue;
+    const s = normTxt(servicioLineaColaborador(c));
+    if (s) set.add(s);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+}
+
+/** Activos agrupados por planta (una pasada; evita filtrar la lista por cada planta). */
+export function mapaColaboradoresActivosPorPlanta(
+  lista: ColaboradorCompleto[],
+): Map<string, ColaboradorCompleto[]> {
+  const map = new Map<string, ColaboradorCompleto[]>();
+  for (const c of lista) {
+    if (colaboradorTieneBaja(c)) continue;
+    const p = normTxt(plantaExpedienteColaborador(c));
+    if (!p) continue;
+    const bucket = map.get(p);
+    if (bucket) bucket.push(c);
+    else map.set(p, [c]);
+  }
+  return map;
 }
 
 /** Plantas distintas solo de colaboradores activos (campo planta en expediente). */
@@ -102,6 +166,22 @@ export function colaboradoresConBajaPorServicioCatalogo(
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
 }
 
+/** Bajas que coinciden con al menos uno de los nombres de catálogo seleccionados. */
+export function colaboradoresConBajaPorServiciosCatalogo(
+  lista: ColaboradorCompleto[],
+  catalogNombres: string[],
+): ColaboradorCompleto[] {
+  const nombres = catalogNombres.map((n) => n.trim()).filter(Boolean);
+  if (nombres.length === 0) return [];
+  return lista
+    .filter(
+      (c) =>
+        colaboradorTieneBaja(c) &&
+        nombres.some((nombre) => coincideColaboradorServicioCatalogo(c, nombre)),
+    )
+    .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+}
+
 export function colaboradorToGridRow(
   c: ColaboradorCompleto,
   catalogo: CatalogoServicioItem[] = [],
@@ -122,6 +202,7 @@ export function colaboradorToGridRow(
     name: (c.nombreCompleto || "").trim().toUpperCase() || "—",
     rowServiceNo: noServicioColaborador(c, catalogo, catalogoOpts),
     servicioLinea: linea || "—",
+    plantaLinea: normTxt(plantaCtx) || undefined,
     vacant: false,
     shifts: emptyShifts(WEEK_COLUMNS.length),
     totals: { ...ZERO_TOTALS },
@@ -149,16 +230,19 @@ export function colaboradorConBajaToBajasRow(
   const n = fechaIngresoNormalizadaColaborador(c);
   const fechaIngreso =
     n ? formatoDesdeYyyyMmDd(n) : String(c.fechaIngreso ?? c.form?.fechaIngreso ?? "").trim().toUpperCase() || "—";
+  const fb = fechaBajaNormalizadaColaborador(c);
+  const fechaBaja = fb ? formatoDesdeYyyyMmDd(fb) : "—";
   return {
     id: c.noEmpleado,
     servicio: catalogNombre.trim().toUpperCase(),
     noServicio: noServicioCatalogo.trim(),
-    planta: servicioLineaColaborador(c).trim().toUpperCase() || "—",
+    planta: plantaExpedienteColaborador(c).trim().toUpperCase() || "—",
     posicion: (posicionLaboralColaborador(c) || "").trim().toUpperCase() || "—",
     puesto: (c.puesto || "").trim().toUpperCase() || "—",
     fechaIngreso,
     noEmpleado: c.noEmpleado,
     nombres: (c.nombreCompleto || "").trim().toUpperCase() || "—",
+    fechaBaja,
     shifts: emptyBajasShifts(),
   };
 }
@@ -167,4 +251,20 @@ export function colaboradoresActivosTodos(lista: ColaboradorCompleto[]): Colabor
   return lista
     .filter((c) => !colaboradorTieneBaja(c))
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+}
+
+/** Todos los colaboradores con N° de empleado (activos y bajas) para Consulta asistencia. */
+export function colaboradoresParaConsultaAsistencia(lista: ColaboradorCompleto[]): ColaboradorCompleto[] {
+  return lista
+    .filter((c) => c.noEmpleado.trim())
+    .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+}
+
+export function estatusExpedienteColaborador(c: ColaboradorCompleto): "ACTIVO" | "BAJA" {
+  return colaboradorTieneBaja(c) ? "BAJA" : "ACTIVO";
+}
+
+export function fechaBajaDisplayColaborador(c: ColaboradorCompleto): string {
+  const fb = fechaBajaNormalizadaColaborador(c);
+  return fb ? formatoDesdeYyyyMmDd(fb) : "—";
 }

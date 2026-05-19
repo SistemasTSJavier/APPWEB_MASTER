@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
-import { colaboradoresActivosTodos, plantaExpedienteColaborador } from "../cuadriculaColaboradoresBridge";
+import {
+  colaboradoresParaConsultaAsistencia,
+  estatusExpedienteColaborador,
+  fechaBajaDisplayColaborador,
+  plantaExpedienteColaborador,
+} from "../cuadriculaColaboradoresBridge";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { useCuadriculaData } from "../CuadriculaDataContext";
 import { loadResumenMensualColaborador, type SemanaResumenColaborador } from "../attendanceResumenColaborador";
@@ -21,12 +26,19 @@ export function AsistenciaConsultaView() {
   const [resumenFilas, setResumenFilas] = useState<SemanaResumenColaborador[]>([]);
   const [resumenLoading, setResumenLoading] = useState(false);
 
-  const activos = useMemo(() => colaboradoresActivosTodos(colaboradores), [colaboradores]);
+  const listaConsulta = useMemo(
+    () => colaboradoresParaConsultaAsistencia(colaboradores),
+    [colaboradores],
+  );
 
   const plantaColaborador = useMemo(() => {
     if (!seleccionado) return "";
     return plantaExpedienteColaborador(seleccionado).trim();
   }, [seleccionado]);
+
+  const estatusColaborador = seleccionado ? estatusExpedienteColaborador(seleccionado) : null;
+  const fechaBajaColaborador = seleccionado ? fechaBajaDisplayColaborador(seleccionado) : "—";
+  const enBaja = estatusColaborador === "BAJA";
 
   useEffect(() => {
     if (!seleccionado?.noEmpleado.trim() || !plantaColaborador) {
@@ -63,9 +75,10 @@ export function AsistenciaConsultaView() {
           <span className="badge">Por colaborador</span>
         </div>
         <p className="hint consultaIntro">
-          Busque un colaborador como en <strong>ficha técnica</strong> y consulte el resumen de asistencia{' '}
-          <strong>por semana</strong> (totales lun–dom) del mes elegido. Los datos se leen del servidor
-          (misma fuente que la cuadrícula por planta).
+          Busque un colaborador <strong>activo o dado de baja</strong> y consulte el resumen de asistencia{" "}
+          <strong>por semana</strong> (totales lun–dom) del mes elegido. Se muestran <strong>Estatus</strong> y{" "}
+          <strong>Fecha de baja</strong> del expediente. El historial se lee del servidor (misma fuente que la
+          cuadrícula por planta), incluso si la persona ya no aparece en la captura semanal.
         </p>
         {loading ? (
           <p className="hint" style={{ marginBottom: 8 }}>
@@ -73,23 +86,24 @@ export function AsistenciaConsultaView() {
           </p>
         ) : null}
         {error ? (
-          <div className="hint" style={{ marginBottom: 8, color: "#b91c1c" }}>
+          <p className="hint" style={{ marginBottom: 8, color: "#b91c1c" }}>
             <strong>{error}</strong>{" "}
             <button type="button" className="btn btn--linkish" onClick={() => reload()}>
               Reintentar
             </button>
-          </div>
+          </p>
         ) : null}
 
         <ColaboradorSearchBar
-          colaboradores={activos}
+          colaboradores={listaConsulta}
           loading={loading}
           selected={seleccionado}
           onSelect={setSeleccionado}
+          marcarBajasEnLista
         />
 
         {seleccionado ? (
-          <div className="consultaMeta cardLike">
+          <div className={`consultaMeta cardLike${enBaja ? " consultaMeta--baja" : ""}`}>
             <div className="consultaMeta__grid">
               <div>
                 <span className="consultaMeta__label">Colaborador</span>
@@ -100,6 +114,18 @@ export function AsistenciaConsultaView() {
               <div>
                 <span className="consultaMeta__label">No. empleado</span>
                 <p className="consultaMeta__value">{seleccionado.noEmpleado}</p>
+              </div>
+              <div>
+                <span className="consultaMeta__label">Estatus</span>
+                <p
+                  className={`consultaMeta__value consultaMeta__estatus${enBaja ? " consultaMeta__estatus--baja" : ""}`}
+                >
+                  {estatusColaborador}
+                </p>
+              </div>
+              <div>
+                <span className="consultaMeta__label">Fecha de baja</span>
+                <p className="consultaMeta__value">{fechaBajaColaborador}</p>
               </div>
               <div>
                 <span className="consultaMeta__label">Planta (expediente)</span>
@@ -132,10 +158,16 @@ export function AsistenciaConsultaView() {
                 <span>Mostrar códigos por día (resumen)</span>
               </label>
             </div>
+            {enBaja ? (
+              <p className="hint consultaMeta__bajaNote">
+                Persona en <strong>baja</strong>: se muestra el historial de asistencia guardado antes y después de
+                la baja, según lo registrado por semana.
+              </p>
+            ) : null}
           </div>
         ) : (
           <p className="hint consultaPlaceholder">
-            Seleccione un colaborador de la lista para ver su asistencia semanal.
+            Seleccione un colaborador de la lista (activo o baja) para ver su asistencia semanal.
           </p>
         )}
       </header>
@@ -149,7 +181,7 @@ export function AsistenciaConsultaView() {
         ) : (
           <ColaboradorAsistenciaResumenPanel
             titulo={`Resumen mensual — ${seleccionado.nombreCompleto || seleccionado.noEmpleado}`}
-            subtitulo={`Planta: ${plantaColaborador}. Totales por semana según datos guardados en el servidor.`}
+            subtitulo={`Planta: ${plantaColaborador}. Totales por semana según datos guardados (activos y bajas).`}
             mesYm={mesYm}
             filas={resumenFilas}
             loading={resumenLoading}

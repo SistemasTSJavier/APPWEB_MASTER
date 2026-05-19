@@ -153,6 +153,11 @@ export function roleMayEditColaboradores(role: AppRole): boolean {
   return role === "admin" || role === "rh" || role === "aux_rh";
 }
 
+/** Filtro por rango de fecha de baja (módulo Bajas y cuadrícula → Bajas). */
+export function roleMayFilterBajasPorFechaBaja(role: AppRole): boolean {
+  return role === "admin" || role === "gerente_rh";
+}
+
 export function roleMayReadColaboradoresApi(role: AppRole): boolean {
   return (
     role === "admin" ||

@@ -19,7 +19,13 @@ export interface GridRow {
   rowServiceNo?: string
   /** Línea de servicio vigente en expediente (referencia). */
   servicioLinea?: string
+  /** Planta del expediente (vista «todos» y vacantes). */
+  plantaLinea?: string
   vacant: boolean
+  /** ACTIVO o BAJA (expediente con fecha de baja). */
+  estatus?: 'ACTIVO' | 'BAJA'
+  /** Fecha de baja para mostrar (vacante / activo: —). */
+  fechaBaja?: string
   shifts: { D: string; T: string; N: string }[]
   totals: {
     asist: number

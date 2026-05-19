@@ -1,10 +1,9 @@
 import type { AppRole } from "@/lib/app-role";
 import {
   roleMayEditCuadricula,
+  roleMayFilterBajasPorFechaBaja,
   roleMayImportCuadriculaAsistenciaCsv,
 } from "@/lib/app-role";
-import { showCuadriculaDevTools } from "./cuadriculaEnv";
-
 /** Captura en celdas y guardar (admin y editor_cuadricula). */
 export function canEditCuadricula(role: AppRole | null | undefined): boolean {
   return role != null && roleMayEditCuadricula(role);
@@ -15,7 +14,7 @@ export function canImportCuadriculaSemanaCsv(role: AppRole | null | undefined): 
   return role != null && roleMayImportCuadriculaAsistenciaCsv(role);
 }
 
-/** Herramientas de migración local → servidor (solo desarrollo + admin). */
-export function showCuadriculaMigrationTools(role: AppRole | null | undefined): boolean {
-  return showCuadriculaDevTools() && canEditCuadricula(role);
+/** Filtro por rango de fecha de baja en módulo Bajas de cuadrícula. */
+export function canFilterBajasCuadriculaPorFechaBaja(role: AppRole | null | undefined): boolean {
+  return role != null && roleMayFilterBajasPorFechaBaja(role);
 }

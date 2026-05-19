@@ -293,11 +293,18 @@ export type AttendancePlantaLoadResult = {
   remote: import('./attendanceRemote').RemoteAttendanceFetchMeta
 }
 
+/** Semana ya descargada del servidor (una sola petición para todas las plantas). */
+export type AttendanceWeekPrefetch = {
+  items: import('./attendanceRemote').RemoteAttendanceEntry[]
+  meta: import('./attendanceRemote').RemoteAttendanceFetchMeta
+}
+
 /** Carga local + servidor (toda la semana remota: planta + claves legado de catálogo). */
 export async function loadAttendanceGridForPlantaWithMeta(
   weekStartIso: string,
   plantaStorageKey: string,
   employeeNos: Iterable<string>,
+  prefetchedWeek?: AttendanceWeekPrefetch | null,
 ): Promise<AttendancePlantaLoadResult> {
   const scope = plantaStorageKey.trim()
   if (!scope) {
@@ -311,7 +318,17 @@ export async function loadAttendanceGridForPlantaWithMeta(
     pushAttendanceGridRemote,
   } = await import('./attendanceRemote')
 
-  const { items, meta } = await fetchAttendanceWeekRemote(weekStartIso)
+  let items: import('./attendanceRemote').RemoteAttendanceEntry[]
+  let meta: import('./attendanceRemote').RemoteAttendanceFetchMeta
+  if (prefetchedWeek) {
+    items = prefetchedWeek.items
+    meta = prefetchedWeek.meta
+  } else {
+    const fetched = await fetchAttendanceWeekRemote(weekStartIso)
+    items = fetched.items
+    meta = fetched.meta
+  }
+
   const remote = combineRemoteAttendanceForPlanta(scope, employeeNos, items)
   const merged = mergeStoredAttendanceGrids(remote, local)
 
@@ -335,11 +352,13 @@ export async function loadAttendanceGridForPlanta(
   weekStartIso: string,
   plantaStorageKey: string,
   employeeNos: Iterable<string>,
+  prefetchedWeek?: AttendanceWeekPrefetch | null,
 ): Promise<StoredAttendanceGrid | null> {
   const { grid } = await loadAttendanceGridForPlantaWithMeta(
     weekStartIso,
     plantaStorageKey,
     employeeNos,
+    prefetchedWeek,
   )
   return grid
 }
@@ -396,7 +415,13 @@ export function normalizeStoredRows(
       hireDate: typeof o.hireDate === 'string' ? o.hireDate : '',
       employeeNo: typeof o.employeeNo === 'string' ? o.employeeNo : null,
       name: typeof o.name === 'string' ? o.name : '',
+      rowServiceNo: typeof o.rowServiceNo === 'string' ? o.rowServiceNo : undefined,
+      servicioLinea: typeof o.servicioLinea === 'string' ? o.servicioLinea : undefined,
+      plantaLinea: typeof o.plantaLinea === 'string' ? o.plantaLinea : undefined,
       vacant: Boolean(o.vacant),
+      estatus:
+        o.estatus === 'BAJA' || o.estatus === 'ACTIVO' ? o.estatus : undefined,
+      fechaBaja: typeof o.fechaBaja === 'string' ? o.fechaBaja : undefined,
       shifts,
       totals: {
         asist: 0,

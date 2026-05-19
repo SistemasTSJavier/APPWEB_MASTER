@@ -103,6 +103,7 @@ export function normalizeBajasRows(rows: unknown): BajasRow[] {
       fechaIngreso: typeof o.fechaIngreso === 'string' ? o.fechaIngreso : '',
       noEmpleado: typeof o.noEmpleado === 'string' ? o.noEmpleado : '',
       nombres: typeof o.nombres === 'string' ? o.nombres : '',
+      fechaBaja: typeof o.fechaBaja === 'string' ? o.fechaBaja : undefined,
       shifts,
     })
   }

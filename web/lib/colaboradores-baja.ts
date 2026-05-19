@@ -126,6 +126,27 @@ export function colaboradorTieneBaja(c: ColaboradorCompleto): boolean {
   return String(c.form?.fechaBaja ?? "").trim().length > 0;
 }
 
+/** `form.fechaBaja` en `YYYY-MM-DD` para filtros y orden. */
+export function fechaBajaNormalizadaColaborador(c: ColaboradorCompleto): string {
+  return normalizarFechaParaInputDate(String(c.form?.fechaBaja ?? ""));
+}
+
+/** Rango opcional sobre **fecha de baja** (no último día laborado). */
+export function colaboradorCoincideRangoFechaBaja(
+  c: ColaboradorCompleto,
+  desde?: string,
+  hasta?: string,
+): boolean {
+  const d = desde?.trim() ?? "";
+  const h = hasta?.trim() ?? "";
+  if (!d && !h) return true;
+  const fb = fechaBajaNormalizadaColaborador(c);
+  if (!fb) return false;
+  if (d && fb < d) return false;
+  if (h && fb > h) return false;
+  return true;
+}
+
 /** Servicios distintos (asignado en alta y ultimo en expediente) solo entre quienes tienen fecha de baja. */
 export function serviciosUnicosColaboradoresDadosDeBaja(rows: ColaboradorCompleto[]): string[] {
   const porClave = new Map<string, string>();
@@ -206,34 +227,56 @@ function colaboradorCoincideZonaFiltroBajas(
 }
 
 /**
- * Colaboradores con `fechaBaja` en expediente. El rango **Desde/Hasta** se compara contra
- * `ultimoDiaLaborado` del expediente (no contra la fecha de baja). Filtros opcionales: servicio,
- * y zona si el servicio es CAT o U-ERRE.
+ * Colaboradores con `fechaBaja` en expediente.
+ * - Por defecto el rango Desde/Hasta usa `ultimoDiaLaborado`.
+ * - Con `usarFechaBajaEnRango: true` el rango usa `fechaBaja` (Gerente RH / Admin).
+ * - `servicios`: varios servicios (OR); si no se pasa, `servicio` (uno solo).
  */
 export function listarColaboradoresBajaFiltrados(
   rows: ColaboradorCompleto[],
-  opts: { desde?: string; hasta?: string; servicio?: string; zona?: string },
+  opts: {
+    desde?: string;
+    hasta?: string;
+    servicio?: string;
+    servicios?: string[];
+    zona?: string;
+    usarFechaBajaEnRango?: boolean;
+  },
 ): ColaboradorCompleto[] {
   const desde = opts.desde?.trim() ?? "";
   const hasta = opts.hasta?.trim() ?? "";
   const servicio = opts.servicio?.trim() ?? "";
+  const serviciosLista = (opts.servicios ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
   const zona = opts.zona?.trim() ?? "";
   const servicioNorm = servicio ? claveServicioListadoBajas(servicio) : "";
-  const filtraPorFechaLaborado = Boolean(desde || hasta);
+  const servicioNormZona =
+    serviciosLista.length === 1 ? claveServicioListadoBajas(serviciosLista[0]!) : servicioNorm;
+  const filtraPorRango = Boolean(desde || hasta);
+  const usarFechaBaja = Boolean(opts.usarFechaBajaEnRango);
 
   return rows.filter((c) => {
     if (!colaboradorTieneBaja(c)) return false;
-    const fb = normalizarFechaParaInputDate(String(c.form?.fechaBaja ?? ""));
+    const fb = fechaBajaNormalizadaColaborador(c);
     if (!fb) return false;
-    const udl = normalizarFechaParaInputDate(String(c.form?.ultimoDiaLaborado ?? ""));
-    if (filtraPorFechaLaborado) {
-      if (!udl) return false;
-      if (desde && udl < desde) return false;
-      if (hasta && udl > hasta) return false;
+    if (filtraPorRango) {
+      if (usarFechaBaja) {
+        if (!colaboradorCoincideRangoFechaBaja(c, desde, hasta)) return false;
+      } else {
+        const udl = normalizarFechaParaInputDate(String(c.form?.ultimoDiaLaborado ?? ""));
+        if (!udl) return false;
+        if (desde && udl < desde) return false;
+        if (hasta && udl > hasta) return false;
+      }
     }
-    if (servicio && !colaboradorCoincideServicioListado(c, servicio)) return false;
-    if (servicioNorm && zona && servicioAgrupadoUsaZona(servicioNorm)) {
-      if (!colaboradorCoincideZonaFiltroBajas(c, servicioNorm, zona)) return false;
+    if (serviciosLista.length > 0) {
+      if (!serviciosLista.some((s) => colaboradorCoincideServicioListado(c, s))) return false;
+    } else if (servicio && !colaboradorCoincideServicioListado(c, servicio)) {
+      return false;
+    }
+    if (servicioNormZona && zona && servicioAgrupadoUsaZona(servicioNormZona)) {
+      if (!colaboradorCoincideZonaFiltroBajas(c, servicioNormZona, zona)) return false;
     }
     return true;
   });

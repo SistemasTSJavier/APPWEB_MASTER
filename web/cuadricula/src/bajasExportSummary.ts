@@ -55,7 +55,10 @@ function bajasDetailLines(
 
 export function buildBajasHistoryExportText(opts: {
   serviceLabel: string
+  serviceLabels?: string[]
   serviceNo?: string
+  fechaBajaDesde?: string
+  fechaBajaHasta?: string
   period: AttendanceExportPeriod
   weekStartMonday: Date
   monthYm: string
@@ -65,7 +68,10 @@ export function buildBajasHistoryExportText(opts: {
 }): string {
   const {
     serviceLabel,
+    serviceLabels,
     serviceNo,
+    fechaBajaDesde,
+    fechaBajaHasta,
     period,
     weekStartMonday,
     monthYm,
@@ -78,8 +84,17 @@ export function buildBajasHistoryExportText(opts: {
   const lines: string[] = []
   lines.push('HISTORIAL DE ASISTENCIA — PERSONAL EN BAJA')
   lines.push(`Generado: ${formatDateEs(new Date())}`)
-  lines.push(`Servicio (filtro): ${serviceLabel}`)
+  if (serviceLabels && serviceLabels.length > 1) {
+    lines.push(`Servicios (filtro): ${serviceLabels.join(' · ')}`)
+  } else {
+    lines.push(`Servicio (filtro): ${serviceLabel}`)
+  }
   if (serviceNo?.trim()) lines.push(`No. de servicio (filtro): ${serviceNo.trim()}`)
+  if (fechaBajaDesde?.trim() || fechaBajaHasta?.trim()) {
+    const d = fechaBajaDesde?.trim() || '—'
+    const h = fechaBajaHasta?.trim() || '—'
+    lines.push(`Fecha de baja (filtro): ${d} a ${h}`)
+  }
   lines.push(`Periodo del resumen: ${title}`)
   lines.push(`Rango considerado: ${formatDateEs(from)} – ${formatDateEs(to)}`)
   if (period === 'mes') {
@@ -88,7 +103,7 @@ export function buildBajasHistoryExportText(opts: {
     )
   }
   lines.push('')
-  lines.push('Solo lectura / resumen: refleja datos cargados desde el origen (demo o API).')
+  lines.push('Solo lectura / resumen: refleja el historial de asistencia cargado (cuadrícula por planta).')
   lines.push('')
 
   if (rows.length === 0) {
@@ -99,7 +114,11 @@ export function buildBajasHistoryExportText(opts: {
   let anyFalta = false
   for (const row of rows) {
     lines.push('—')
-    lines.push(`${row.nombres}  (No. empleado: ${row.noEmpleado}, servicio: ${row.servicio})`)
+    const fb = row.fechaBaja?.trim()
+    const fbTxt = fb && fb !== '—' ? `, fecha baja: ${fb}` : ''
+    lines.push(
+      `${row.nombres}  (No. empleado: ${row.noEmpleado}, servicio: ${row.servicio}${fbTxt})`,
+    )
     const faltas: { dateStr: string; weekday: string; turn: Turn; code: string }[] = []
     dayMetas.forEach((meta, dayIndex) => {
       if (!dateInRange(meta.date, from, to)) return

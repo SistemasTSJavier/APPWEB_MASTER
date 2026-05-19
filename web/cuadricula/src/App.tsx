@@ -6,7 +6,7 @@ import { AsistenciaConsultaView } from './views/AsistenciaConsultaView'
 import { BajasView } from './views/BajasView'
 import { ComidasView } from './views/ComidasView'
 import { IncidenciasView } from './views/IncidenciasView'
-import { ModulePlaceholderView } from './views/ModulePlaceholderView'
+import { VacantesView } from './views/VacantesView'
 
 export default function App() {
   const [module, setModule] = useState<ModuleId>('asistencia')
@@ -15,8 +15,7 @@ export default function App() {
     <div className="app app--shell">
       <aside className="shellNav" aria-label="Módulos">
         <div className="shellNav__brand">
-          <span className="shellNav__brandTitle">Panel principal</span>
-          <span className="shellNav__brandSub">Operaciones</span>
+          <span className="shellNav__brandTitle">Módulos</span>
         </div>
         <nav className="shellNav__list">
           {APP_MODULES.map((m) => (
@@ -39,12 +38,7 @@ export default function App() {
         {module === 'bajas' && <BajasView />}
         {module === 'incidencias' && <IncidenciasView />}
         {module === 'comidas' && <ComidasView />}
-        {module === 'cobertura' && (
-          <ModulePlaceholderView
-            title="Cobertura"
-            hint="Cobertura de puestos, vacantes y refuerzos."
-          />
-        )}
+        {module === 'vacantes' && <VacantesView />}
       </div>
     </div>
   )

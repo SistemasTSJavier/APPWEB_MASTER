@@ -4,6 +4,10 @@ import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { claveServicioAgrupada, servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { createSupabaseServiceRoleClient, isSupabaseServerConfigured } from "@/lib/supabase/admin";
+import { aniversariosEmpresaProximaSemana, type AniversarioEmpresaSemana } from "@/lib/aniversario-empresa-semana";
+import { cumpleanosActivosEnMes, type CumpleaneroMes } from "@/lib/cumpleanos-mes";
+
+export type { AniversarioEmpresaSemana, CumpleaneroMes };
 
 export type DashboardStats = {
   totalColaboradores: number;
@@ -17,6 +21,10 @@ export type DashboardStats = {
   moperEsteMes: number;
   puestosUnicos: number;
   serviciosUnicos: number;
+  /** Activos con cumpleaños desde hoy hasta fin de mes (America/Mexico_City). */
+  cumpleanosEsteMes: CumpleaneroMes[];
+  /** Activos con aniversario de ingreso en los próximos 7 días. */
+  aniversariosEmpresaSemana: AniversarioEmpresaSemana[];
   fuente: "supabase" | "sin_datos";
 };
 
@@ -88,6 +96,8 @@ function calcular(list: ColaboradorCompleto[]): Omit<DashboardStats, "fuente" | 
     bajasEsteMes,
     puestosUnicos: puestos.size,
     serviciosUnicos: servicios.size,
+    cumpleanosEsteMes: cumpleanosActivosEnMes(list),
+    aniversariosEmpresaSemana: aniversariosEmpresaProximaSemana(list),
   };
 }
 
@@ -120,6 +130,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       moperEsteMes: 0,
       puestosUnicos: 0,
       serviciosUnicos: 0,
+      cumpleanosEsteMes: [],
+      aniversariosEmpresaSemana: [],
       fuente: "sin_datos",
     };
   }
@@ -134,6 +146,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       moperEsteMes: 0,
       puestosUnicos: 0,
       serviciosUnicos: 0,
+      cumpleanosEsteMes: [],
+      aniversariosEmpresaSemana: [],
       fuente: "sin_datos",
     };
   }
@@ -148,6 +162,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       moperEsteMes: 0,
       puestosUnicos: 0,
       serviciosUnicos: 0,
+      cumpleanosEsteMes: [],
+      aniversariosEmpresaSemana: [],
       fuente: "sin_datos",
     };
   }

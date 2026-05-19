@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { colaboradorCoincideRangoFechaBaja } from '@/lib/colaboradores-baja'
 import { buildBajasHistoryExportText } from '../bajasExportSummary'
 import type { BajasRow } from '../bajasMock'
+import { loadBajasRowsMultiServicio } from '../bajasAttendance'
 import {
   addDays,
   downloadTextFile,
@@ -9,10 +11,8 @@ import {
   weekDayMetas,
   type AttendanceExportPeriod,
 } from '../attendanceExportSummary'
-import {
-  colaboradorConBajaToBajasRow,
-  colaboradoresConBajaPorServicioCatalogo,
-} from '../cuadriculaColaboradoresBridge'
+import { colaboradoresConBajaPorServicioCatalogo } from '../cuadriculaColaboradoresBridge'
+import { canFilterBajasCuadriculaPorFechaBaja } from '../cuadriculaPermissions'
 import { useCuadriculaData } from '../CuadriculaDataContext'
 import { isAsistenciaCode, isDoubleTurnoExtraCode } from '../attendanceTotals'
 import { WEEK_COLUMNS, type Turn } from '../mockData'
@@ -47,19 +47,23 @@ function bajasCellClass(value: string, _noServicioFila: string): string {
 }
 
 export function BajasView() {
-  const { catalogo, colaboradores, loading, error, reload } = useCuadriculaData()
+  const { catalogo, colaboradores, loading, error, reload, appRole } = useCuadriculaData()
   const [rows, setRows] = useState<BajasRow[]>([])
-  const [serviceCatalogId, setServiceCatalogId] = useState('')
+  const [asistenciaLoading, setAsistenciaLoading] = useState(false)
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(new Date()))
   const [exportPeriod, setExportPeriod] = useState<AttendanceExportPeriod>('semana')
   const [exportMonthYm, setExportMonthYm] = useState(() =>
     toMonthYm(mondayOfWeek(new Date())),
   )
-  const [serviceNo, setServiceNo] = useState('')
+  const [fechaBajaDesde, setFechaBajaDesde] = useState('')
+  const [fechaBajaHasta, setFechaBajaHasta] = useState('')
 
-  const selectedCatalog = useMemo(
-    () => catalogo.find((c) => c.id === serviceCatalogId),
-    [catalogo, serviceCatalogId],
+  const puedeFiltrarFechaBaja = canFilterBajasCuadriculaPorFechaBaja(appRole)
+
+  const selectedCatalogs = useMemo(
+    () => catalogo.filter((c) => selectedServiceIds.includes(c.id)),
+    [catalogo, selectedServiceIds],
   )
 
   const dayMetas = useMemo(
@@ -71,41 +75,95 @@ export function BajasView() {
     addDays(weekStart, 6),
   )}`
 
+  const toggleServiceId = useCallback((id: string) => {
+    setSelectedServiceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }, [])
+
+  const selectAllServices = useCallback(() => {
+    setSelectedServiceIds(catalogo.map((c) => c.id))
+  }, [catalogo])
+
+  const clearServices = useCallback(() => {
+    setSelectedServiceIds([])
+  }, [])
+
   useEffect(() => {
-    if (!serviceCatalogId || !selectedCatalog) {
+    if (selectedCatalogs.length === 0) {
       setRows([])
-      setServiceNo('')
+      setAsistenciaLoading(false)
       return
     }
-    const nombreCat = selectedCatalog.nombre
-    const no = (selectedCatalog.numero_servicio ?? '').trim()
-    setServiceNo(no)
-    const bajas = colaboradoresConBajaPorServicioCatalogo(colaboradores, nombreCat).map((c) =>
-      colaboradorConBajaToBajasRow(c, nombreCat, no),
-    )
-    setRows(bajas)
-  }, [serviceCatalogId, selectedCatalog, colaboradores])
 
-  useEffect(() => {
-    const n = serviceNo.trim()
-    setRows((prev) => prev.map((r) => ({ ...r, noServicio: n })))
-  }, [serviceNo])
+    const grupos = selectedCatalogs
+      .map((cat) => {
+        let bajas = colaboradoresConBajaPorServicioCatalogo(colaboradores, cat.nombre)
+        if (puedeFiltrarFechaBaja && (fechaBajaDesde.trim() || fechaBajaHasta.trim())) {
+          bajas = bajas.filter((c) =>
+            colaboradorCoincideRangoFechaBaja(c, fechaBajaDesde, fechaBajaHasta),
+          )
+        }
+        return {
+          bajas,
+          catalogNombre: cat.nombre,
+          noServicio: (cat.numero_servicio ?? '').trim(),
+        }
+      })
+      .filter((g) => g.bajas.length > 0)
+
+    if (grupos.length === 0) {
+      setRows([])
+      setAsistenciaLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setAsistenciaLoading(true)
+    void loadBajasRowsMultiServicio(grupos, weekStart).then((loaded) => {
+      if (!cancelled) {
+        setRows(loaded)
+        setAsistenciaLoading(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    selectedCatalogs,
+    colaboradores,
+    weekStart,
+    fechaBajaDesde,
+    fechaBajaHasta,
+    puedeFiltrarFechaBaja,
+  ])
+
+  const serviceLabels = selectedCatalogs.map((c) => c.nombre)
+  const serviceLabelResumen =
+    serviceLabels.length === 0
+      ? 'Servicio'
+      : serviceLabels.length === 1
+        ? serviceLabels[0]!
+        : `${serviceLabels.length} servicios`
 
   function exportHistorial() {
-    const serviceLabel = selectedCatalog?.nombre ?? 'Servicio'
     const text = buildBajasHistoryExportText({
-      serviceLabel,
-      serviceNo,
+      serviceLabel: serviceLabelResumen,
+      serviceLabels: serviceLabels.length > 1 ? serviceLabels : undefined,
       period: exportPeriod,
       weekStartMonday: weekStart,
       monthYm: exportMonthYm,
       rows,
       dayMetas,
       weekdayLabels: WEEK_COLUMNS.map((c) => c.weekday),
+      fechaBajaDesde: puedeFiltrarFechaBaja ? fechaBajaDesde : undefined,
+      fechaBajaHasta: puedeFiltrarFechaBaja ? fechaBajaHasta : undefined,
     })
     const stamp = formatDateEs(weekStart).replace(/\//g, '-')
     downloadTextFile(`historial-bajas-${stamp}.txt`, text)
   }
+
+  const idColCount = puedeFiltrarFechaBaja ? 9 : 8
 
   return (
     <div className="bajasView">
@@ -129,37 +187,82 @@ export function BajasView() {
         ) : null}
         <div className="topbar__controls">
           <div className="topbar__bar">
-            <div className="topbar__toolbarLeft">
-              <label className="field">
-                <span className="field__label">Servicio (catálogo)</span>
-                <select
-                  className="select"
-                  value={serviceCatalogId}
-                  onChange={(e) => setServiceCatalogId(e.target.value)}
-                  disabled={loading}
-                >
-                  <option value="">Seleccione servicio…</option>
-                  {catalogo.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nombre}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field field--serviceNo">
-                <span className="field__label">No. servicio</span>
-                <input
-                  className="input input--serviceNo"
-                  type="text"
-                  autoComplete="off"
-                  placeholder="—"
-                  title="Proviene del catálogo; referencia para colorear celdas."
-                  value={serviceNo}
-                  onChange={(e) => setServiceNo(e.target.value)}
-                  maxLength={32}
-                  aria-label="Número de servicio"
-                />
-              </label>
+            <div className="topbar__toolbarLeft topbar__toolbarLeft--bajasFilters">
+              <div className="field field--serviceMulti">
+                <span className="field__label">Servicios (catálogo)</span>
+                <div className="bajasServiceFilter">
+                  <div className="bajasServiceFilter__actions">
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={selectAllServices}
+                      disabled={loading || catalogo.length === 0}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={clearServices}
+                      disabled={loading || selectedServiceIds.length === 0}
+                    >
+                      Ninguno
+                    </button>
+                  </div>
+                  <div
+                    className="bajasServiceFilter__list"
+                    role="group"
+                    aria-label="Selección de servicios"
+                  >
+                    {catalogo.map((s) => (
+                      <label key={s.id} className="bajasServiceFilter__item">
+                        <input
+                          type="checkbox"
+                          checked={selectedServiceIds.includes(s.id)}
+                          onChange={() => toggleServiceId(s.id)}
+                          disabled={loading}
+                        />
+                        <span>{s.nombre}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                {selectedServiceIds.length > 0 ? (
+                  <p className="hint bajasServiceFilter__count">
+                    {selectedServiceIds.length} servicio(s) seleccionado(s)
+                  </p>
+                ) : (
+                  <p className="hint bajasServiceFilter__count">
+                    Marque uno o más servicios para ver el historial.
+                  </p>
+                )}
+              </div>
+
+              {puedeFiltrarFechaBaja ? (
+                <div className="bajasFechaBajaFilters">
+                  <label className="field">
+                    <span className="field__label">Fecha de baja desde</span>
+                    <input
+                      className="input"
+                      type="date"
+                      value={fechaBajaDesde}
+                      onChange={(e) => setFechaBajaDesde(e.target.value)}
+                      aria-label="Fecha de baja desde"
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Fecha de baja hasta</span>
+                    <input
+                      className="input"
+                      type="date"
+                      value={fechaBajaHasta}
+                      onChange={(e) => setFechaBajaHasta(e.target.value)}
+                      aria-label="Fecha de baja hasta"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
               <div className="weekNav">
                 <button
                   type="button"
@@ -255,26 +358,39 @@ export function BajasView() {
             </div>
           </div>
           <p className="hint">
-            Personal con <strong>baja</strong> en expediente y línea de servicio alineada al servicio del catálogo. Las celdas de la semana
-            son plantilla (sin historial remoto aún); el color de número inválido usa el <strong>No. servicio</strong> de cada fila.
+            Personal con <strong>baja</strong> en expediente y línea de servicio alineada al catálogo
+            seleccionado. Las celdas muestran el <strong>historial de asistencia</strong> de la semana
+            (misma fuente que la cuadrícula por planta).
+            {puedeFiltrarFechaBaja
+              ? ' Puede acotar por rango de fecha de baja (Gerente RH / Administrador).'
+              : null}{' '}
+            {asistenciaLoading ? 'Cargando asistencia…' : null}
           </p>
         </div>
       </header>
 
       <div className="sheetWrap">
-        {!serviceCatalogId ? (
+        {selectedServiceIds.length === 0 ? (
           <p className="hint" style={{ padding: '1rem' }}>
-            Elija un servicio para listar bajas vinculadas a ese servicio.
+            Seleccione uno o más servicios del catálogo para listar bajas e historial de asistencia.
           </p>
-        ) : rows.length === 0 ? (
+        ) : rows.length === 0 && !asistenciaLoading ? (
           <p className="hint" style={{ padding: '1rem' }}>
-            No hay colaboradores dados de baja que coincidan con <strong>{selectedCatalog?.nombre}</strong>.
+            No hay colaboradores dados de baja que coincidan con los filtros (
+            <strong>{serviceLabelResumen}</strong>
+            {puedeFiltrarFechaBaja && (fechaBajaDesde || fechaBajaHasta)
+              ? `, fecha de baja ${fechaBajaDesde || '…'} – ${fechaBajaHasta || '…'}`
+              : null}
+            ).
           </p>
         ) : null}
-        <table className="sheet sheet--bajas" aria-label="Historial de asistencia en bajas">
+        <table
+          className={`sheet sheet--bajas${puedeFiltrarFechaBaja ? ' sheet--bajasConFecha' : ''}`}
+          aria-label="Historial de asistencia en bajas"
+        >
           <thead>
             <tr>
-              <th colSpan={8} className="th th--block th--band th--bandId">
+              <th colSpan={idColCount} className="th th--block th--band th--bandId">
                 Datos del empleado
               </th>
               {WEEK_COLUMNS.map((col, i) => (
@@ -291,6 +407,9 @@ export function BajasView() {
               <th className="th th--sticky">Posición</th>
               <th className="th th--sticky">Puesto</th>
               <th className="th th--sticky">Fecha de ingreso</th>
+              {puedeFiltrarFechaBaja ? (
+                <th className="th th--sticky">Fecha de baja</th>
+              ) : null}
               <th className="th th--sticky">No. de empleado</th>
               <th className="th th--sticky th--name">Nombre(s)</th>
               {WEEK_COLUMNS.map((col) =>
@@ -304,13 +423,16 @@ export function BajasView() {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
+              <tr key={`${row.id}-${row.servicio}-${row.noServicio}`}>
                 <td className="td td--sticky">{row.servicio}</td>
                 <td className="td td--sticky mono">{row.noServicio}</td>
                 <td className="td td--sticky">{row.planta}</td>
                 <td className="td td--sticky mono">{row.posicion}</td>
                 <td className="td td--sticky">{row.puesto}</td>
                 <td className="td td--sticky nowrap">{row.fechaIngreso}</td>
+                {puedeFiltrarFechaBaja ? (
+                  <td className="td td--sticky nowrap">{row.fechaBaja ?? '—'}</td>
+                ) : null}
                 <td className="td td--sticky mono">{row.noEmpleado}</td>
                 <td className="td td--sticky td--name">{row.nombres}</td>
                 {row.shifts.map((day, dayIndex) =>
@@ -322,7 +444,11 @@ export function BajasView() {
                         readOnly
                         tabIndex={-1}
                         aria-label={`${row.nombres} ${WEEK_COLUMNS[dayIndex]?.weekday} ${turn}`}
-                        title="Solo lectura: historial de asistencia."
+                        title={
+                          day[turn].trim()
+                            ? `Asistencia registrada: ${day[turn]}`
+                            : 'Sin registro de asistencia en esta semana.'
+                        }
                       />
                     </td>
                   )),
@@ -334,7 +460,8 @@ export function BajasView() {
       </div>
 
       <footer className="footer">
-        Listado alineado con expedientes y catálogo de servicios; export y semana como en asistencia.
+        Historial de solo lectura desde asistencia guardada; seleccione servicios, navegue la semana y
+        exporte el resumen cuando lo necesite.
       </footer>
     </div>
   )

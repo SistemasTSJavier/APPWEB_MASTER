@@ -4,7 +4,7 @@ export type ModuleId =
   | 'bajas'
   | 'incidencias'
   | 'comidas'
-  | 'cobertura'
+  | 'vacantes'
 
 export interface AppModule {
   id: ModuleId
@@ -26,5 +26,5 @@ export const APP_MODULES: AppModule[] = [
     hint: 'Vacaciones, incapacidades, permisos y horas acumuladas',
   },
   { id: 'comidas', label: 'Comidas', hint: 'Comedor y turnos de comida' },
-  { id: 'cobertura', label: 'Cobertura', hint: 'Cobertura de puestos y vacantes' },
+  { id: 'vacantes', label: 'Vacantes', hint: 'Posiciones libres por planta' },
 ]

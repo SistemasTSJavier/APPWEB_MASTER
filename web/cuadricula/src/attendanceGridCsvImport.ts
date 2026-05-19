@@ -12,35 +12,28 @@ import { saveAttendanceGrid } from './attendanceStorage'
 import { withComputedTotals } from './attendanceTotals'
 import {
   colaboradoresActivosPorPlanta,
-  gridRowServiceNo,
   listarPlantasDeColaboradores,
+  gridRowServiceNo,
   plantaToStorageKey,
 } from './cuadriculaColaboradoresBridge'
+import { sortGridRowsByPosicion } from './attendanceGridSort'
+import { celdasIdentificacionAsistencia } from './attendanceGridColumns'
 import type { GridRow } from './mockData'
 
-/** Cabeceras del CSV compacto (cuadrícula en app): 5 + 21 códigos. */
+/** Cabeceras estándar (8 columnas de identificación + 21 códigos). */
 export const ATTENDANCE_GRID_CSV_FIXED_HEADERS = [
-  'Posición',
-  'Puesto',
-  'Fecha ing.',
-  'No. empleado',
-  'Nombres',
-] as const
-
-/**
- * Cabeceras como en hoja Excel de planta (SERVICIO, NO SERVICIO, PLANTA… + 21 celdas D/T/N por semana).
- * Coinciden con el ejemplo del usuario.
- */
-export const ATTENDANCE_GRID_CSV_PLANTA_SHEET_HEADERS = [
   'SERVICIO',
-  'NO SERVICIO',
+  'NO. SERVICIO',
   'PLANTA',
   'POSICION',
   'PUESTO',
-  'FECHA DE INI',
-  'NO DE EMPLE',
+  'FECHA DE INGRESO',
+  'NO DE EMPLEADO',
   'NOMBRE',
 ] as const
+
+/** Alias: mismas cabeceras que la cuadrícula en pantalla. */
+export const ATTENDANCE_GRID_CSV_PLANTA_SHEET_HEADERS = ATTENDANCE_GRID_CSV_FIXED_HEADERS
 
 /** Columnas D-T-N repetidas 7 veces (Lun…Dom), para plantilla compacta. */
 export const ATTENDANCE_GRID_CSV_SHIFT_HEADERS_EXAMPLE: string[] = (() => {
@@ -324,7 +317,7 @@ export function parseAttendanceGridCodesCsv(text: string):
     return {
       ok: false,
       error:
-        'No se reconoce la cabecera. Use (A) Posición, Puesto, Fecha ing., No. empleado, Nombres + 21 columnas de códigos, o (B) SERVICIO, NO SERVICIO, PLANTA, POSICION, PUESTO, FECHA DE INI, NO DE EMPLE, NOMBRE + 21 columnas D/T/N.',
+        'No se reconoce la cabecera. Use SERVICIO, NO. SERVICIO, PLANTA, POSICION, PUESTO, FECHA DE INGRESO, NO DE EMPLEADO, NOMBRE + 21 columnas D/T/N (Lun–Dom).',
     }
   }
 
@@ -733,13 +726,7 @@ export function buildAttendanceCodesCsvExport(
   ]
   for (const row of gridRows) {
     if (row.vacant) continue
-    const cells: string[] = [
-      row.position,
-      row.role,
-      row.hireDate,
-      String(row.employeeNo ?? ''),
-      row.name,
-    ]
+    const cells: string[] = [...celdasIdentificacionAsistencia(row)]
     for (const day of row.shifts) {
       cells.push(day.D, day.T, day.N)
     }
@@ -765,31 +752,10 @@ export function buildAttendanceCodesCsvPlantaSheet(
   const lines: string[] = [
     headers.map((h) => escapeCsvDelimCell(delim, h)).join(delim),
   ]
-  const dataRows = gridRows
-    .filter((row) => !row.vacant)
-    .sort((a, b) => {
-      const na = canonicalNoServicioForCsvMatch(gridRowServiceNo(a))
-      const nb = canonicalNoServicioForCsvMatch(gridRowServiceNo(b))
-      const c = na.localeCompare(nb, 'es', { numeric: true })
-      if (c !== 0) return c
-      return String(a.employeeNo ?? '').localeCompare(String(b.employeeNo ?? ''), 'es', {
-        numeric: true,
-      })
-    })
+  const dataRows = sortGridRowsByPosicion(gridRows)
 
   for (const row of dataRows) {
-    const noSrv = gridRowServiceNo(row)
-    const servicioTxt = (row.servicioLinea ?? '').trim().toUpperCase() || planta
-    const cells: string[] = [
-      servicioTxt,
-      noSrv,
-      planta,
-      row.position,
-      row.role,
-      row.hireDate,
-      String(row.employeeNo ?? ''),
-      row.name,
-    ]
+    const cells: string[] = [...celdasIdentificacionAsistencia(row, planta)]
     for (const day of row.shifts) {
       cells.push(day.D, day.T, day.N)
     }

@@ -5,11 +5,7 @@ import type { AppRole } from "@/lib/app-role";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { colaboradorToEmpleadoIncidencia, colaboradoresActivosTodos } from "./cuadriculaColaboradoresBridge";
-import {
-  canEditCuadricula,
-  canImportCuadriculaSemanaCsv,
-  showCuadriculaMigrationTools,
-} from "./cuadriculaPermissions";
+import { canEditCuadricula, canImportCuadriculaSemanaCsv } from "./cuadriculaPermissions";
 
 type CuadriculaDataState = {
   catalogo: CatalogoServicioItem[];
@@ -20,7 +16,6 @@ type CuadriculaDataState = {
   appRole: AppRole | null;
   puedeEditar: boolean;
   puedeImportarCsv: boolean;
-  showMigrationTools: boolean;
   /** Lista para buscadores (incidencias / comidas): activos, expediente real. */
   empleadosBusqueda: ReturnType<typeof colaboradorToEmpleadoIncidencia>[];
 };
@@ -78,7 +73,6 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
 
   const puedeEditar = canEditCuadricula(appRole);
   const puedeImportarCsv = canImportCuadriculaSemanaCsv(appRole);
-  const showMigrationTools = showCuadriculaMigrationTools(appRole);
 
   const value = useMemo(
     () => ({
@@ -90,7 +84,6 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       appRole,
       puedeEditar,
       puedeImportarCsv,
-      showMigrationTools,
       empleadosBusqueda,
     }),
     [
@@ -102,7 +95,6 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       appRole,
       puedeEditar,
       puedeImportarCsv,
-      showMigrationTools,
       empleadosBusqueda,
     ],
   );

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
-import { plantaExpedienteColaborador } from "../cuadriculaColaboradoresBridge";
+import {
+  estatusExpedienteColaborador,
+  plantaExpedienteColaborador,
+} from "../cuadriculaColaboradoresBridge";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 
 const MAX_SUGERENCIAS = 60;
@@ -19,6 +22,8 @@ export type ColaboradorSearchBarProps = {
   loading?: boolean;
   selected: ColaboradorCompleto | null;
   onSelect: (c: ColaboradorCompleto | null) => void;
+  /** Muestra «(BAJA)» en sugerencias para colaboradores dados de baja. */
+  marcarBajasEnLista?: boolean;
 };
 
 export function ColaboradorSearchBar({
@@ -26,6 +31,7 @@ export function ColaboradorSearchBar({
   loading = false,
   selected,
   onSelect,
+  marcarBajasEnLista = false,
 }: ColaboradorSearchBarProps) {
   const [busqueda, setBusqueda] = useState("");
   const [listaAbierta, setListaAbierta] = useState(false);
@@ -112,16 +118,21 @@ export function ColaboradorSearchBar({
             />
             {listaAbierta && busqueda.trim() && sugerencias.length > 0 ? (
               <ul className="consultaSearch__hits" role="listbox">
-                {sugerencias.map((c) => (
+                {sugerencias.map((c) => {
+                  const enBaja = marcarBajasEnLista && estatusExpedienteColaborador(c) === "BAJA";
+                  return (
                   <li key={c.noEmpleado} role="option">
                     <button
                       type="button"
-                      className="consultaSearch__hit"
+                      className={`consultaSearch__hit${enBaja ? " consultaSearch__hit--baja" : ""}`}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => elegir(c)}
                     >
                       <span className="consultaSearch__hitName">
                         {c.nombreCompleto || "(SIN NOMBRE)"}
+                        {enBaja ? (
+                          <span className="consultaSearch__hitBaja" aria-label="Baja"> (BAJA)</span>
+                        ) : null}
                       </span>
                       <span className="consultaSearch__hitMeta">
                         No. {c.noEmpleado}
@@ -134,7 +145,8 @@ export function ColaboradorSearchBar({
                       </span>
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             ) : null}
           </div>

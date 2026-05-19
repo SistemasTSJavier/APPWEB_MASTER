@@ -1,19 +1,23 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
-import { noServicioColaborador } from "@/lib/colaboradores-catalogo-display";
+import type { AttendanceWeekPrefetch } from "./attendanceStorage";
 import {
-  loadAttendanceGridForPlanta,
-  mergeAttendanceRowsWithStored,
+  loadAttendanceGridForPlantaWithMeta,
   normalizeStoredRows,
 } from "./attendanceStorage";
-import { withComputedTotals } from "./attendanceTotals";
+import type { RemoteAttendanceFetchMeta } from "./attendanceRemote";
+import { injectCatalogVacantes, mergeAttendanceRowsWithStoredAndVacantes } from "./attendanceVacantes";
+import { listVacantesPorPlanta } from "./vacantesStorage";
+import { sortGridRowsByServicioYPosicion } from "./attendanceGridSort";
 import {
   colaboradorToGridRow,
   colaboradoresActivosPorPlanta,
+  mapaColaboradoresActivosPorPlanta,
   gridRowServiceNo,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
 import type { GridRow } from "./mockData";
+import { withComputedTotals } from "./attendanceTotals";
 
 function aplicarTotalesPorFila(rows: GridRow[], base: GridRow[]): GridRow[] {
   const baseByKey = new Map(base.map((b) => [String(b.employeeNo ?? b.id ?? "").trim(), b]));
@@ -24,9 +28,52 @@ function aplicarTotalesPorFila(rows: GridRow[], base: GridRow[]): GridRow[] {
       ...r,
       rowServiceNo: br?.rowServiceNo ?? r.rowServiceNo,
       servicioLinea: br?.servicioLinea ?? r.servicioLinea,
+      plantaLinea: br?.plantaLinea ?? r.plantaLinea,
     };
     return withComputedTotals(merged, gridRowServiceNo(merged));
   });
+}
+
+function maxSavedAtIso(a: string | null, b: string | undefined): string | null {
+  if (!b?.trim()) return a;
+  if (!a) return b;
+  return b > a ? b : a;
+}
+
+async function mergePlantaWeekBlock(
+  activos: ColaboradorCompleto[],
+  plantaNombre: string,
+  catalogo: CatalogoServicioItem[],
+  weekStartIso: string,
+  prefetchedWeek: AttendanceWeekPrefetch | null,
+): Promise<{ rows: GridRow[]; savedAt: string | null }> {
+  const scopeId = plantaToStorageKey(plantaNombre);
+  if (!scopeId || activos.length === 0) {
+    return { rows: [], savedAt: null };
+  }
+
+  const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
+  const { grid: stored } = await loadAttendanceGridForPlantaWithMeta(
+    weekStartIso,
+    scopeId,
+    activos.map((c) => c.noEmpleado),
+    prefetchedWeek,
+  );
+
+  let merged = base;
+  if (stored?.rows?.length) {
+    const norm = normalizeStoredRows(stored.rows);
+    merged = mergeAttendanceRowsWithStoredAndVacantes(base, norm);
+  } else {
+    merged = mergeAttendanceRowsWithStoredAndVacantes(base, []);
+  }
+
+  merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaNombre));
+
+  return {
+    rows: aplicarTotalesPorFila(merged, base),
+    savedAt: stored?.savedAt ?? null,
+  };
 }
 
 /**
@@ -56,22 +103,76 @@ export async function mergeGridRowsForPlantaWeek(
   plantaNombre: string,
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
+  prefetchedWeek?: AttendanceWeekPrefetch | null,
 ): Promise<GridRow[]> {
-  const scopeId = plantaToStorageKey(plantaNombre);
-  if (!scopeId) return [];
-  const activos = colaboradoresActivosPorPlanta(colaboradores, plantaNombre);
-  const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
-  const stored = await loadAttendanceGridForPlanta(
+  const mapa = mapaColaboradoresActivosPorPlanta(colaboradores);
+  const activos = mapa.get(plantaNombre.trim().toUpperCase()) ?? [];
+  const { rows } = await mergePlantaWeekBlock(
+    activos,
+    plantaNombre,
+    catalogo,
     weekStartIso,
-    scopeId,
-    activos.map((c) => c.noEmpleado),
+    prefetchedWeek ?? null,
   );
-  let merged = base;
-  if (stored) {
-    const norm = normalizeStoredRows(stored.rows);
-    merged = mergeAttendanceRowsWithStored(base, norm);
+  return rows;
+}
+
+export type TodasPlantasWeekResult = {
+  rows: GridRow[];
+  remote: RemoteAttendanceFetchMeta;
+  lastSavedAt: string | null;
+};
+
+/**
+ * Todas las plantas en una tabla: **una** petición al servidor y fusión en paralelo por planta.
+ */
+export async function mergeGridRowsTodasPlantasWeek(
+  colaboradores: ColaboradorCompleto[],
+  catalogo: CatalogoServicioItem[],
+  weekStartIso: string,
+): Promise<TodasPlantasWeekResult> {
+  const mapa = mapaColaboradoresActivosPorPlanta(colaboradores);
+  const plantas = [...mapa.keys()].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+
+  if (plantas.length === 0) {
+    return { rows: [], remote: { status: "empty" }, lastSavedAt: null };
   }
-  return aplicarTotalesPorFila(merged, base);
+
+  const { fetchAttendanceWeekRemote } = await import("./attendanceRemote");
+  const prefetch = await fetchAttendanceWeekRemote(weekStartIso);
+
+  const blocks = await Promise.all(
+    plantas.map((planta) => {
+      const activos = mapa.get(planta) ?? [];
+      return mergePlantaWeekBlock(activos, planta, catalogo, weekStartIso, prefetch);
+    }),
+  );
+
+  let lastSavedAt: string | null = null;
+  const allRows: GridRow[] = [];
+  for (const block of blocks) {
+    if (block.rows.length > 0) allRows.push(...block.rows);
+    lastSavedAt = maxSavedAtIso(lastSavedAt, block.savedAt ?? undefined);
+  }
+
+  return {
+    rows: sortGridRowsByServicioYPosicion(allRows),
+    remote: prefetch.meta,
+    lastSavedAt,
+  };
+}
+
+/** Reparte filas por planta para guardar (incluye vacantes de cada planta). */
+export function splitGridRowsByPlanta(rows: GridRow[]): Map<string, GridRow[]> {
+  const map = new Map<string, GridRow[]>();
+  for (const r of rows) {
+    const p = (r.plantaLinea ?? "").trim().toUpperCase();
+    if (!p) continue;
+    const list = map.get(p) ?? [];
+    list.push(r);
+    map.set(p, list);
+  }
+  return map;
 }
 
 /** @deprecated Use mergeGridRowsForPlantaWeek */
