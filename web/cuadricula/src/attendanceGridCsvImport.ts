@@ -702,48 +702,71 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   let totalUpdated = 0
   let plantsSaved = 0
 
-  for (const [plantaNorm, csvRows] of grouped) {
-    const plantaNombre = expedienteNorm.get(plantaNorm)
-    if (!plantaNombre) {
-      unknownPlantas.push(plantaNorm)
+  const { getAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
+  const prefetch = await getAttendanceWeekPrefetch(opts.weekIso)
+  const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(opts.colaboradores)
+
+  const slices = await Promise.all(
+    [...grouped.entries()].map(async ([plantaNorm, csvRows]) => {
+      const plantaNombre = expedienteNorm.get(plantaNorm)
+      if (!plantaNombre) {
+        return { kind: 'unknown' as const, plantaNorm }
+      }
+      const scopeKey = plantaToStorageKey(plantaNombre)
+      if (!scopeKey) return null
+
+      const base = await mergeGridRowsForPlantaWeekForCsvImport(
+        opts.colaboradores,
+        plantaNombre,
+        opts.catalogo,
+        opts.weekIso,
+        prefetch,
+      )
+      const {
+        next,
+        updatedCount,
+        csvEmployeesNotInGrid,
+        gridEmployeeCount,
+        ambiguousEmployeeNos,
+      } = mergeCsvShiftsIntoGridRows(base, csvRows, {
+        catalogo: opts.catalogo,
+        plantaNombre,
+        colaboradoresByEmp,
+        agregarFilasCsvPorEmpNo: true,
+        todosColaboradores: opts.colaboradores,
+      })
+
+      const saved = updatedCount > 0 && (await saveAttendanceGrid(opts.weekIso, scopeKey, next, ''))
+
+      return {
+        kind: 'ok' as const,
+        plantaNombre,
+        updatedCount,
+        gridEmployeeCount,
+        csvRowsTotal: csvRows.length,
+        csvEmployeesNotInGrid,
+        ambiguousEmployeeNos,
+        saved,
+      }
+    }),
+  )
+
+  for (const slice of slices) {
+    if (!slice) continue
+    if (slice.kind === 'unknown') {
+      unknownPlantas.push(slice.plantaNorm)
       continue
     }
-    const scopeKey = plantaToStorageKey(plantaNombre)
-    if (!scopeKey) continue
-
-    const base = await mergeGridRowsForPlantaWeekForCsvImport(
-      opts.colaboradores,
-      plantaNombre,
-      opts.catalogo,
-      opts.weekIso,
-    )
-    const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(opts.colaboradores)
-    const {
-      next,
-      updatedCount,
-      csvEmployeesNotInGrid,
-      gridEmployeeCount,
-      ambiguousEmployeeNos,
-    } = mergeCsvShiftsIntoGridRows(base, csvRows, {
-      catalogo: opts.catalogo,
-      plantaNombre,
-      colaboradoresByEmp,
-      agregarFilasCsvPorEmpNo: true,
-      todosColaboradores: opts.colaboradores,
-    })
-
-    const saved = updatedCount > 0 && (await saveAttendanceGrid(opts.weekIso, scopeKey, next, ''))
-    if (saved) plantsSaved++
-    totalUpdated += updatedCount
-
+    if (slice.saved) plantsSaved++
+    totalUpdated += slice.updatedCount
     plantas.push({
-      plantaNombre,
-      updatedCount,
-      gridEmployeeCount,
-      csvRowsTotal: csvRows.length,
-      csvEmployeesNotInGrid,
-      ambiguousEmployeeNos,
-      saved,
+      plantaNombre: slice.plantaNombre,
+      updatedCount: slice.updatedCount,
+      gridEmployeeCount: slice.gridEmployeeCount,
+      csvRowsTotal: slice.csvRowsTotal,
+      csvEmployeesNotInGrid: slice.csvEmployeesNotInGrid,
+      ambiguousEmployeeNos: slice.ambiguousEmployeeNos,
+      saved: slice.saved,
     })
   }
 
@@ -766,15 +789,22 @@ export async function buildAttendanceCodesCsvAllPlantasWeek(
   delim: ';' | ',' = ';',
 ): Promise<string> {
   const plantas = listarPlantasDeColaboradores(colaboradores)
-  const parts: string[] = []
-  for (const planta of plantas) {
-    const rows = await mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso)
-    if (rows.length === 0) continue
-    const block = buildAttendanceCodesCsvPlantaSheet(rows, planta, delim)
-    if (parts.length > 0) parts.push('')
-    parts.push(block)
-  }
-  return parts.join('\r\n')
+  const { getAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
+  const prefetch = await getAttendanceWeekPrefetch(weekIso)
+  const blocks = await Promise.all(
+    plantas.map(async (planta) => {
+      const rows = await mergeGridRowsForPlantaWeek(
+        colaboradores,
+        planta,
+        catalogo,
+        weekIso,
+        prefetch,
+      )
+      if (rows.length === 0) return ''
+      return buildAttendanceCodesCsvPlantaSheet(rows, planta, delim)
+    }),
+  )
+  return blocks.filter(Boolean).join('\r\n\r\n')
 }
 
 function escapeCsvDelimCell(delim: ';' | ',', s: string): string {

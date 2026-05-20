@@ -4,7 +4,9 @@ import type { AttendanceWeekPrefetch } from "./attendanceStorage";
 import {
   loadAttendanceGridForPlantaWithMeta,
   normalizeStoredRows,
+  resolveMergedStoredGridForPlanta,
 } from "./attendanceStorage";
+import { getAttendanceWeekPrefetch } from "./attendanceWeekPrefetch";
 import type { RemoteAttendanceFetchMeta } from "./attendanceRemote";
 import { injectCatalogVacantes, mergeAttendanceRowsWithStoredAndVacantes } from "./attendanceVacantes";
 import { listVacantesPorPlanta } from "./vacantesStorage";
@@ -57,12 +59,10 @@ async function mergePlantaWeekBlock(
   }
 
   const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
-  const { grid: stored } = await loadAttendanceGridForPlantaWithMeta(
-    weekStartIso,
-    scopeId,
-    activos.map((c) => c.noEmpleado),
-    prefetchedWeek,
-  );
+  const empKeys = activos.map((c) => c.noEmpleado);
+  const stored = prefetchedWeek
+    ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, empKeys, prefetchedWeek)
+    : (await loadAttendanceGridForPlantaWithMeta(weekStartIso, scopeId, empKeys, null)).grid;
 
   let merged = base;
   const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
@@ -102,12 +102,9 @@ async function mergePlantaWeekBlockForCsvImport(
 
   const base = colaboradoresPlanta.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
   const empKeys = colaboradoresPlanta.map((c) => c.noEmpleado);
-  const { grid: stored } = await loadAttendanceGridForPlantaWithMeta(
-    weekStartIso,
-    scopeId,
-    empKeys,
-    prefetchedWeek,
-  );
+  const stored = prefetchedWeek
+    ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, empKeys, prefetchedWeek)
+    : (await loadAttendanceGridForPlantaWithMeta(weekStartIso, scopeId, empKeys, null)).grid;
 
   let merged = base;
   const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
@@ -219,8 +216,7 @@ export async function mergeGridRowsTodasPlantasWeek(
     return { rows: [], remote: { status: "empty" }, lastSavedAt: null };
   }
 
-  const { fetchAttendanceWeekRemote } = await import("./attendanceRemote");
-  const prefetch = await fetchAttendanceWeekRemote(weekStartIso);
+  const prefetch = await getAttendanceWeekPrefetch(weekStartIso);
 
   const blocks = await Promise.all(
     plantas.map((planta) => {

@@ -20,13 +20,12 @@ import {
 import {
   hasLegacyCatalogAttendanceForWeek,
   loadAttendanceGrid,
-  loadAttendanceGridForPlantaWithMeta,
   loadLatestPointer,
-  normalizeStoredRows,
   parseIsoToLocalDate,
   saveAttendanceGrid,
   weekStartToIso,
 } from '../attendanceStorage'
+import { getAttendanceWeekPrefetch } from '../attendanceWeekPrefetch'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
 import {
   isAsistenciaCode,
@@ -34,8 +33,6 @@ import {
   withComputedTotals,
 } from '../attendanceTotals'
 import {
-  colaboradorToGridRow,
-  colaboradoresActivosPorPlanta,
   colaboradoresActivosPorServicioCatalogo,
   gridRowServiceNo,
   listarPlantasDeColaboradores,
@@ -43,9 +40,6 @@ import {
   plantaFromStorageKey,
   plantaToStorageKey,
 } from '../cuadriculaColaboradoresBridge'
-import { appendFilasGuardadasFueraDeBase } from '../attendancePlantaMerge'
-import { injectCatalogVacantes, mergeAttendanceRowsWithStoredAndVacantes } from '../attendanceVacantes'
-import { listVacantesPorPlanta } from '../vacantesStorage'
 import {
   mergeGridRowsForPlantaWeek,
   mergeGridRowsForPlantaWeekForCsvImport,
@@ -169,6 +163,7 @@ export function AttendanceView() {
   const importCsvCodesRef = useRef<HTMLInputElement>(null)
   const [importRefresh, setImportRefresh] = useState(0)
   const [remoteLoadHint, setRemoteLoadHint] = useState<string | null>(null)
+  const [gridLoading, setGridLoading] = useState(false)
   const [guardandoTodasPlantas, setGuardandoTodasPlantas] = useState(false)
   /** No. empleado (o id fila) para filtrar; vacío = todos. */
   const [focoColaboradorKey, setFocoColaboradorKey] = useState('')
@@ -298,6 +293,7 @@ export function AttendanceView() {
     }
     if (esVistaTodasPlantas) {
       let cancelled = false
+      setGridLoading(true)
       ;(async () => {
         const { rows: merged, remote, lastSavedAt } = await mergeGridRowsTodasPlantasWeek(
           colaboradores,
@@ -305,6 +301,7 @@ export function AttendanceView() {
           weekIso,
         )
         if (cancelled) return
+        setGridLoading(false)
         if (
           remote.status === 'no_config' ||
           remote.status === 'auth' ||
@@ -321,6 +318,7 @@ export function AttendanceView() {
       })()
       return () => {
         cancelled = true
+        setGridLoading(false)
       }
     }
     if (!plantaStorageKey) {
@@ -329,15 +327,19 @@ export function AttendanceView() {
       return
     }
     let cancelled = false
+    setGridLoading(true)
     ;(async () => {
-      const activos = colaboradoresActivosPorPlanta(colaboradores, plantaSeleccionada)
-      const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaSeleccionada))
-      const { grid: stored, remote } = await loadAttendanceGridForPlantaWithMeta(
+      const prefetch = await getAttendanceWeekPrefetch(weekIso)
+      const merged = await mergeGridRowsForPlantaWeek(
+        colaboradores,
+        plantaSeleccionada,
+        catalogo,
         weekIso,
-        plantaStorageKey,
-        activos.map((c) => c.noEmpleado),
+        prefetch,
       )
       if (cancelled) return
+      setGridLoading(false)
+      const remote = prefetch.meta
       if (
         remote.status === 'no_config' ||
         remote.status === 'auth' ||
@@ -349,38 +351,20 @@ export function AttendanceView() {
         setRemoteLoadHint(null)
       }
       const soloPlanta = loadAttendanceGrid(weekIso, plantaStorageKey)
-      let merged = base
-      if (stored) {
-        setLastSavedAt(stored.savedAt)
-        const norm = normalizeStoredRows(stored.rows)
-        merged = mergeAttendanceRowsWithStoredAndVacantes(base, norm)
-        merged = appendFilasGuardadasFueraDeBase(
-          merged,
-          norm,
-          colaboradores,
-          plantaSeleccionada,
-          catalogo,
+      setLastSavedAt(soloPlanta?.savedAt ?? null)
+      const legacyWeek = hasLegacyCatalogAttendanceForWeek(weekIso, plantaStorageKey)
+      if (legacyWeek && !soloPlanta) {
+        setLegacyRecoveredHint(
+          'Se recuperó asistencia guardada antes por servicio (catálogo). Pulse «Guardar todas las plantas» para dejarla bajo esta planta.',
         )
-        merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaSeleccionada))
-        const legacyWeek = hasLegacyCatalogAttendanceForWeek(weekIso, plantaStorageKey)
-        if (legacyWeek && !soloPlanta) {
-          setLegacyRecoveredHint(
-            'Se recuperó asistencia guardada antes por servicio (catálogo). Pulse «Guardar todas las plantas» para dejarla bajo esta planta.',
-          )
-        } else {
-          setLegacyRecoveredHint(null)
-        }
       } else {
-        setLastSavedAt(null)
         setLegacyRecoveredHint(null)
-        merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaSeleccionada))
       }
-      setRows(
-        merged.map((r) => withComputedTotals({ ...r, id: r.id }, gridRowServiceNo(r))),
-      )
+      setRows(merged)
     })()
     return () => {
       cancelled = true
+      setGridLoading(false)
     }
   }, [
     plantaSeleccionada,
@@ -652,11 +636,13 @@ export function AttendanceView() {
       return
     }
 
+    const prefetchImport = await getAttendanceWeekPrefetch(weekIso)
     const baseImport = await mergeGridRowsForPlantaWeekForCsvImport(
       colaboradores,
       plantaSeleccionada,
       catalogo,
       weekIso,
+      prefetchImport,
     )
     const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(colaboradores)
     const {
@@ -1005,8 +991,13 @@ export function AttendanceView() {
             </div>
           </div>
 
-          {(lastSavedAt || saveMessage || latestDifferent || legacyRecoveredHint) ? (
+          {(gridLoading || lastSavedAt || saveMessage || latestDifferent || legacyRecoveredHint) ? (
             <div className="captureStatusBar" role="status">
+              {gridLoading ? (
+                <span className="captureStatusBar__item captureStatusBar__item--muted">
+                  Cargando cuadrícula…
+                </span>
+              ) : null}
               {lastSavedAt ? (
                 <span className="captureStatusBar__item">
                   <strong>Guardado:</strong> {formatSavedAt(lastSavedAt)}

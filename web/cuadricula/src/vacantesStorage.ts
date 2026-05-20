@@ -27,14 +27,37 @@ export {
   type VacanteRegistro,
 }
 
+let vacantesCatalogCache: VacanteRegistro[] | null = null
+let vacantesPorPlantaCache = new Map<string, VacanteRegistro[]>()
+
+function vacantesCatalogSnapshot(): VacanteRegistro[] {
+  if (!vacantesCatalogCache) vacantesCatalogCache = loadVacantesCatalogo()
+  return vacantesCatalogCache
+}
+
+export function invalidateVacantesCatalogCache(): void {
+  vacantesCatalogCache = null
+  vacantesPorPlantaCache.clear()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(VACANTES_CATALOG_UPDATED_EVENT, invalidateVacantesCatalogCache)
+}
+
 function saveVacantesCatalogo(items: VacanteRegistro[]): boolean {
-  return saveVacantesCatalogoDirect(items)
+  const ok = saveVacantesCatalogoDirect(items)
+  if (ok) invalidateVacantesCatalogCache()
+  return ok
 }
 
 export function listVacantesPorPlanta(planta: string): VacanteRegistro[] {
   const p = planta.trim().toUpperCase()
   if (!p) return []
-  return loadVacantesCatalogo().filter((v) => v.planta === p)
+  const hit = vacantesPorPlantaCache.get(p)
+  if (hit) return hit
+  const list = vacantesCatalogSnapshot().filter((v) => v.planta === p)
+  vacantesPorPlantaCache.set(p, list)
+  return list
 }
 
 export function colaboradorOcupaPosicionEnPlanta(

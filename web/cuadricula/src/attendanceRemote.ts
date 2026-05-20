@@ -126,8 +126,10 @@ export function combineRemoteAttendanceForPlanta(
   const scope = plantaScopeKey.trim()
   if (!scope || items.length === 0) return null
 
-  const allowed = new Set(
-    [...employeeNos].map((n) => String(n).trim()).filter(Boolean),
+  const allowedCanon = new Set(
+    [...employeeNos]
+      .map((n) => canonicalEmpNoAttendance(n))
+      .filter(Boolean),
   )
 
   let combined: StoredAttendanceGrid | null = null
@@ -150,14 +152,10 @@ export function combineRemoteAttendanceForPlanta(
     if (normalizeScopeKey(sk).startsWith('PLANTA:')) continue
 
     let rows = grid.rows
-    if (allowed.size > 0) {
+    if (allowedCanon.size > 0) {
       rows = rows.filter((r) => {
         const k = empNoClaveGridRow(r)
-        if (!k) return false
-        const allowedCanon = new Set(
-          [...allowed].map((n) => canonicalEmpNoAttendance(n)).filter(Boolean),
-        )
-        return allowedCanon.has(k)
+        return k ? allowedCanon.has(k) : false
       })
     }
     if (rows.length === 0) continue
