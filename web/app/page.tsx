@@ -3,7 +3,7 @@ import { getDashboardStats } from "@/lib/dashboard-stats";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
 import { AppModuleShell } from "@/components/app-module-shell";
 import { HomeLocalGreeting } from "@/components/home-local-greeting";
-import { HomeAnuncioCelebraciones } from "@/components/home-anuncio-celebraciones";
+import { HomeCelebracionesSection } from "@/components/home-celebraciones-section";
 import { esRolLegalSoloLectura } from "@/lib/app-role";
 
 export const dynamic = "force-dynamic";
@@ -63,28 +63,13 @@ export default async function Home() {
           value: fmt(stats.puestosUnicos),
           subtitle: "PUESTOS DISTINTOS (LINEA ACTUAL / EXPEDIENTE)",
         },
-        {
-          title: "SERVICIOS",
-          value: fmt(stats.serviciosUnicos),
-          subtitle: "DISTINTOS SEGUN LINEA VIGENTE (MOPER / ULTIMO MOVIMIENTO / ALTA). VARIANTES CAT Y U-ERRE CUENTAN COMO UN SOLO SERVICIO",
-        },
       ]
     : [];
 
   const email = auth.user.email ?? "—";
-  const hayCelebraciones =
-    (stats?.cumpleanosEsteMes?.length ?? 0) > 0 || (stats?.aniversariosEmpresaSemana?.length ?? 0) > 0;
 
   return (
     <AppModuleShell role={auth.role} email={email} currentPath="/">
-      {hayCelebraciones ? (
-        <HomeAnuncioCelebraciones
-          cumpleaneros={stats?.cumpleanosEsteMes ?? []}
-          aniversarios={stats?.aniversariosEmpresaSemana ?? []}
-          mesEtiqueta={mesEtiqueta}
-        />
-      ) : null}
-
       <section className="relative min-w-0 overflow-x-hidden rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm sm:p-4 md:p-5 lg:p-6">
         <div
           className="pointer-events-none absolute inset-0 bg-center bg-no-repeat opacity-[0.06]"
@@ -120,6 +105,12 @@ export default async function Home() {
             </article>
           ))}
         </div>
+
+        <HomeCelebracionesSection
+          cumpleaneros={stats?.cumpleanosEsteMes ?? []}
+          aniversarios={stats?.aniversariosEmpresaSemana ?? []}
+          mesEtiqueta={mesEtiqueta}
+        />
 
         <div className="relative mt-4 rounded-xl border border-dashed border-slate-400 bg-white px-4 py-5 text-center shadow-sm sm:px-5 sm:py-6">
           <p className="text-sm font-bold uppercase leading-relaxed text-slate-800 sm:text-base">
