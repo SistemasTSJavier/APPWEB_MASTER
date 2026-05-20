@@ -6,8 +6,10 @@ import { colaboradorToGridRow, gridRowServiceNo } from "./cuadriculaColaboradore
 import type { GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
 
+import { empNoClaveGridRow } from "@/lib/attendance-emp-no";
+
 function empKey(row: Pick<GridRow, "employeeNo" | "id">): string {
-  return String(row.employeeNo ?? row.id ?? "").trim();
+  return empNoClaveGridRow(row);
 }
 
 /** Sincroniza estatus y fecha de baja desde expediente. */

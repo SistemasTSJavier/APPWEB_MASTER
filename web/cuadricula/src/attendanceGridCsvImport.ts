@@ -1,3 +1,4 @@
+import { canonicalEmpNoAttendance } from '@/lib/attendance-emp-no'
 import type { ColaboradorCompleto } from '@/lib/colaboradores-types'
 import {
   canonicalNoServicioCatalogo,
@@ -77,11 +78,7 @@ function normHeaderCell(s: string): string {
  * Iguala números de empleado entre archivo y cuadrícula (ceros a la izquierda, Excel 12345.0, texto forzado con apóstrofe).
  */
 export function canonicalEmpNoForCsvMatch(raw: string): string {
-  let s = raw.trim().replace(/\u00a0/g, ' ')
-  if (/^'(.*)'$/.test(s)) s = s.slice(1, -1).trim()
-  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '')
-  if (/^\d+$/.test(s)) return String(Number.parseInt(s, 10))
-  return s.trim()
+  return canonicalEmpNoAttendance(raw)
 }
 
 /** @deprecated Use canonicalNoServicioCatalogo */
@@ -422,30 +419,39 @@ function indexCsvRowsByEmployee(
   return byEmp
 }
 
+/** Cuenta celdas con código en la semana importada. */
+function scoreCsvRowShifts(row: ParsedAttendanceGridCsvRow): number {
+  let n = 0
+  for (const day of row.shifts) {
+    if (day.D?.trim()) n++
+    if (day.T?.trim()) n++
+    if (day.N?.trim()) n++
+  }
+  return n
+}
+
 /**
- * Si el CSV repite el mismo empleado en bloques de distinto N.º de servicio (misma planta),
- * elige la fila cuyo NO SERVICIO coincide con la cuadrícula.
+ * Asistencia: si el CSV repite el mismo N.º de empleado (p. ej. otra posición/servicio),
+ * se toma la fila con más códigos; no se exige coincidir NO. de servicio ni posición.
  */
 export function pickCsvRowForGridRow(
-  gridRow: GridRow,
+  _gridRow: GridRow,
   candidates: ParsedAttendanceGridCsvRow[],
 ): { row: ParsedAttendanceGridCsvRow | null; ambiguous: boolean } {
   if (candidates.length === 0) return { row: null, ambiguous: false }
   if (candidates.length === 1) return { row: candidates[0]!, ambiguous: false }
 
-  const gridNo = canonicalNoServicioCatalogo(gridRowServiceNo(gridRow))
-  if (gridNo) {
-    const exact = candidates.filter((c) =>
-      noServicioCsvMatches(c.numeroServicioCsv ?? '', gridNo),
-    )
-    if (exact.length === 1) return { row: exact[0]!, ambiguous: false }
-    if (exact.length > 1) return { row: exact[0]!, ambiguous: true }
+  let best = candidates[0]!
+  let bestScore = scoreCsvRowShifts(best)
+  for (let i = 1; i < candidates.length; i++) {
+    const c = candidates[i]!
+    const sc = scoreCsvRowShifts(c)
+    if (sc > bestScore) {
+      bestScore = sc
+      best = c
+    }
   }
-
-  const withNo = candidates.filter((c) => (c.numeroServicioCsv ?? '').trim())
-  if (withNo.length === 1) return { row: withNo[0]!, ambiguous: false }
-
-  return { row: null, ambiguous: true }
+  return { row: best, ambiguous: false }
 }
 
 export type MergeCsvReconcileOpts = {

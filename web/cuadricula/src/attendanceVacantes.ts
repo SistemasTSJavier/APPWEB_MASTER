@@ -1,5 +1,6 @@
 import { emptyShifts, WEEK_COLUMNS, ZERO_TOTALS, type GridRow } from './mockData'
 import { plantaToStorageKey } from './cuadriculaColaboradoresBridge'
+import { empNoClaveGridRow, indexGridRowsByEmpNo } from '@/lib/attendance-emp-no'
 import { sortGridRowsByPosicion } from './attendanceGridSort'
 import type { VacanteRegistro } from './vacantesStorage'
 import { normPosicionKey, slotFromVacanteRegistro, slotVacanteKey } from '@/lib/vacantes-slot'
@@ -87,23 +88,24 @@ export function mergeAttendanceRowsWithStoredAndVacantes(
   base: GridRow[],
   storedRows: GridRow[],
 ): GridRow[] {
-  const byKey = new Map<string, GridRow>()
-  for (const r of storedRows) {
-    if (r.vacant) continue
-    const k = String(r.employeeNo ?? r.id ?? '').trim()
-    if (k) byKey.set(k, r)
-  }
+  const byKey = indexGridRowsByEmpNo(storedRows.filter((r) => !r.vacant))
 
   const merged = base.map((br) => {
-    const k = String(br.employeeNo ?? br.id ?? '').trim()
+    const k = empNoClaveGridRow(br)
     const s = k ? byKey.get(k) : undefined
     if (!s?.shifts || s.shifts.length !== br.shifts.length) return br
     return {
       ...br,
       shifts: s.shifts,
+      employeeNo: br.employeeNo ?? s.employeeNo ?? k,
+      id: br.id,
       rowServiceNo: br.rowServiceNo ?? s.rowServiceNo,
       servicioLinea: br.servicioLinea ?? s.servicioLinea,
       plantaLinea: br.plantaLinea ?? s.plantaLinea,
+      position: br.position,
+      role: br.role,
+      name: br.name,
+      hireDate: br.hireDate,
     }
   })
 

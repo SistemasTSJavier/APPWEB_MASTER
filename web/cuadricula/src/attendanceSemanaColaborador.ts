@@ -17,14 +17,15 @@ import {
   gridRowServiceNo,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
+import { empNoClaveGridRow } from "@/lib/attendance-emp-no";
 import { appendFilasGuardadasFueraDeBase } from "./attendancePlantaMerge";
 import type { GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
 
 function aplicarTotalesPorFila(rows: GridRow[], base: GridRow[]): GridRow[] {
-  const baseByKey = new Map(base.map((b) => [String(b.employeeNo ?? b.id ?? "").trim(), b]));
+  const baseByKey = new Map(base.map((b) => [empNoClaveGridRow(b), b]));
   return rows.map((r) => {
-    const k = String(r.employeeNo ?? r.id ?? "").trim();
+    const k = empNoClaveGridRow(r);
     const br = k ? baseByKey.get(k) : undefined;
     const merged: GridRow = {
       ...r,
@@ -48,6 +49,7 @@ async function mergePlantaWeekBlock(
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
   prefetchedWeek: AttendanceWeekPrefetch | null,
+  todosColaboradores: ColaboradorCompleto[] = activos,
 ): Promise<{ rows: GridRow[]; savedAt: string | null }> {
   const scopeId = plantaToStorageKey(plantaNombre);
   if (!scopeId || activos.length === 0) {
@@ -66,6 +68,13 @@ async function mergePlantaWeekBlock(
   const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
   if (normStored.length) {
     merged = mergeAttendanceRowsWithStoredAndVacantes(base, normStored);
+    merged = appendFilasGuardadasFueraDeBase(
+      merged,
+      normStored,
+      todosColaboradores,
+      plantaNombre,
+      catalogo,
+    );
   } else {
     merged = mergeAttendanceRowsWithStoredAndVacantes(base, []);
   }
@@ -160,6 +169,7 @@ export async function mergeGridRowsForPlantaWeek(
     catalogo,
     weekStartIso,
     prefetchedWeek ?? null,
+    colaboradores,
   );
   return rows;
 }
@@ -215,7 +225,14 @@ export async function mergeGridRowsTodasPlantasWeek(
   const blocks = await Promise.all(
     plantas.map((planta) => {
       const activos = mapa.get(planta) ?? [];
-      return mergePlantaWeekBlock(activos, planta, catalogo, weekStartIso, prefetch);
+      return mergePlantaWeekBlock(
+        activos,
+        planta,
+        catalogo,
+        weekStartIso,
+        prefetch,
+        colaboradores,
+      );
     }),
   );
 

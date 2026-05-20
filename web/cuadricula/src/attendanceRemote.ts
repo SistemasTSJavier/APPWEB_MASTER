@@ -1,3 +1,4 @@
+import { canonicalEmpNoAttendance, empNoClaveGridRow } from '@/lib/attendance-emp-no'
 import type { AttendanceLatestPointer, StoredAttendanceGrid } from './attendanceStorage'
 
 export type RemoteAttendanceEntry = {
@@ -151,8 +152,12 @@ export function combineRemoteAttendanceForPlanta(
     let rows = grid.rows
     if (allowed.size > 0) {
       rows = rows.filter((r) => {
-        const k = String(r.employeeNo ?? r.id ?? '').trim()
-        return k && allowed.has(k)
+        const k = empNoClaveGridRow(r)
+        if (!k) return false
+        const allowedCanon = new Set(
+          [...allowed].map((n) => canonicalEmpNoAttendance(n)).filter(Boolean),
+        )
+        return allowedCanon.has(k)
       })
     }
     if (rows.length === 0) continue
@@ -253,11 +258,11 @@ export function mergeStoredAttendanceGrids(
   const [older, newer] = aAt >= bAt ? [b, a] : [a, b]
   const rowByKey = new Map<string, (typeof newer.rows)[0]>()
   for (const r of older.rows) {
-    const k = String(r.employeeNo ?? r.id ?? '').trim()
+    const k = empNoClaveGridRow(r)
     if (k) rowByKey.set(k, r)
   }
   for (const r of newer.rows) {
-    const k = String(r.employeeNo ?? r.id ?? '').trim()
+    const k = empNoClaveGridRow(r)
     if (k) rowByKey.set(k, r)
   }
   return {

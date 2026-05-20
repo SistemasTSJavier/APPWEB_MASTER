@@ -1,7 +1,10 @@
 import type { GridRow } from './mockData'
 import { WEEK_COLUMNS, emptyShifts } from './mockData'
+import { canonicalEmpNoAttendance, empNoClaveGridRow, indexGridRowsByEmpNo } from '@/lib/attendance-emp-no'
 import { reassignFaltaSequence } from './attendanceFaltaSequence'
 import { withComputedTotals } from './attendanceTotals'
+
+export { canonicalEmpNoAttendance, empNoClaveGridRow }
 import { gridRowServiceNo } from './cuadriculaColaboradoresBridge'
 
 const PREFIX = 'attendance:v2'
@@ -37,18 +40,22 @@ export function gridStorageKey(weekStartIso: string, serviceCatalogId: string): 
   return `${PREFIX}:grid:${weekStartIso}:${safeCatalogIdSegment(serviceCatalogId)}`
 }
 
-/** Combina filas del expediente con celdas guardadas en localStorage (misma semana / planta o alcance). */
+/**
+ * Combina expediente (posición/servicio actuales) con celdas guardadas.
+ * La coincidencia es solo por N.º de empleado, no por posición en cuadrícula.
+ */
 export function mergeAttendanceRowsWithStored(base: GridRow[], storedRows: GridRow[]): GridRow[] {
-  const byKey = new Map<string, GridRow>()
-  for (const r of storedRows) {
-    const k = String(r.employeeNo ?? r.id ?? '').trim()
-    if (k) byKey.set(k, r)
-  }
+  const byKey = indexGridRowsByEmpNo(storedRows)
   return base.map((br) => {
-    const k = String(br.employeeNo ?? br.id ?? '').trim()
+    const k = empNoClaveGridRow(br)
     const s = k ? byKey.get(k) : undefined
     if (!s?.shifts || s.shifts.length !== br.shifts.length) return br
-    return { ...br, shifts: s.shifts }
+    return {
+      ...br,
+      shifts: s.shifts,
+      employeeNo: br.employeeNo ?? s.employeeNo ?? k,
+      id: br.id,
+    }
   })
 }
 
@@ -265,9 +272,14 @@ function loadAttendanceGridForPlantaLocal(
     if (stored.savedAt && stored.savedAt > latestSavedAt) latestSavedAt = stored.savedAt
     const norm = normalizeStoredRows(stored.rows, stored.serviceNo)
     for (const r of norm) {
-      const k = String(r.employeeNo ?? r.id ?? '').trim()
+      const k = empNoClaveGridRow(r)
       if (!k) continue
-      if (allowed.size > 0 && !allowed.has(k)) continue
+      if (allowed.size > 0) {
+        const allowedCanon = new Set(
+          [...allowed].map((n) => canonicalEmpNoAttendance(n)).filter(Boolean),
+        )
+        if (!allowedCanon.has(k)) continue
+      }
       rowByEmp.set(k, r)
     }
   }
@@ -408,12 +420,22 @@ export function normalizeStoredRows(
       N: typeof day?.N === 'string' ? day.N : '',
     }))
     shifts = reassignFaltaSequence(shifts)
+    let employeeNo: string | null =
+      typeof o.employeeNo === 'string' && o.employeeNo.trim() ? o.employeeNo.trim() : null
+    if (!employeeNo && typeof o.id === 'string') {
+      const fromId = canonicalEmpNoAttendance(o.id)
+      if (fromId) employeeNo = fromId
+    }
+    const rowId =
+      typeof o.id === 'string' && o.id.trim()
+        ? o.id.trim()
+        : employeeNo ?? crypto.randomUUID()
     const base: GridRow = {
-      id: typeof o.id === 'string' ? o.id : crypto.randomUUID(),
+      id: rowId,
       position: typeof o.position === 'string' ? o.position : '',
       role: typeof o.role === 'string' ? o.role : '',
       hireDate: typeof o.hireDate === 'string' ? o.hireDate : '',
-      employeeNo: typeof o.employeeNo === 'string' ? o.employeeNo : null,
+      employeeNo,
       name: typeof o.name === 'string' ? o.name : '',
       rowServiceNo: typeof o.rowServiceNo === 'string' ? o.rowServiceNo : undefined,
       servicioLinea: typeof o.servicioLinea === 'string' ? o.servicioLinea : undefined,

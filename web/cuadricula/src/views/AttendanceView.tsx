@@ -22,7 +22,6 @@ import {
   loadAttendanceGrid,
   loadAttendanceGridForPlantaWithMeta,
   loadLatestPointer,
-  mergeAttendanceRowsWithStored,
   normalizeStoredRows,
   parseIsoToLocalDate,
   saveAttendanceGrid,
@@ -44,6 +43,9 @@ import {
   plantaFromStorageKey,
   plantaToStorageKey,
 } from '../cuadriculaColaboradoresBridge'
+import { appendFilasGuardadasFueraDeBase } from '../attendancePlantaMerge'
+import { injectCatalogVacantes, mergeAttendanceRowsWithStoredAndVacantes } from '../attendanceVacantes'
+import { listVacantesPorPlanta } from '../vacantesStorage'
 import {
   mergeGridRowsForPlantaWeek,
   mergeGridRowsForPlantaWeekForCsvImport,
@@ -351,7 +353,15 @@ export function AttendanceView() {
       if (stored) {
         setLastSavedAt(stored.savedAt)
         const norm = normalizeStoredRows(stored.rows)
-        merged = mergeAttendanceRowsWithStored(base, norm)
+        merged = mergeAttendanceRowsWithStoredAndVacantes(base, norm)
+        merged = appendFilasGuardadasFueraDeBase(
+          merged,
+          norm,
+          colaboradores,
+          plantaSeleccionada,
+          catalogo,
+        )
+        merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaSeleccionada))
         const legacyWeek = hasLegacyCatalogAttendanceForWeek(weekIso, plantaStorageKey)
         if (legacyWeek && !soloPlanta) {
           setLegacyRecoveredHint(
@@ -363,19 +373,10 @@ export function AttendanceView() {
       } else {
         setLastSavedAt(null)
         setLegacyRecoveredHint(null)
+        merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaSeleccionada))
       }
-      const baseByKey = new Map(base.map((b) => [String(b.employeeNo ?? b.id ?? '').trim(), b]))
       setRows(
-        merged.map((r) => {
-          const k = String(r.employeeNo ?? r.id ?? '').trim()
-          const br = k ? baseByKey.get(k) : undefined
-          const row: GridRow = {
-            ...r,
-            rowServiceNo: br?.rowServiceNo ?? r.rowServiceNo,
-            servicioLinea: br?.servicioLinea ?? r.servicioLinea,
-          }
-          return withComputedTotals(row, gridRowServiceNo(row))
-        }),
+        merged.map((r) => withComputedTotals({ ...r, id: r.id }, gridRowServiceNo(r))),
       )
     })()
     return () => {
