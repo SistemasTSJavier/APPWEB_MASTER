@@ -12,6 +12,7 @@ import {
 import type { CatalogoServicioItem } from '@/lib/servicios-catalogo-client'
 import {
   VACANTES_CATALOG_UPDATED_EVENT,
+  addVacanteRegistro,
   loadVacantesCatalogo,
   removeVacanteFromCatalog,
   saveVacantesCatalogoDirect,
@@ -81,43 +82,18 @@ export function posicionBloqueadaEnPlanta(
   return { bloqueada: false }
 }
 
-export function addVacanteToCatalog(entry: {
-  planta: string
-  posicion: string
-  puesto?: string
-  servicioLinea?: string
-  rowServiceNo?: string
-  notas?: string
-}): VacanteRegistro | null {
-  const planta = entry.planta.trim().toUpperCase()
-  const posicion = entry.posicion.trim().toUpperCase()
-  if (!planta || !posicion) return null
-
-  const all = loadVacantesCatalogo()
-  const sk = slotVacanteKey({
-    planta,
-    posicion,
-    servicioLinea: entry.servicioLinea,
-    rowServiceNo: entry.rowServiceNo,
-  })
-  if (all.some((v) => slotVacanteKey(slotFromVacanteRegistro(v)) === sk)) {
-    return null
-  }
-
-  const scope = planta.replace(/\s+/g, '_')
-  const noPart = (entry.rowServiceNo ?? '').trim().replace(/\s+/g, '_') || 'srv'
-  const registro: VacanteRegistro = {
-    id: `vacant:planta_${scope}:${noPart}:${posicion}`,
-    planta,
-    posicion,
-    puesto: entry.puesto?.trim().toUpperCase() || undefined,
-    servicioLinea: entry.servicioLinea?.trim().toUpperCase() || undefined,
-    rowServiceNo: entry.rowServiceNo?.trim() || undefined,
-    notas: entry.notas?.trim() || undefined,
-    updatedAt: new Date().toISOString(),
-  }
-  if (!saveVacantesCatalogo([...all, registro])) return null
-  return registro
+export function addVacanteToCatalog(
+  entry: {
+    planta: string
+    posicion: string
+    puesto?: string
+    servicioLinea?: string
+    rowServiceNo?: string
+    notas?: string
+  },
+  catalogo: CatalogoServicioItem[] = [],
+): VacanteRegistro | null {
+  return addVacanteRegistro(entry, catalogo)
 }
 
 export function updateVacanteInCatalog(

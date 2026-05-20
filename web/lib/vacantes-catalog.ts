@@ -1,3 +1,5 @@
+import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
+import { normalizarVacanteRegistro } from "@/lib/vacantes-servicio";
 import { slotFromVacanteRegistro, slotVacanteKey, type SlotVacante } from "@/lib/vacantes-slot";
 
 export const VACANTES_CATALOG_KEY = "attendance:v2:vacantes-catalog";
@@ -79,4 +81,52 @@ export function removeVacanteBySlot(slot: SlotVacante): boolean {
   const next = loadVacantesCatalogo().filter((v) => slotVacanteKey(slotFromVacanteRegistro(v)) !== sk);
   if (next.length === loadVacantesCatalogo().length) return false;
   return saveVacantesCatalogoDirect(next);
+}
+
+/** Registra una vacante si no existe el mismo slot (planta + servicio + posición). */
+export function addVacanteRegistro(
+  entry: {
+    planta: string;
+    posicion: string;
+    puesto?: string;
+    servicioLinea?: string;
+    rowServiceNo?: string;
+    notas?: string;
+  },
+  catalogo: CatalogoServicioItem[] = [],
+): VacanteRegistro | null {
+  const planta = entry.planta.trim().toUpperCase();
+  const posicion = entry.posicion.trim().toUpperCase();
+  if (!planta || !posicion) return null;
+
+  const draft = normalizarVacanteRegistro(
+    {
+      id: `vacant:tmp:${Date.now()}`,
+      planta,
+      posicion,
+      puesto: entry.puesto,
+      servicioLinea: entry.servicioLinea,
+      rowServiceNo: entry.rowServiceNo,
+      notas: entry.notas,
+      updatedAt: new Date().toISOString(),
+    },
+    catalogo,
+  );
+  if (!draft.servicioLinea && !draft.rowServiceNo) return null;
+
+  const all = loadVacantesCatalogo();
+  const sk = slotVacanteKey(slotFromVacanteRegistro(draft));
+  if (all.some((v) => slotVacanteKey(slotFromVacanteRegistro(v)) === sk)) {
+    return null;
+  }
+
+  const scope = planta.replace(/\s+/g, "_");
+  const noPart = (draft.rowServiceNo ?? "").trim().replace(/\s+/g, "_") || "srv";
+  const nomPart = (draft.servicioLinea ?? "").slice(0, 24).replace(/\s+/g, "_") || "srv";
+  const registro: VacanteRegistro = {
+    ...draft,
+    id: `vacant:planta_${scope}:${noPart}:${nomPart}:${posicion}`,
+  };
+  if (!saveVacantesCatalogoDirect([...all, registro])) return null;
+  return registro;
 }

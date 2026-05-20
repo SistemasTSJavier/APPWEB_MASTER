@@ -31,6 +31,10 @@ import {
   syncLocalVacantesCatalogToRemote,
 } from '../vacantesRemote'
 import { saveVacantesCatalogoDirect } from '@/lib/vacantes-catalog'
+import {
+  identificadorServicioVacante,
+  normalizarVacantesCatalogo,
+} from '@/lib/vacantes-servicio'
 
 export function VacantesView() {
   const { colaboradores, catalogo, loading, error, reload, puedeEditar } = useCuadriculaData()
@@ -41,12 +45,18 @@ export function VacantesView() {
   const [notas, setNotas] = useState('')
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [filtroPlantaLista, setFiltroPlantaLista] = useState('')
+  const [filtroServicioLista, setFiltroServicioLista] = useState('')
   const [syncBusy, setSyncBusy] = useState(false)
   const importCsvRef = useRef<HTMLInputElement>(null)
 
   const recargarCatalogo = useCallback(() => {
-    setCatalogoVacantes(loadVacantesCatalogo())
-  }, [])
+    const raw = loadVacantesCatalogo()
+    const norm = normalizarVacantesCatalogo(raw, catalogo)
+    if (JSON.stringify(raw) !== JSON.stringify(norm)) {
+      saveVacantesCatalogoDirect(norm)
+    }
+    setCatalogoVacantes(norm)
+  }, [catalogo])
 
   useEffect(() => {
     recargarCatalogo()
@@ -106,11 +116,28 @@ export function VacantesView() {
     setNotas('')
   }, [plantaForm])
 
+  const serviciosEnCatalogo = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const v of catalogoVacantes) {
+      const id = identificadorServicioVacante(v)
+      if (!id || map.has(id)) continue
+      const nom = (v.servicioLinea ?? '').trim() || '—'
+      const no = (v.rowServiceNo ?? '').trim()
+      map.set(id, no ? `${nom} (N.º ${no})` : nom)
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'es', { numeric: true }))
+      .map(([id, label]) => ({ id, label }))
+  }, [catalogoVacantes])
+
   const filasLista = useMemo(() => {
+    let rows = catalogoVacantes
     const p = filtroPlantaLista.trim().toUpperCase()
-    if (!p) return catalogoVacantes
-    return catalogoVacantes.filter((v) => v.planta === p)
-  }, [catalogoVacantes, filtroPlantaLista])
+    if (p) rows = rows.filter((v) => v.planta === p)
+    const sid = filtroServicioLista.trim()
+    if (sid) rows = rows.filter((v) => identificadorServicioVacante(v) === sid)
+    return rows
+  }, [catalogoVacantes, filtroPlantaLista, filtroServicioLista])
 
   function slotOcupadoPorActivo(v: VacanteRegistro): boolean {
     const slot = slotFromVacanteRegistro(v)
@@ -135,14 +162,17 @@ export function VacantesView() {
       return
     }
     const datos = resolverDatosSlot(slot, colaboradores, catalogo)
-    const v = addVacanteToCatalog({
-      planta: datos.planta,
-      posicion: datos.posicion,
-      puesto: puesto.trim() || datos.puestoSugerido || undefined,
-      servicioLinea: datos.servicioLinea,
-      rowServiceNo: datos.rowServiceNo,
-      notas,
-    })
+    const v = addVacanteToCatalog(
+      {
+        planta: datos.planta,
+        posicion: datos.posicion,
+        puesto: puesto.trim() || datos.puestoSugerido || undefined,
+        servicioLinea: datos.servicioLinea,
+        rowServiceNo: datos.rowServiceNo,
+        notas,
+      },
+      catalogo,
+    )
     if (!v) {
       setMensaje('No se pudo guardar (vacante duplicada en ese servicio o almacenamiento bloqueado).')
       return
@@ -161,10 +191,7 @@ export function VacantesView() {
   }
 
   function exportarCatalogoCsv() {
-    const rows = filtroPlantaLista.trim()
-      ? catalogoVacantes.filter((v) => v.planta === filtroPlantaLista.trim().toUpperCase())
-      : catalogoVacantes
-    downloadTextFile('vacantes-catalogo.csv', buildVacantesCsvExport(rows))
+    downloadTextFile('vacantes-catalogo.csv', buildVacantesCsvExport(filasLista))
   }
 
   async function onImportCsvChange(e: ChangeEvent<HTMLInputElement>) {
@@ -238,7 +265,9 @@ export function VacantesView() {
           <h1 className="topbar__title">Vacantes</h1>
           <p className="topbar__subtitle">
             Registre una a una o <strong>importe un CSV</strong> con{' '}
-            {VACANTES_CSV_HEADERS.join(', ')}. Cada servicio tiene su propia secuencia de posiciones.
+            {VACANTES_CSV_HEADERS.join(', ')}. Cada fila distingue <strong>SERVICIO</strong>,{' '}
+            <strong>NO. SERVICIO</strong>, <strong>PLANTA</strong>, <strong>POSICION</strong> y{' '}
+            <strong>PUESTO</strong> (Administración y Comercial no se mezclan).
           </p>
         </div>
 
@@ -255,7 +284,7 @@ export function VacantesView() {
           <div className="topbar__bar">
             <div className="topbar__toolbarLeft">
               <label className="field">
-                <span className="field__label">Filtrar listado</span>
+                <span className="field__label">Planta (listado)</span>
                 <select
                   className="select"
                   value={filtroPlantaLista}
@@ -266,6 +295,22 @@ export function VacantesView() {
                   {plantasOpciones.map((p) => (
                     <option key={p} value={p}>
                       {p}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Servicio (listado)</span>
+                <select
+                  className="select"
+                  value={filtroServicioLista}
+                  onChange={(e) => setFiltroServicioLista(e.target.value)}
+                  disabled={loading || serviciosEnCatalogo.length === 0}
+                >
+                  <option value="">Todos los servicios</option>
+                  {serviciosEnCatalogo.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
                     </option>
                   ))}
                 </select>
@@ -407,8 +452,9 @@ export function VacantesView() {
                 className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800"
                 aria-live="polite"
               >
-                <strong>Automático:</strong> SERVICIO {datosAuto.servicioLinea} · PLANTA {datosAuto.planta} · N.º
-                SERVICIO {datosAuto.rowServiceNo || '—'} · POSICIÓN {datosAuto.posicion}
+                <strong>Automático:</strong> SERVICIO {datosAuto.servicioLinea || '—'} · NO. SERVICIO{' '}
+                {datosAuto.rowServiceNo || '—'} · PLANTA {datosAuto.planta} · POSICIÓN {datosAuto.posicion}
+                {datosAuto.puestoSugerido ? ` · PUESTO ${datosAuto.puestoSugerido}` : ''}
               </div>
             ) : null}
 
@@ -436,16 +482,17 @@ export function VacantesView() {
         {mensaje ? <p className="persistRow__flash">{mensaje}</p> : null}
 
         <p className="hint">
-          CSV: {VACANTES_CSV_HEADERS.join('; ')} (separador ; , o tab). Coincide con catálogo Servicios por N.º y
-          planta. Columnas en Asistencia: {ATTENDANCE_GRID_ID_HEADERS.slice(0, 8).join(' · ')}.
+          CSV: {VACANTES_CSV_HEADERS.join('; ')} (separador ; , o tab). SERVICIO y NO. SERVICIO deben coincidir
+          con el catálogo en esa planta (sin adivinar entre Administración y Comercial). Asistencia usa:{' '}
+          {ATTENDANCE_GRID_ID_HEADERS.slice(0, 8).join(' · ')}.
         </p>
       </header>
 
       <div className="sheetWrap">
         {filasLista.length === 0 ? (
           <p className="hint" style={{ padding: '1rem' }}>
-            {filtroPlantaLista
-              ? `No hay vacantes registradas para «${filtroPlantaLista}».`
+            {filtroPlantaLista || filtroServicioLista
+              ? `No hay vacantes con los filtros actuales${filtroPlantaLista ? ` (planta «${filtroPlantaLista}»)` : ''}${filtroServicioLista ? ' (servicio seleccionado)' : ''}.`
               : 'No hay vacantes en el catálogo.'}
           </p>
         ) : (

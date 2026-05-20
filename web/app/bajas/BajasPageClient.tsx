@@ -21,6 +21,8 @@ import type { AppRole } from "@/lib/app-role";
 import { roleMayFilterBajasPorFechaBaja } from "@/lib/app-role";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { servicioAgrupadoUsaZona } from "@/lib/servicio-agrupacion";
+import { fetchServiciosCatalogo } from "@/lib/servicios-catalogo-client";
+import { registrarVacantePorBajaColaborador } from "@/lib/vacantes-desde-baja";
 
 const EMPTY_FORM: BajasFormState = {
   noEmpleado: "",
@@ -257,11 +259,28 @@ export function BajasPageClient({
       }
       const next = aplicarBajaEnExpediente(existing, form);
       await upsertColaboradorCompleto(next);
+      let catalogo: Awaited<ReturnType<typeof fetchServiciosCatalogo>> = [];
+      try {
+        catalogo = await fetchServiciosCatalogo();
+      } catch {
+        catalogo = [];
+      }
+      const vacante = registrarVacantePorBajaColaborador(next, catalogo);
       const list = await listColaboradoresCompletos();
       setRows(list);
+      const partes = ["BAJA GUARDADA. EXPEDIENTE ACTUALIZADO EN SUPABASE."];
+      if (vacante.creada && vacante.registro) {
+        partes.push(
+          `POSICIÓN REGISTRADA COMO VACANTE (${vacante.registro.planta} · ${vacante.registro.posicion}) — DISPONIBLE EN ALTAS Y CUADRÍCULA → VACANTES.`,
+        );
+      } else if (vacante.ok && vacante.motivo) {
+        partes.push(vacante.motivo.toUpperCase());
+      } else if (!vacante.ok && vacante.motivo) {
+        partes.push(`VACANTE: ${vacante.motivo.toUpperCase()}`);
+      }
       setStatusMsg({
         ok: true,
-        text: "BAJA GUARDADA. EXPEDIENTE ACTUALIZADO EN SUPABASE.",
+        text: partes.join(" "),
       });
     } catch (err) {
       setStatusMsg({ ok: false, text: err instanceof Error ? err.message : "ERROR AL GUARDAR." });

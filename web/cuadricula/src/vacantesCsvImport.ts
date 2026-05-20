@@ -1,10 +1,6 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
-import {
-  canonicalNoServicioCatalogo,
-  findCatalogoPorNombreYPlanta,
-  findCatalogoPorNumeroYPlanta,
-  normPlantaCatalogo,
-} from "@/lib/colaboradores-catalogo-display";
+import { canonicalNoServicioCatalogo, normPlantaCatalogo } from "@/lib/colaboradores-catalogo-display";
+import { reconciliarServicioVacante } from "@/lib/vacantes-servicio";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { normPosicionKey, slotFromVacanteRegistro, slotVacanteKey, type SlotVacante } from "@/lib/vacantes-slot";
 import {
@@ -55,7 +51,13 @@ function pickDelimiter(firstLine: string): CsvDelimiter {
 }
 
 function matchesServicioHeader(norm: string): boolean {
-  return norm.includes("servicio") && !norm.includes("no");
+  if (norm.includes("no") && norm.includes("servicio")) return false;
+  return (
+    norm.includes("servicio") ||
+    norm === "nombre" ||
+    norm.includes("nombre servicio") ||
+    norm.includes("linea servicio")
+  );
 }
 
 function matchesNoServicioHeader(norm: string): boolean {
@@ -236,26 +238,15 @@ function reconcileConCatalogo(
   fila: VacanteCsvFila,
   catalogo: CatalogoServicioItem[],
 ): VacanteCsvFila {
-  let servicioLinea = fila.servicioLinea === "—" ? "" : fila.servicioLinea;
-  let rowServiceNo = fila.rowServiceNo;
-
-  if (rowServiceNo) {
-    const porNum = findCatalogoPorNumeroYPlanta(catalogo, rowServiceNo, fila.planta);
-    if (porNum) {
-      servicioLinea = normServicio(porNum.nombre ?? servicioLinea);
-      rowServiceNo = (porNum.numero_servicio ?? rowServiceNo).trim();
-    }
-  }
-  if (servicioLinea) {
-    const porNom = findCatalogoPorNombreYPlanta(catalogo, servicioLinea, fila.planta);
-    if (porNom) {
-      servicioLinea = normServicio(porNom.nombre ?? servicioLinea);
-      if (!rowServiceNo && porNom.numero_servicio?.trim()) {
-        rowServiceNo = canonicalNoServicioCatalogo(porNom.numero_servicio);
-      }
-    }
-  }
-
+  const servicioLineaRaw = fila.servicioLinea === "—" ? "" : fila.servicioLinea;
+  const { servicioLinea, rowServiceNo } = reconciliarServicioVacante(
+    {
+      planta: fila.planta,
+      servicioLinea: servicioLineaRaw,
+      rowServiceNo: fila.rowServiceNo,
+    },
+    catalogo,
+  );
   return {
     ...fila,
     servicioLinea: servicioLinea || "—",

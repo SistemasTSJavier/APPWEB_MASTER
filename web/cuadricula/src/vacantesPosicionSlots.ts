@@ -1,8 +1,6 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import {
   canonicalNoServicioCatalogo,
-  noServicioColaborador,
-  nombreServicioCatalogoColaborador,
   normPlantaCatalogo,
   plantaExpedienteColaborador,
   posicionLaboralColaborador,
@@ -10,15 +8,19 @@ import {
 } from "@/lib/colaboradores-catalogo-display";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
-import { listarPlantasDeColaboradores } from "./cuadriculaColaboradoresBridge";
+import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import type { VacanteRegistro } from "@/lib/vacantes-catalog";
 import {
+  reconciliarServicioVacante,
+  serviciosLineaCoincidenVacante,
+} from "@/lib/vacantes-servicio";
+import {
   normPosicionKey,
-  serviciosLineaCoinciden,
   slotFromVacanteRegistro,
   slotVacanteKey,
   type SlotVacante,
 } from "@/lib/vacantes-slot";
+import { listarPlantasDeColaboradores } from "./cuadriculaColaboradoresBridge";
 
 export {
   normPosicionKey,
@@ -82,19 +84,30 @@ export function colaboradorCoincideSlot(
   if (normPosicionKey(posicionLaboralColaborador(c, catalogo)) !== normPosicionKey(slot.posicion)) {
     return false;
   }
-  const noCol = noServicioColaborador(c, catalogo, { plantaContexto: p });
-  const lineaCol = nombreServicioCatalogoColaborador(c, catalogo, { plantaContexto: p });
-  const noSlot = canonicalNoServicioCatalogo(slot.rowServiceNo);
-  if (noSlot && noCol) {
-    return valorCoincideConNoServicio(noCol, noSlot);
+  const lineaExp = servicioLineaColaborador(c);
+  const noExp = canonicalNoServicioCatalogo(String(c.form?.noServicio ?? ""));
+  const col = reconciliarServicioVacante(
+    { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },
+    catalogo,
+  );
+  const slotNorm = reconciliarServicioVacante(
+    {
+      planta: p,
+      servicioLinea: slot.servicioLinea,
+      rowServiceNo: slot.rowServiceNo,
+    },
+    catalogo,
+  );
+  if (col.rowServiceNo && slotNorm.rowServiceNo) {
+    if (!valorCoincideConNoServicio(col.rowServiceNo, slotNorm.rowServiceNo)) return false;
   }
-  if (slot.servicioLinea && lineaCol) {
-    return serviciosLineaCoinciden(lineaCol, slot.servicioLinea);
+  if (col.servicioLinea && slotNorm.servicioLinea) {
+    return (
+      col.servicioLinea === slotNorm.servicioLinea ||
+      serviciosLineaCoincidenVacante(col.servicioLinea, slotNorm.servicioLinea)
+    );
   }
-  if (noSlot || slot.servicioLinea) {
-    return false;
-  }
-  return true;
+  return Boolean(col.rowServiceNo && slotNorm.rowServiceNo);
 }
 
 function slotDesdeColaborador(
@@ -106,11 +119,17 @@ function slotDesdeColaborador(
   if (plantaExpedienteColaborador(c).trim().toUpperCase() !== p) return null;
   const posicion = normPosicionKey(posicionLaboralColaborador(c, catalogo));
   if (!posicion) return null;
+  const lineaExp = servicioLineaColaborador(c);
+  const noExp = canonicalNoServicioCatalogo(String(c.form?.noServicio ?? ""));
+  const { servicioLinea, rowServiceNo } = reconciliarServicioVacante(
+    { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },
+    catalogo,
+  );
   return {
     planta: p,
     posicion: posicionLaboralColaborador(c, catalogo).trim().toUpperCase(),
-    servicioLinea: nombreServicioCatalogoColaborador(c, catalogo, { plantaContexto: p }) || "—",
-    rowServiceNo: noServicioColaborador(c, catalogo, { plantaContexto: p }) || "",
+    servicioLinea: servicioLinea || "—",
+    rowServiceNo: rowServiceNo || "",
   };
 }
 
@@ -148,12 +167,17 @@ export function resolverDatosSlot(
     if (!colaboradorCoincideSlot(c, slot, catalogo)) continue;
     if (!colaboradorTieneBaja(c)) {
       const p = slot.planta.trim().toUpperCase();
+      const lineaExp = servicioLineaColaborador(c);
+      const noExp = canonicalNoServicioCatalogo(String(c.form?.noServicio ?? ""));
+      const svc = reconciliarServicioVacante(
+        { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },
+        catalogo,
+      );
       return {
         ...slot,
         posicion: slot.posicion.trim().toUpperCase(),
-        servicioLinea:
-          nombreServicioCatalogoColaborador(c, catalogo, { plantaContexto: p }) || slot.servicioLinea,
-        rowServiceNo: noServicioColaborador(c, catalogo, { plantaContexto: p }) || slot.rowServiceNo,
+        servicioLinea: svc.servicioLinea || slot.servicioLinea,
+        rowServiceNo: svc.rowServiceNo || slot.rowServiceNo,
         puestoSugerido: (c.puesto ?? "").trim().toUpperCase(),
       };
     }
@@ -162,14 +186,17 @@ export function resolverDatosSlot(
 
   if (fallback) {
     const p = slot.planta.trim().toUpperCase();
+    const lineaExp = servicioLineaColaborador(fallback);
+    const noExp = canonicalNoServicioCatalogo(String(fallback.form?.noServicio ?? ""));
+    const svc = reconciliarServicioVacante(
+      { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },
+      catalogo,
+    );
     return {
       ...slot,
       posicion: slot.posicion.trim().toUpperCase(),
-      servicioLinea:
-        nombreServicioCatalogoColaborador(fallback, catalogo, { plantaContexto: p }) ||
-        slot.servicioLinea,
-      rowServiceNo:
-        noServicioColaborador(fallback, catalogo, { plantaContexto: p }) || slot.rowServiceNo,
+      servicioLinea: svc.servicioLinea || slot.servicioLinea,
+      rowServiceNo: svc.rowServiceNo || slot.rowServiceNo,
       puestoSugerido: (fallback.puesto ?? "").trim().toUpperCase(),
     };
   }
@@ -198,7 +225,9 @@ export function resolverDatosPosicionEnPlanta(
   const match = slots.find((s) => {
     if (normPosicionKey(s.posicion) !== pk) return false;
     if (noHint && s.rowServiceNo) return valorCoincideConNoServicio(s.rowServiceNo, noHint);
-    if (lineaHint && s.servicioLinea) return serviciosLineaCoinciden(s.servicioLinea, lineaHint);
+    if (lineaHint && s.servicioLinea) {
+      return serviciosLineaCoincidenVacante(s.servicioLinea, lineaHint);
+    }
     return true;
   });
 

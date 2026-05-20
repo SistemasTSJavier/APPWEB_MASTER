@@ -3,7 +3,11 @@ import {
   normPlantaCatalogo,
   valorCoincideConNoServicio,
 } from "@/lib/colaboradores-catalogo-display";
-import { claveServicioAgrupada } from "@/lib/servicio-agrupacion";
+import {
+  identificadorServicioVacante,
+  normServicioLineaVacante,
+  serviciosLineaCoincidenVacante,
+} from "@/lib/vacantes-servicio";
 import type { VacanteRegistro } from "@/lib/vacantes-catalog";
 
 const SLOT_SEP = "\u001f";
@@ -20,18 +24,9 @@ export function normPosicionKey(p: string): string {
   return t === "—" || t === "-" ? "" : t;
 }
 
-function normServicioLinea(s: string): string {
-  return s.trim().replace(/\s+/g, " ").toUpperCase();
-}
-
+/** @deprecated Prefer serviciosLineaCoincidenVacante (vacantes / altas). */
 export function serviciosLineaCoinciden(a: string, b: string): boolean {
-  const na = normServicioLinea(a);
-  const nb = normServicioLinea(b);
-  if (!na || !nb) return !na && !nb;
-  if (na === nb) return true;
-  const ka = claveServicioAgrupada(na);
-  const kb = claveServicioAgrupada(nb);
-  return Boolean(ka && kb && ka === kb);
+  return serviciosLineaCoincidenVacante(a, b);
 }
 
 /** Clave única: planta + N.º servicio (o línea) + posición. */
@@ -43,9 +38,7 @@ export function slotVacanteKey(slot: {
 }): string {
   const planta = slot.planta.trim().toUpperCase();
   const posicion = normPosicionKey(slot.posicion);
-  const no = canonicalNoServicioCatalogo(slot.rowServiceNo ?? "");
-  const servicio = normServicioLinea(slot.servicioLinea ?? "");
-  const servicioId = no || servicio;
+  const servicioId = identificadorServicioVacante(slot);
   return `${planta}${SLOT_SEP}${servicioId}${SLOT_SEP}${posicion}`;
 }
 
@@ -53,7 +46,7 @@ export function slotFromVacanteRegistro(v: VacanteRegistro): SlotVacante {
   return {
     planta: v.planta,
     posicion: v.posicion,
-    servicioLinea: (v.servicioLinea ?? "").trim().toUpperCase(),
+    servicioLinea: normServicioLineaVacante(v.servicioLinea ?? ""),
     rowServiceNo: (v.rowServiceNo ?? "").trim(),
   };
 }
@@ -74,13 +67,22 @@ export function vacanteCoincideServicioAlta(
 
   const noAlta = canonicalNoServicioCatalogo(alta.rowServiceNo);
   const noVac = canonicalNoServicioCatalogo(v.rowServiceNo ?? "");
-  if (noAlta && noVac) return valorCoincideConNoServicio(noVac, noAlta);
+  const lineaAlta = normServicioLineaVacante(alta.servicioLinea);
+  const lineaVac = normServicioLineaVacante(v.servicioLinea ?? "");
 
-  const lineaAlta = normServicioLinea(alta.servicioLinea);
-  const lineaVac = normServicioLinea(v.servicioLinea ?? "");
-  if (lineaAlta && lineaVac) return serviciosLineaCoinciden(lineaAlta, lineaVac);
+  if (noAlta && noVac) {
+    if (!valorCoincideConNoServicio(noVac, noAlta)) return false;
+    if (lineaAlta && lineaVac && lineaAlta !== lineaVac) {
+      return serviciosLineaCoincidenVacante(lineaAlta, lineaVac);
+    }
+    return true;
+  }
 
-  return Boolean(noAlta || lineaAlta);
+  if (lineaAlta && lineaVac) {
+    return lineaAlta === lineaVac || serviciosLineaCoincidenVacante(lineaAlta, lineaVac);
+  }
+
+  return false;
 }
 
 export function slotVacanteCoincideAlta(slot: SlotVacante, alta: AltaServicioContexto): boolean {

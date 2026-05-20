@@ -2,26 +2,25 @@ import {
   canonicalNoServicioCatalogo,
   normPlantaCatalogo,
 } from "@/lib/colaboradores-catalogo-display";
+import {
+  loadVacantesCatalogo,
+  removeVacanteBySlot,
+  type VacanteRegistro,
+} from "@/lib/vacantes-catalog";
+import { identificadorServicioVacante } from "@/lib/vacantes-servicio";
 import type { AltaServicioContexto } from "@/lib/vacantes-slot";
 import {
   normPosicionKey,
   slotFromVacanteRegistro,
   vacanteCoincideServicioAlta,
 } from "@/lib/vacantes-slot";
-import {
-  loadVacantesCatalogo,
-  removeVacanteBySlot,
-  type VacanteRegistro,
-} from "@/lib/vacantes-catalog";
 
 export type { AltaServicioContexto };
 
-/** Clave estable por N.º de servicio o, si no hay, por línea de servicio. */
+/** Clave estable: N.º + nombre de servicio (no mezcla Administración / Comercial). */
 export function claveServicioVacante(v: VacanteRegistro): string {
-  const no = canonicalNoServicioCatalogo(v.rowServiceNo ?? "");
-  if (no) return `no:${no}`;
-  const linea = (v.servicioLinea ?? "").trim().toUpperCase();
-  return linea ? `nom:${linea}` : "";
+  const id = identificadorServicioVacante(v);
+  return id ? `svc:${id}` : "";
 }
 
 export function vacanteCoincideClaveServicio(v: VacanteRegistro, clave: string): boolean {
@@ -37,9 +36,9 @@ export type ServicioVacanteOpcion = {
 };
 
 /** Servicios distintos que tienen al menos una vacante en catálogo. */
-export function listarServiciosDesdeVacantes(): ServicioVacanteOpcion[] {
+export function listarServiciosDesdeVacantes(catalogo: VacanteRegistro[]): ServicioVacanteOpcion[] {
   const map = new Map<string, ServicioVacanteOpcion>();
-  for (const v of loadVacantesCatalogo()) {
+  for (const v of catalogo) {
     const clave = claveServicioVacante(v);
     if (!clave) continue;
     const prev = map.get(clave);
@@ -62,10 +61,13 @@ export function listarServiciosDesdeVacantes(): ServicioVacanteOpcion[] {
 }
 
 /** Plantas con vacantes para ese servicio. */
-export function listarPlantasVacantesPorServicio(claveServicio: string): string[] {
+export function listarPlantasVacantesPorServicio(
+  claveServicio: string,
+  catalogo: VacanteRegistro[],
+): string[] {
   if (!claveServicio) return [];
   const set = new Set<string>();
-  for (const v of loadVacantesCatalogo()) {
+  for (const v of catalogo) {
     if (!vacanteCoincideClaveServicio(v, claveServicio)) continue;
     const p = normPlantaCatalogo(v.planta);
     if (p) set.add(p);
@@ -77,10 +79,11 @@ export function listarPlantasVacantesPorServicio(claveServicio: string): string[
 export function listarVacantesPorServicioYPlanta(
   claveServicio: string,
   planta: string,
+  catalogo: VacanteRegistro[],
 ): VacanteRegistro[] {
   const p = normPlantaCatalogo(planta);
   if (!claveServicio || !p) return [];
-  return loadVacantesCatalogo()
+  return catalogo
     .filter((v) => vacanteCoincideClaveServicio(v, claveServicio) && normPlantaCatalogo(v.planta) === p)
     .sort((a, b) => a.posicion.localeCompare(b.posicion, "es", { numeric: true }));
 }

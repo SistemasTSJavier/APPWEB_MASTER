@@ -28,6 +28,7 @@ import {
 import {
   loadVacantesCatalogo,
   VACANTES_CATALOG_UPDATED_EVENT,
+  type VacanteRegistro,
 } from "@/lib/vacantes-catalog";
 import type { AppRole } from "@/lib/app-role";
 import { roleMayWriteAltas } from "@/lib/app-role";
@@ -143,7 +144,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   }, [form.noEmpleado1, pteSequence]);
 
   const [altaMsg, setAltaMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [catalogoVacantes, setCatalogoVacantes] = useState(() => loadVacantesCatalogo());
+  const [catalogoVacantes, setCatalogoVacantes] = useState<VacanteRegistro[]>([]);
+  const [vacantesHydrated, setVacantesHydrated] = useState(false);
   const [claveServicioVacante, setClaveServicioVacante] = useState("");
   const [vacanteAsignadaId, setVacanteAsignadaId] = useState("");
   const [expedientePrevio, setExpedientePrevio] = useState<ColaboradorCompleto | null>(null);
@@ -175,22 +177,23 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   useEffect(() => {
     const recargar = () => setCatalogoVacantes(loadVacantesCatalogo());
     recargar();
+    setVacantesHydrated(true);
     window.addEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
     return () => window.removeEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
   }, []);
 
   const serviciosConVacantes = useMemo(
-    () => listarServiciosDesdeVacantes(),
+    () => listarServiciosDesdeVacantes(catalogoVacantes),
     [catalogoVacantes],
   );
 
   const plantasVacante = useMemo(
-    () => listarPlantasVacantesPorServicio(claveServicioVacante),
+    () => listarPlantasVacantesPorServicio(claveServicioVacante, catalogoVacantes),
     [claveServicioVacante, catalogoVacantes],
   );
 
   const vacantesEnPlanta = useMemo(
-    () => listarVacantesPorServicioYPlanta(claveServicioVacante, form.planta),
+    () => listarVacantesPorServicioYPlanta(claveServicioVacante, form.planta, catalogoVacantes),
     [claveServicioVacante, form.planta, catalogoVacantes],
   );
 
@@ -344,6 +347,14 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     if (edadCalc != null) flatForm.edad = String(edadCalc);
 
     const servicioAlta = form.servicio.trim();
+
+    if (!vacantesHydrated) {
+      setAltaMsg({
+        ok: false,
+        text: "ESPERE A QUE CARGUE EL CATÁLOGO DE VACANTES EN ESTE NAVEGADOR.",
+      });
+      return;
+    }
 
     if (hayVacantesEnCatalogo && !vacanteAsignadaId) {
       setAltaMsg({
@@ -868,7 +879,11 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                     Vacantes o CSV en este navegador).
                   </p>
 
-                  {!hayVacantesEnCatalogo ? (
+                  {!vacantesHydrated ? (
+                    <p className="text-xs font-medium text-slate-600" role="status">
+                      Cargando catálogo de vacantes de este navegador…
+                    </p>
+                  ) : !hayVacantesEnCatalogo ? (
                     <p className="text-xs font-semibold uppercase text-amber-900">
                       No hay vacantes en catálogo. Importe el CSV en{" "}
                       <Link href="/cuadricula" className="underline">

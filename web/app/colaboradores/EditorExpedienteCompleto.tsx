@@ -13,6 +13,8 @@ import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
+import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
+import { registrarVacantePorBajaColaborador } from "@/lib/vacantes-desde-baja";
 
 const DATE_KEYS = new Set([
   "fechaIngreso",
@@ -126,6 +128,9 @@ export function EditorExpedienteCompleto({ colaborador, catalogoServicios, onCan
       actualizado = limpiarPosicionDuplicadaDeNoServicio(actualizado);
 
       await upsertColaboradorCompleto(actualizado);
+      if (colaboradorTieneBaja(actualizado)) {
+        registrarVacantePorBajaColaborador(actualizado, catalogoServicios);
+      }
       await onGuardado(actualizado);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "ERROR AL GUARDAR." });
