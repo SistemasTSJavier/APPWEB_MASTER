@@ -4,6 +4,7 @@ import {
   colaboradoresParaConsultaAsistencia,
   estatusExpedienteColaborador,
   fechaBajaDisplayColaborador,
+  fechaIngresoDisplayColaborador,
   plantaExpedienteColaborador,
 } from "../cuadriculaColaboradoresBridge";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
@@ -38,6 +39,7 @@ export function AsistenciaConsultaView() {
 
   const estatusColaborador = seleccionado ? estatusExpedienteColaborador(seleccionado) : null;
   const fechaBajaColaborador = seleccionado ? fechaBajaDisplayColaborador(seleccionado) : "—";
+  const fechaIngresoColaborador = seleccionado ? fechaIngresoDisplayColaborador(seleccionado) : "—";
   const enBaja = estatusColaborador === "BAJA";
 
   useEffect(() => {
@@ -114,6 +116,10 @@ export function AsistenciaConsultaView() {
               <div>
                 <span className="consultaMeta__label">No. empleado</span>
                 <p className="consultaMeta__value">{seleccionado.noEmpleado}</p>
+              </div>
+              <div>
+                <span className="consultaMeta__label">Fecha de ingreso</span>
+                <p className="consultaMeta__value">{fechaIngresoColaborador}</p>
               </div>
               <div>
                 <span className="consultaMeta__label">Estatus</span>

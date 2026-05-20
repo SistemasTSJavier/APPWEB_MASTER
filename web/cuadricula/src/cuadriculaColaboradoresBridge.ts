@@ -268,3 +268,10 @@ export function fechaBajaDisplayColaborador(c: ColaboradorCompleto): string {
   const fb = fechaBajaNormalizadaColaborador(c);
   return fb ? formatoDesdeYyyyMmDd(fb) : "—";
 }
+
+export function fechaIngresoDisplayColaborador(c: ColaboradorCompleto): string {
+  const n = fechaIngresoNormalizadaColaborador(c);
+  return n
+    ? formatoDesdeYyyyMmDd(n)
+    : String(c.fechaIngreso ?? c.form?.fechaIngreso ?? "").trim() || "—";
+}
