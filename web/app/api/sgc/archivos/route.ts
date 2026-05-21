@@ -91,12 +91,14 @@ export async function GET(req: Request) {
       const {
         data: { publicUrl },
       } = admin.storage.from(SGC_BUCKET).getPublicUrl(path);
+      const meta = it.metadata as { size?: number } | undefined;
       return {
         name: sgcDisplayNameFromObject(it.name!),
         storageName: it.name,
         path,
         url: publicUrl,
         updatedAt: it.updated_at ?? it.created_at ?? null,
+        sizeBytes: typeof meta?.size === "number" ? meta.size : null,
       };
     });
 
