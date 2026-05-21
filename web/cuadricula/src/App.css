@@ -1632,12 +1632,7 @@
 
 @media (min-width: 48rem) {
   .attendanceView--captureGrid .sheet.sheet--captureGrid {
-    width: max(100%, 82rem);
-    --sticky-w1: 6.25rem;
-    --sticky-w2: 6.25rem;
-    --sticky-w3: 6.5rem;
-    --sticky-w4: 5.25rem;
-    --sticky-w5: 18rem;
+    width: max(100%, 96rem);
   }
 
   .attendanceView--captureGrid .sheet--captureGrid .th--turn {
@@ -1668,88 +1663,102 @@
   }
 }
 
-/* Captura «Todas las plantas»: columna PLANTA fija + 7 identificación */
-.sheet.sheet--captureTodasPlantas {
-  --tp1: 4.75rem;
-  --tp2: 5.5rem;
-  --tp3: 5.5rem;
-  --tp4: 5.5rem;
-  --tp5: 4.75rem;
-  --tp6: 14rem;
-  --tp7: 5.5rem;
-  --tp8: 4.25rem;
-  --tl1: 0;
-  --tl2: var(--tp1);
-  --tl3: calc(var(--tp1) + var(--tp2));
-  --tl4: calc(var(--tp1) + var(--tp2) + var(--tp3));
-  --tl5: calc(var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4));
-  --tl6: calc(var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4) + var(--tp5));
-  --tl7: calc(var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4) + var(--tp5) + var(--tp6));
-  --tl8: calc(
-    var(--tp1) + var(--tp2) + var(--tp3) + var(--tp4) + var(--tp5) + var(--tp6) + var(--tp7)
+/* Captura asistencia: 8 columnas fijas (SERVICIO … NOMBRES) + semana + totales */
+.sheet.sheet--captureId8 {
+  --sticky-w1: 5.25rem;
+  --sticky-w2: 3.65rem;
+  --sticky-w3: 4.5rem;
+  --sticky-w4: 5.25rem;
+  --sticky-w5: 5.25rem;
+  --sticky-w6: 5rem;
+  --sticky-w7: 4.35rem;
+  --sticky-w8: 13.5rem;
+  --sticky-l1: 0;
+  --sticky-l2: var(--sticky-w1);
+  --sticky-l3: calc(var(--sticky-w1) + var(--sticky-w2));
+  --sticky-l4: calc(var(--sticky-w1) + var(--sticky-w2) + var(--sticky-w3));
+  --sticky-l5: calc(var(--sticky-w1) + var(--sticky-w2) + var(--sticky-w3) + var(--sticky-w4));
+  --sticky-l6: calc(
+    var(--sticky-w1) + var(--sticky-w2) + var(--sticky-w3) + var(--sticky-w4) + var(--sticky-w5)
+  );
+  --sticky-l7: calc(
+    var(--sticky-w1) + var(--sticky-w2) + var(--sticky-w3) + var(--sticky-w4) + var(--sticky-w5) +
+      var(--sticky-w6)
+  );
+  --sticky-l8: calc(
+    var(--sticky-w1) + var(--sticky-w2) + var(--sticky-w3) + var(--sticky-w4) + var(--sticky-w5) +
+      var(--sticky-w6) + var(--sticky-w7)
   );
 }
 
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(1),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(1) {
-  left: var(--tl1);
-  width: var(--tp1);
-  min-width: var(--tp1);
-  max-width: var(--tp1);
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--idHead {
+  font-size: 0.62rem;
+  line-height: 1.15;
+  padding: 0.3rem 0.2rem;
+  white-space: normal;
+  word-break: break-word;
 }
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(2),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(2) {
-  left: var(--tl2);
-  width: var(--tp2);
-  min-width: var(--tp2);
-  max-width: var(--tp2);
+
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(1),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(1) {
+  left: var(--sticky-l1);
+  width: var(--sticky-w1);
+  min-width: var(--sticky-w1);
+  max-width: var(--sticky-w1);
 }
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(3),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(3) {
-  left: var(--tl3);
-  width: var(--tp3);
-  min-width: var(--tp3);
-  max-width: var(--tp3);
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(2),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(2) {
+  left: var(--sticky-l2);
+  width: var(--sticky-w2);
+  min-width: var(--sticky-w2);
+  max-width: var(--sticky-w2);
 }
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(4),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(4) {
-  left: var(--tl4);
-  width: var(--tp4);
-  min-width: var(--tp4);
-  max-width: var(--tp4);
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(3),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(3) {
+  left: var(--sticky-l3);
+  width: var(--sticky-w3);
+  min-width: var(--sticky-w3);
+  max-width: var(--sticky-w3);
 }
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(5),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(5) {
-  left: var(--tl5);
-  width: var(--tp5);
-  min-width: var(--tp5);
-  max-width: var(--tp5);
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(4),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(4) {
+  left: var(--sticky-l4);
+  width: var(--sticky-w4);
+  min-width: var(--sticky-w4);
+  max-width: var(--sticky-w4);
 }
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(6),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(6) {
-  left: var(--tl6);
-  width: var(--tp6);
-  min-width: var(--tp6);
-  max-width: var(--tp6);
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(5),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(5) {
+  left: var(--sticky-l5);
+  width: var(--sticky-w5);
+  min-width: var(--sticky-w5);
+  max-width: var(--sticky-w5);
 }
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(7),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(7) {
-  left: var(--tl7);
-  width: var(--tp7);
-  min-width: var(--tp7);
-  max-width: var(--tp7);
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(6),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(6) {
+  left: var(--sticky-l6);
+  width: var(--sticky-w6);
+  min-width: var(--sticky-w6);
+  max-width: var(--sticky-w6);
 }
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .th--sticky:nth-child(8),
-.attendanceView--todasPlantas .sheet--captureTodasPlantas .td--sticky:nth-child(8) {
-  left: var(--tl8);
-  width: var(--tp8);
-  min-width: var(--tp8);
-  max-width: var(--tp8);
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(7),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(7) {
+  left: var(--sticky-l7);
+  width: var(--sticky-w7);
+  min-width: var(--sticky-w7);
+  max-width: var(--sticky-w7);
+}
+.attendanceView--captureGrid .sheet.sheet--captureId8 .th--sticky:nth-child(8),
+.attendanceView--captureGrid .sheet.sheet--captureId8 .td--sticky:nth-child(8) {
+  left: var(--sticky-l8);
+  width: var(--sticky-w8);
+  min-width: var(--sticky-w8);
+  max-width: var(--sticky-w8);
 }
 
 @media (min-width: 48rem) {
-  .attendanceView--todasPlantas .sheet.sheet--captureTodasPlantas {
-    width: max(100%, 90rem);
+  .attendanceView--captureGrid .sheet.sheet--captureId8 {
+    width: max(100%, 96rem);
   }
 }
 

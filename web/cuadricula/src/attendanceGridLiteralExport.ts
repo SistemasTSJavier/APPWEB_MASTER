@@ -4,6 +4,7 @@ import {
   ATTENDANCE_GRID_ID_HEADERS,
   celdasIdentificacionAsistencia,
 } from './attendanceGridColumns'
+import { ATTENDANCE_GRID_CSV_SHIFT_HEADERS_DTN } from './attendanceGridCsvImport'
 import { sortGridRowsByPosicion, sortGridRowsByServicioYPosicion } from './attendanceGridSort'
 
 const TURNS = ['D', 'T', 'N'] as const
@@ -62,11 +63,12 @@ export function buildAttendanceGridLiteralCsv(
     'Cap.',
   ]
 
-  const headers = [
-    ...ATTENDANCE_GRID_ID_HEADERS,
-    ...shiftHeaderLabels(weekColumns),
-    ...totalHeaders,
-  ]
+  const shiftHeaders =
+    weekColumns.length === 7
+      ? ATTENDANCE_GRID_CSV_SHIFT_HEADERS_DTN
+      : shiftHeaderLabels(weekColumns)
+
+  const headers = [...ATTENDANCE_GRID_ID_HEADERS, ...shiftHeaders, ...totalHeaders]
   const lines: string[] = [headers.map((h) => escapeCsvDelimCell(delim, h)).join(delim)]
 
   for (const row of sorted) {

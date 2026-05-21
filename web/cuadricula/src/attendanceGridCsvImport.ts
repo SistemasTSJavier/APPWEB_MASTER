@@ -23,20 +23,14 @@ import {
   mergeGridRowsForPlantaWeekForCsvImport,
 } from './attendanceSemanaColaborador'
 import { sortGridRowsByPosicion } from './attendanceGridSort'
-import { celdasIdentificacionAsistencia } from './attendanceGridColumns'
+import {
+  ATTENDANCE_GRID_ID_HEADERS,
+  celdasIdentificacionAsistencia,
+} from './attendanceGridColumns'
 import type { GridRow } from './mockData'
 
 /** Cabeceras estándar (8 columnas de identificación + 21 códigos). */
-export const ATTENDANCE_GRID_CSV_FIXED_HEADERS = [
-  'SERVICIO',
-  'NO. SERVICIO',
-  'PLANTA',
-  'POSICION',
-  'PUESTO',
-  'FECHA DE INGRESO',
-  'NO DE EMPLEADO',
-  'NOMBRE',
-] as const
+export const ATTENDANCE_GRID_CSV_FIXED_HEADERS: readonly string[] = ATTENDANCE_GRID_ID_HEADERS
 
 /** Alias: mismas cabeceras que la cuadrícula en pantalla. */
 export const ATTENDANCE_GRID_CSV_PLANTA_SHEET_HEADERS = ATTENDANCE_GRID_CSV_FIXED_HEADERS
@@ -173,7 +167,9 @@ function matchesEmpleadoHeader(norm: string): boolean {
   return (
     norm === 'no. empleado' ||
     norm === 'no empleado' ||
+    norm === 'no. de empleado' ||
     c === 'no.empleado' ||
+    c === 'no.deempleado' ||
     c === 'noempleado' ||
     norm === '# empleado' ||
     norm === 'no.de empleado' ||
@@ -181,6 +177,10 @@ function matchesEmpleadoHeader(norm: string): boolean {
     norm.includes('no de emple') ||
     (norm.includes('no') && norm.includes('emple') && !norm.includes('servicio'))
   )
+}
+
+function matchesNombresHeader(norm: string): boolean {
+  return norm === 'nombres' || norm === 'nombre' || norm.includes('nombre')
 }
 
 function matchesPosicionHeader(norm: string): boolean {
@@ -233,7 +233,8 @@ export function detectAttendanceCsvLayout(header: string[]): AttendanceCsvLayout
   if (posCol < 0) return null
   const posNorm = normHeaderCell(header[posCol] ?? '')
   if (!matchesPosicionHeader(posNorm)) return null
-  const shiftStart = empCol + 2
+  const afterEmp = normHeaderCell(header[empCol + 1] ?? '')
+  const shiftStart = matchesNombresHeader(afterEmp) ? empCol + 2 : empCol + 1
   if (header.length < shiftStart + 21) return null
 
   const plantaCol = findPlantaColumnIndex(header)
@@ -319,7 +320,7 @@ export function parseAttendanceGridCodesCsv(text: string):
     return {
       ok: false,
       error:
-        'No se reconoce la cabecera. Use SERVICIO, NO. SERVICIO, PLANTA, POSICION, PUESTO, FECHA DE INGRESO, NO DE EMPLEADO, NOMBRE + 21 columnas D/T/N (Lun–Dom).',
+        'No se reconoce la cabecera. Use SERVICIO, NO. SERVICIO, PLANTA, POSICION, PUESTO, FECHA DE INGRESO, NO. DE EMPLEADO, NOMBRES + 21 columnas D/T/N (Lun–Dom).',
     }
   }
 
@@ -327,7 +328,7 @@ export function parseAttendanceGridCodesCsv(text: string):
   if (header.length < minCols) {
     return {
       ok: false,
-      error: `Faltan columnas: se necesitan al menos ${minCols} (empleado en columna ${layout.empCol + 1} y 21 códigos a la derecha de Nombre).`,
+      error: `Faltan columnas: se necesitan al menos ${minCols} (empleado en columna ${layout.empCol + 1} y 21 códigos a la derecha de NOMBRES).`,
     }
   }
 

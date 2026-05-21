@@ -8,7 +8,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - rh: acceso total operativo (incl. MOPER).
  * - aux_rh: todas las secciones excepto MOPER; puede registrar/editar (no solo ver). Incluye Cuadrícula.
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura) y MOPER (registra/edita). Sin altas, expedientes legal, servicios ni ficha técnica.
- * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV (filtros, selección).
+ * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC igual que admin (subir/eliminar, todos los departamentos).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
  * - aux_legal / gerente_legal: Colaboradores, Expedientes legal e historial MOPER solo consulta.
  * - editor_cuadricula: inicio, Bajas, Colaboradores y MOPER solo consulta; Cuadrícula con captura/guardado e import CSV.
@@ -253,17 +253,17 @@ export function roleMayUploadSgc(role: AppRole): boolean {
   return roleMayAccessSgc(role);
 }
 
+/** Subir y eliminar archivos en SGC (admin y mejora continua). */
 export function roleMayDeleteSgc(role: AppRole): boolean {
-  return role === "admin";
+  return roleMayAccessSgc(role);
 }
 
-/** Admin elige departamento; mejora continua solo ve/sube el suyo. */
+/** Elegir cualquier departamento en SGC (admin y mejora continua). */
 export function roleMayPickSgcDepartamento(role: AppRole): boolean {
-  return role === "admin";
+  return roleMayAccessSgc(role);
 }
 
-export function sgcDepartamentoFijoPorRol(role: AppRole): SgcDepartamentoId | null {
-  if (role === "mejora_continua") return "mejora-continua";
+export function sgcDepartamentoFijoPorRol(_role: AppRole): SgcDepartamentoId | null {
   return null;
 }
 

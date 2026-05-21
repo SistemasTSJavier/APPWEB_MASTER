@@ -6,7 +6,6 @@ import {
   attendanceExportFilenameAllPlantas,
   buildAttendanceExportDateRangeFullText,
   buildCuadriculaExportTotalsByPlantas,
-  buildCuadriculaExportTotalsSheetsForWeeks,
   type AttendanceExportAlcance,
   dateToIsoYmdLocal,
   downloadTextFile,
@@ -47,7 +46,16 @@ import {
   mergeRowForEmployeeInWeek,
   splitGridRowsByPlanta,
 } from '../attendanceSemanaColaborador'
-import { plantaCeldaFila } from '../attendanceGridColumns'
+import {
+  ATTENDANCE_GRID_ID_COL_COUNT,
+  ATTENDANCE_GRID_ID_HEADERS,
+  celdasIdentificacionAsistencia,
+  claseCeldaIdentificacionAsistencia,
+} from '../attendanceGridColumns'
+import {
+  attendanceLiteralCsvFilename,
+  buildAttendanceGridLiteralCsv,
+} from '../attendanceGridLiteralExport'
 import { useCuadriculaData } from '../CuadriculaDataContext'
 import { WEEK_COLUMNS, type GridRow, type Turn } from '../mockData'
 import { TOTAL_COLUMN_HELP, WEEK_TOTALS_LEGEND } from '../weekTotalsLegend'
@@ -476,13 +484,17 @@ export function AttendanceView() {
         setSaveMessage('Seleccione una planta o use alcance «Todas las plantas».')
         return
       }
-      const full = buildCuadriculaExportTotalsSheetsForWeeks([
-        { monday: weekStart, rows: displayRows },
-      ])
+      const plantaFb = esVistaTodasPlantas ? '' : plantaSeleccionada
+      const full = buildAttendanceGridLiteralCsv(displayRows, WEEK_COLUMNS, {
+        delim: ';',
+        plantaFallback: plantaFb,
+        sortTodos: esVistaTodasPlantas,
+      })
       downloadTextFile(
-        attendanceExportFilename(nombreArchivoPlanta, desdeD, hastaD),
+        attendanceLiteralCsvFilename(nombreArchivoPlanta, weekIso),
         full,
       )
+      setSaveMessage('Exportada cuadrícula de la semana (mismas columnas que en pantalla).')
       return
     }
 
@@ -1067,9 +1079,9 @@ export function AttendanceView() {
           {puedeImportarCsv && !mostrarSoloResumenMensual ? (
             <div className="persistRow__csvBlock">
               <p className="persistRow__csvLead">
-                <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Con columna{' '}
-                <strong>PLANTA</strong> y <strong>NO SERVICIO</strong> (formato SERVICIO, NO SERVICIO, PLANTA, POSICION… + D/T/N×7) un solo
-                archivo actualiza <strong>todas las plantas</strong>. Empareja por <strong>NO DE EMPLEADO</strong> (también colaboradores en{' '}
+                <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Cabecera:{' '}
+                <strong>SERVICIO, NO. SERVICIO, PLANTA, POSICIÓN, PUESTO, FECHA DE INGRESO, NO. DE EMPLEADO, NOMBRES</strong> + D/T/N×7.
+                Con columna <strong>PLANTA</strong> un archivo actualiza <strong>todas las plantas</strong>. Empareja por <strong>NO. DE EMPLEADO</strong> (también colaboradores en{' '}
                 <strong>baja</strong>, solo al importar, para conservar historial). Si hay varios servicios en la misma planta, usa{' '}
                 <strong>NO SERVICIO</strong>. Si PLANTA viene vacía, se infiere del catálogo. Sin columna PLANTA, elija la planta arriba.
               </p>
@@ -1227,8 +1239,8 @@ export function AttendanceView() {
             <summary className="attPanel__summary">Ayuda y códigos de captura</summary>
             <div className="attPanel__body">
         <p className="hint attPanel__hint">
-          El listado de <strong>Planta</strong> sale solo de colaboradores activos (campo planta en expediente). Cada fila usa su{' '}
-          <strong>N.º de servicio</strong> según <strong>Servicios</strong> (referencia por fila). Use{' '}
+          Columnas fijas: <strong>SERVICIO, NO. SERVICIO, PLANTA, POSICIÓN, PUESTO, FECHA DE INGRESO, NO. DE EMPLEADO, NOMBRES</strong>, luego la semana (D/T/N) y totales. Cada fila usa su{' '}
+          <strong>N.º de servicio</strong> según <strong>Servicios</strong>. Use{' '}
           <strong>Colaborador</strong> para una persona o el <strong>resumen mensual</strong>. <strong>Número</strong> o <strong>A</strong> → Asist.;{' '}
           <strong>DD</strong>+número → Extra; <strong>F</strong> → Falta; <strong>D</strong> → 1 Desc. por día (aunque esté en D+T+N); INC/VAC/PCGS/PSGS/CAP → su columna.{' '}
           {puedeEditar ? (
@@ -1240,7 +1252,7 @@ export function AttendanceView() {
               <strong>Solo lectura</strong> (sin permiso de edición).{' '}
             </>
           )}
-          <strong>Exportar cuadrícula</strong>: totales por semana/mes/año; elija <strong>Todas las plantas</strong> para un CSV con un bloque por planta.{' '}
+          <strong>Exportar (.csv)</strong> con periodo <strong>Semana</strong> descarga la misma cuadrícula que en pantalla (identificación + códigos + totales). Mes/año exporta resumen de totales.{' '}
           {puedeImportarCsv ? (
             <>
               Para capturar <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. El archivo puede ser como su
@@ -1290,13 +1302,13 @@ export function AttendanceView() {
         ) : null}
         {!mostrarSoloResumenMensual ? (
         <table
-          className={`sheet sheet--captureGrid${esVistaTodasPlantas ? ' sheet--captureTodasPlantas' : ''}`}
+          className="sheet sheet--captureGrid sheet--captureId8"
           aria-label="Cuadrícula de asistencia"
         >
           <thead>
             <tr>
               <th
-                colSpan={esVistaTodasPlantas ? 8 : 7}
+                colSpan={ATTENDANCE_GRID_ID_COL_COUNT}
                 className="th th--block th--band th--bandId"
               >
                 Identificación
@@ -1312,20 +1324,11 @@ export function AttendanceView() {
               </th>
             </tr>
             <tr className="theadSub">
-              {esVistaTodasPlantas ? (
-                <th className="th th--sticky">Planta</th>
-              ) : null}
-              <th className="th th--sticky">Posición</th>
-              <th className="th th--sticky">Puesto</th>
-              <th className="th th--sticky">Fecha ing.</th>
-              <th className="th th--sticky">No. empleado</th>
-              <th className="th th--sticky th--name">Nombres</th>
-              <th className="th th--sticky" title="Servicio vigente en expediente">
-                Servicio
-              </th>
-              <th className="th th--sticky mono" title="N.º en catálogo según servicio del colaborador">
-                N.º serv.
-              </th>
+              {ATTENDANCE_GRID_ID_HEADERS.map((label) => (
+                <th key={label} className="th th--sticky th--idHead" title={label}>
+                  {label}
+                </th>
+              ))}
               {WEEK_COLUMNS.map((col) =>
                 TURNS.map((t) => (
                   <th key={`${col.key}-${t}`} className="th th--turn">
@@ -1365,25 +1368,19 @@ export function AttendanceView() {
           <tbody>
             {displayRows.map((row) => {
               const rowNo = gridRowServiceNo(row)
+              const plantaFb = esVistaTodasPlantas ? '' : plantaSeleccionada
+              const idCells = celdasIdentificacionAsistencia(row, plantaFb)
               return (
               <tr key={row.id} className="tr" data-vacant={row.vacant}>
-                {esVistaTodasPlantas ? (
-                  <td className="td td--sticky mono text-xs font-semibold">
-                    {plantaCeldaFila(row)}
+                {idCells.map((val, i) => (
+                  <td
+                    key={`${row.id}-id-${i}`}
+                    className={claseCeldaIdentificacionAsistencia(i)}
+                    title={i === 0 ? (row.servicioLinea || undefined) : undefined}
+                  >
+                    {val}
                   </td>
-                ) : null}
-                <td className="td td--sticky mono">{row.position}</td>
-                <td className="td td--sticky">{row.role}</td>
-                <td className="td td--sticky nowrap">{row.hireDate}</td>
-                <td className="td td--sticky mono">{row.employeeNo ?? '—'}</td>
-                <td className="td td--sticky td--name">{row.name}</td>
-                <td
-                  className="td td--sticky text-xs"
-                  title={row.servicioLinea || undefined}
-                >
-                  {row.servicioLinea || '—'}
-                </td>
-                <td className="td td--sticky mono font-semibold">{rowNo || '—'}</td>
+                ))}
                 {row.shifts.map((day, dayIndex) =>
                   TURNS.map((turn) => {
                     const locked = dayLocked[dayIndex] ?? false
