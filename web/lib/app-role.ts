@@ -1,3 +1,5 @@
+import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
+
 /**
  * Roles de aplicación (`app_role` en metadata de Supabase Auth).
  *
@@ -94,6 +96,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
   "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/servicios": ["admin", "rh", "aux_rh"],
+  "/sgc": ["admin", "mejora_continua"],
 };
 
 /** Único usuario RRHH con acceso legacy a Ficha técnica por correo (además de admin y roles ampliados). */
@@ -241,6 +244,29 @@ export function roleMayImportServiciosCatalogoDosColumnasAdmin(role: AppRole): b
   return role === "admin";
 }
 
+/** Sistemas de gestión de calidad (sección SGC). */
+export function roleMayAccessSgc(role: AppRole): boolean {
+  return role === "admin" || role === "mejora_continua";
+}
+
+export function roleMayUploadSgc(role: AppRole): boolean {
+  return roleMayAccessSgc(role);
+}
+
+export function roleMayDeleteSgc(role: AppRole): boolean {
+  return role === "admin";
+}
+
+/** Admin elige departamento; mejora continua solo ve/sube el suyo. */
+export function roleMayPickSgcDepartamento(role: AppRole): boolean {
+  return role === "admin";
+}
+
+export function sgcDepartamentoFijoPorRol(role: AppRole): SgcDepartamentoId | null {
+  if (role === "mejora_continua") return "mejora-continua";
+  return null;
+}
+
 /** Enlaces del panel lateral en la página de inicio (según rol). */
 export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { href: string; label: string }[] {
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
@@ -263,6 +289,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       href: "/moper",
       label: "Moper",
       roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
+    },
+    {
+      href: "/sgc",
+      label: "SGC",
+      roles: ["admin", "mejora_continua"],
     },
   ];
   return items.filter((i) => {

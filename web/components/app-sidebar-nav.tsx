@@ -47,7 +47,9 @@ export function AppSidebarNav({
         className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] md:mt-4 md:flex md:flex-col md:gap-2 md:overflow-visible md:pb-0 [&::-webkit-scrollbar]:hidden md:[scrollbar-width:auto] md:[&::-webkit-scrollbar]:auto"
       >
         {navItems.map((item) => {
-          const active = normPath(item.href) === cur;
+          const active =
+            normPath(item.href) === cur ||
+            (item.href !== "/" && cur.startsWith(`${normPath(item.href)}/`));
           return (
             <Link
               key={`${item.href}-${item.label}`}
