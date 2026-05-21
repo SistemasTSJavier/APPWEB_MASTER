@@ -7,7 +7,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - admin: acceso total.
  * - rh: acceso total operativo (incl. MOPER).
  * - aux_rh: todas las secciones excepto MOPER; puede registrar/editar (no solo ver). Incluye Cuadrícula.
- * - gerente_rh: inicio, bajas, colaboradores (solo lectura) y MOPER (registra/edita). Sin altas, expedientes legal, servicios ni ficha técnica.
+ * - gerente_rh: inicio, bajas, colaboradores (solo lectura), MOPER (registra/edita) y Gestores proceso. Sin altas, expedientes legal, servicios ni ficha técnica.
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC igual que admin (subir/eliminar, todos los departamentos).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
  * - aux_legal / gerente_legal: Colaboradores, Expedientes legal e historial MOPER solo consulta.
@@ -97,6 +97,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/servicios": ["admin", "rh", "aux_rh"],
   "/sgc": ["admin", "mejora_continua"],
+  "/gestores-proceso": ["admin", "gerente_rh"],
 };
 
 /** Único usuario RRHH con acceso legacy a Ficha técnica por correo (además de admin y roles ampliados). */
@@ -267,6 +268,11 @@ export function sgcDepartamentoFijoPorRol(_role: AppRole): SgcDepartamentoId | n
   return null;
 }
 
+/** Comparativa de gestores del proceso (altas / expediente). */
+export function roleMayAccessGestoresProceso(role: AppRole): boolean {
+  return role === "admin" || role === "gerente_rh";
+}
+
 /** Enlaces del panel lateral en la página de inicio (según rol). */
 export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { href: string; label: string }[] {
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
@@ -294,6 +300,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       href: "/sgc",
       label: "SGC",
       roles: ["admin", "mejora_continua"],
+    },
+    {
+      href: "/gestores-proceso",
+      label: "Gestores proceso",
+      roles: ["admin", "gerente_rh"],
     },
   ];
   return items.filter((i) => {

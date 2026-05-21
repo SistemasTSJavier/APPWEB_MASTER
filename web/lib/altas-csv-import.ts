@@ -4,6 +4,12 @@ import { parseCsvContent } from "@/lib/csv";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
 import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-types";
 import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-data";
+import {
+  ALTAS_IMPORT_OMITE_SERVICIO_POSICION,
+  filtrarKeysPlantillaImport,
+  formRecordSinServicioPosicionImport,
+  omitServicioPosicionEnImportPick,
+} from "@/lib/altas-import-omision-servicio";
 
 function normalizeNo(no: string): string {
   return no.trim().toUpperCase();
@@ -75,10 +81,12 @@ function mergeAltasForm(fieldMap: Partial<Record<CsvFieldKey, string>>, formExtr
   set("reingreso", g(fieldMap, "reingreso"));
   set("nombreCompleto", g(fieldMap, "nombreCompleto"));
   set("puesto", g(fieldMap, "puesto"));
-  set("servicio", g(fieldMap, "servicio"));
-  set("noServicio", g(fieldMap, "noServicio"));
+  if (!ALTAS_IMPORT_OMITE_SERVICIO_POSICION) {
+    set("servicio", g(fieldMap, "servicio"));
+    set("noServicio", g(fieldMap, "noServicio"));
+    set("posicion", g(fieldMap, "posicion"));
+  }
   set("planta", g(fieldMap, "planta"));
-  set("posicion", g(fieldMap, "posicion"));
   set("localForaneo", g(fieldMap, "localForaneo") || "LOCAL");
   set("numeroFolio", g(fieldMap, "numeroFolio"));
   set("creditoInfonavit", g(fieldMap, "creditoInfonavit"));
@@ -123,7 +131,9 @@ function mergeAltasForm(fieldMap: Partial<Record<CsvFieldKey, string>>, formExtr
 
   if (g(fieldMap, "estatusEmpleado")) set("estatusEmpleado", g(fieldMap, "estatusEmpleado"));
   if (g(fieldMap, "puestoFinal")) set("puestoFinal", g(fieldMap, "puestoFinal"));
-  if (g(fieldMap, "servicioFinal")) set("servicioFinal", g(fieldMap, "servicioFinal"));
+  if (!ALTAS_IMPORT_OMITE_SERVICIO_POSICION && g(fieldMap, "servicioFinal")) {
+    set("servicioFinal", g(fieldMap, "servicioFinal"));
+  }
 
   const moperKeys = ["moper1", "moper2", "moper3", "moper4", "moper5", "moper6", "moper7"] as const;
   for (const mk of moperKeys) {
@@ -215,8 +225,8 @@ export async function importColaboradoresDesdeCsv(
       continue;
     }
 
-    const fieldMap = rowToFieldMap(cells, fieldIndex);
-    const formExtras = collectFormCells(cells, formColIx);
+    const fieldMap = omitServicioPosicionEnImportPick(rowToFieldMap(cells, fieldIndex));
+    const formExtras = formRecordSinServicioPosicionImport(collectFormCells(cells, formColIx));
     /** Solo celdas de esta fila; no usar valor fusionado del expediente guardado (evita falsos positivos). */
     const ultimoServicioExplicitDesdeFila =
       g(fieldMap, "ultimoServicio").trim() || (formExtras.ultimoServicio ?? "").trim();
@@ -247,7 +257,9 @@ export async function importColaboradoresDesdeCsv(
       continue;
     }
 
-    const servicioCsv = pickStr(formPartial.servicio, existing?.servicioAsignado);
+    const servicioCsv = ALTAS_IMPORT_OMITE_SERVICIO_POSICION
+      ? String(existing?.servicioAsignado ?? "").trim()
+      : pickStr(formPartial.servicio, existing?.servicioAsignado);
     const puestoCsv = pickStr(formPartial.puesto, existing?.puesto);
     const csvUltimoCombinado = (g(fieldMap, "ultimoServicio") || formPartial.ultimoServicio || "").trim();
 
@@ -276,7 +288,13 @@ export async function importColaboradoresDesdeCsv(
 
     const fechaIngreso = pickStr(formPartial.fechaIngreso, existing?.fechaIngreso);
     const nss = pickStr(formPartial.imss, existing?.nss);
-    const posicion = pickStr(formPartial.posicion, existing?.posicion);
+    const posicion = ALTAS_IMPORT_OMITE_SERVICIO_POSICION
+      ? String(existing?.posicion ?? "").trim()
+      : pickStr(formPartial.posicion, existing?.posicion);
+
+    if (ALTAS_IMPORT_OMITE_SERVICIO_POSICION) {
+      formPartial = formRecordSinServicioPosicionImport(formPartial);
+    }
 
     const payload: ColaboradorCompleto = {
       noEmpleado: no,
@@ -304,27 +322,31 @@ export async function importColaboradoresDesdeCsv(
 
 /** Encabezados sugeridos (una fila) para una plantilla compatible con el importador. */
 export function encabezadosPlantillaAltasCsv(): string[] {
-  return [
-    "NO_EMPLEADO",
-    "NOMBRE_COMPLETO",
-    "FECHA_INGRESO",
-    "FECHA_BAJA",
-    "PUESTO",
-    "SERVICIO",
-    "SERVICIO_ASIGNADO",
-    "POSICION",
-    "LOCAL_FORANEO",
-    "IMSS",
-    "APELLIDO_PATERNO",
-    "APELLIDO_MATERNO",
-    "NOMBRES",
-    "CURP",
-    "RFC",
-    "TELEFONO_PERSONAL_CASA",
-    "BANCO",
-    "REGISTRADO_EN",
-    "ULTIMO_SERVICIO",
-  ];
+  const keys = filtrarKeysPlantillaImport([
+    "noEmpleado",
+    "nombreCompleto",
+    "fechaIngreso",
+    "fechaBaja",
+    "puesto",
+    "planta",
+    "localForaneo",
+    "imss",
+    "apellidoPaterno",
+    "apellidoMaterno",
+    "nombres",
+    "curp",
+    "rfc",
+    "telefonoPersonalCasa",
+    "banco",
+    "registradoAt",
+    "ultimoServicio",
+  ] as const);
+  return keys.map((k) =>
+    k
+      .replace(/Csv$/i, "")
+      .replace(/([a-z])([A-Z])/g, "$1_$2")
+      .toUpperCase(),
+  );
 }
 
 export function generarCsvPlantillaAltas(): string {

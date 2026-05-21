@@ -11,6 +11,12 @@ import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/em
 import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-types";
 import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-data";
 import type { AltasCsvImportResult, AltasCsvImportOptions } from "@/lib/altas-csv-import";
+import {
+  ALTAS_IMPORT_OMITE_SERVICIO_POSICION,
+  filtrarKeysPlantillaImport,
+  formRecordSinServicioPosicionImport,
+  omitServicioPosicionEnImportPick,
+} from "@/lib/altas-import-omision-servicio";
 
 /** PARTE ALTAS ↔ bloque CSV (archivos separados). */
 export const ALTAS_PARTE_A_TABLA: Record<number, CsvMysqlTable> = {
@@ -121,10 +127,12 @@ export function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>)
   put("reingreso", "reingreso");
   put("nombreCompleto", "nombreCompleto");
   put("puesto", "puesto");
-  put("servicio", "servicio");
-  put("noServicio", "noServicio");
+  if (!ALTAS_IMPORT_OMITE_SERVICIO_POSICION) {
+    put("servicio", "servicio");
+    put("noServicio", "noServicio");
+    put("posicion", "posicion");
+  }
   put("planta", "planta");
-  put("posicion", "posicion");
   put("localForaneo", "localForaneo");
   put("numeroFolio", "numeroFolio");
   put("creditoInfonavit", "creditoInfonavit");
@@ -176,7 +184,9 @@ export function formDeltaDesdePick(picked: Partial<Record<CsvFieldKey, string>>)
 
   if (z.estatusEmpleado !== undefined) f.estatusEmpleado = g(z, "estatusEmpleado");
   if (z.puestoFinal !== undefined) f.puestoFinal = g(z, "puestoFinal");
-  if (z.servicioFinal !== undefined) f.servicioFinal = g(z, "servicioFinal");
+  if (!ALTAS_IMPORT_OMITE_SERVICIO_POSICION && z.servicioFinal !== undefined) {
+    f.servicioFinal = g(z, "servicioFinal");
+  }
 
   const mopers = ["moper1", "moper2", "moper3", "moper4", "moper5", "moper6", "moper7"] as const;
   for (const mk of mopers) {
@@ -193,16 +203,18 @@ export function aplicarSnapDesdePick(base: ColaboradorCompleto, picked: Partial<
   let n = { ...base };
   if (picked.nombreCompleto !== undefined) n.nombreCompleto = g(picked, "nombreCompleto");
   if (picked.fechaIngreso !== undefined) n.fechaIngreso = g(picked, "fechaIngreso");
-  if (picked.servicio !== undefined) n.servicioAsignado = g(picked, "servicio");
+  if (!ALTAS_IMPORT_OMITE_SERVICIO_POSICION) {
+    if (picked.servicio !== undefined) n.servicioAsignado = g(picked, "servicio");
+    if (picked.posicion !== undefined) {
+      n.posicion = g(picked, "posicion");
+      n.form = { ...n.form, posicion: g(picked, "posicion") };
+    }
+    if (picked.noServicio !== undefined) {
+      const v = g(picked, "noServicio");
+      if (v) n = limpiarPosicionDuplicadaDeNoServicio(n, v);
+    }
+  }
   if (picked.puesto !== undefined) n.puesto = g(picked, "puesto");
-  if (picked.posicion !== undefined) {
-    n.posicion = g(picked, "posicion");
-    n.form = { ...n.form, posicion: g(picked, "posicion") };
-  }
-  if (picked.noServicio !== undefined) {
-    const v = g(picked, "noServicio");
-    if (v) n = limpiarPosicionDuplicadaDeNoServicio(n, v);
-  }
   if (picked.imss !== undefined) n.nss = g(picked, "imss");
   if (picked.ultimoServicio !== undefined) n.ultimoServicio = g(picked, "ultimoServicio");
   if (picked.registradoAt !== undefined) {
@@ -299,9 +311,11 @@ export async function importColaboradoresDesdeCsvPorParte(
       continue;
     }
 
-    const picked = pickFieldsForTable(fieldMapFull, tabla);
+    const picked = omitServicioPosicionEnImportPick(pickFieldsForTable(fieldMapFull, tabla));
     const masterTraeServicioPuesto =
-      parteNum === 1 && (picked.servicio !== undefined || picked.puesto !== undefined);
+      parteNum === 1 &&
+      !ALTAS_IMPORT_OMITE_SERVICIO_POSICION &&
+      (picked.servicio !== undefined || picked.puesto !== undefined);
 
     const noRaw = g(picked, "noEmpleado");
 
@@ -341,7 +355,7 @@ export async function importColaboradoresDesdeCsvPorParte(
       : emptyColaboradorStub(no);
 
     const delta = formDeltaDesdePick(picked);
-    merged.form = mergeFormPreserve(merged.form, delta);
+    merged.form = formRecordSinServicioPosicionImport(mergeFormPreserve(merged.form, delta));
     merged.form.noEmpleado1 = no;
     merged = aplicarSnapDesdePick(merged, picked);
 
@@ -367,16 +381,19 @@ export async function importColaboradoresDesdeCsvPorParte(
 
     merged.nombreCompleto = nombreFinal;
 
-    merged.servicioAsignado =
-      String(merged.servicioAsignado ?? "").trim() ||
-      String(merged.form.servicio ?? "").trim() ||
-      prev?.servicioAsignado ||
-      "";
+    merged.servicioAsignado = ALTAS_IMPORT_OMITE_SERVICIO_POSICION
+      ? String(prev?.servicioAsignado ?? merged.servicioAsignado ?? "").trim()
+      : String(merged.servicioAsignado ?? "").trim() ||
+        String(merged.form.servicio ?? "").trim() ||
+        prev?.servicioAsignado ||
+        "";
     merged.puesto =
       String(merged.puesto ?? "").trim() || String(merged.form.puesto ?? "").trim() || prev?.puesto || "";
     merged.fechaIngreso =
       String(merged.fechaIngreso ?? "").trim() || merged.form.fechaIngreso || prev?.fechaIngreso || "";
-    merged.posicion = String(merged.posicion ?? "").trim() || merged.form.posicion || prev?.posicion || "";
+    merged.posicion = ALTAS_IMPORT_OMITE_SERVICIO_POSICION
+      ? String(prev?.posicion ?? merged.posicion ?? "").trim()
+      : String(merged.posicion ?? "").trim() || merged.form.posicion || prev?.posicion || "";
     merged.nss = String(merged.nss ?? "").trim() || String(merged.form.imss ?? "").trim() || prev?.nss || "";
     merged.ultimoServicio =
       String(merged.ultimoServicio ?? "").trim() ||
@@ -441,7 +458,7 @@ export function encabezadosPlantillaCsvPorParte(parteNum: number): string[] {
   if (parteNum === 5) return [...ENCABEZADOS_CSV_FAMILIARES_ANCHO];
   const tabla = ALTAS_PARTE_A_TABLA[parteNum];
   if (!tabla) return [];
-  return csvFieldKeysToCabecerasExcel(CSV_TABLE_KEYS[tabla]);
+  return csvFieldKeysToCabecerasExcel(filtrarKeysPlantillaImport(CSV_TABLE_KEYS[tabla]));
 }
 
 export function generarCsvPlantillaAltasPorParte(parteNum: number): string {
