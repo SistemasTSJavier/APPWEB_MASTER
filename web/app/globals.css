@@ -14,6 +14,17 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --color-oxford-50: #f7f7f8;
+  --color-oxford-100: #eeeef0;
+  --color-oxford-200: #d9d9de;
+  --color-oxford-300: #b8b9c1;
+  --color-oxford-400: #91939f;
+  --color-oxford-500: #737684;
+  --color-oxford-600: #5d5f6c;
+  --color-oxford-700: #4c4d58;
+  --color-oxford-800: #41424b;
+  --color-oxford-900: #393a41;
+  --color-oxford-950: #1a1a1e;
 }
 
 body {
@@ -50,12 +61,22 @@ body {
 @layer components {
   .form-control {
     @apply w-full rounded-lg border border-slate-300/90 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm;
+    @apply uppercase;
     @apply transition-colors duration-150;
     @apply focus:border-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-900/15;
     @apply placeholder:text-slate-500;
   }
   select.form-control {
     @apply cursor-pointer;
+  }
+  input.form-control[type="date"],
+  input.form-control[type="number"],
+  input.form-control[type="email"],
+  input.form-control[type="password"] {
+    text-transform: none;
+  }
+  textarea.form-control {
+    @apply uppercase;
   }
   .form-label {
     @apply text-base font-semibold text-slate-800;

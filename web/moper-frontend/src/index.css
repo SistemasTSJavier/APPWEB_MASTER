@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background-color: #f7f7f8;
+  margin: 0;
+}
+
+body {
+  @apply text-black font-sans antialiased;
+}
+
+/* Evitar zoom en inputs en iOS y mejorar toques en móvil */
+@layer base {
+  input, select, textarea {
+    font-size: 16px;
+  }
+  @media (min-width: 640px) {
+    input, select, textarea {
+      font-size: inherit;
+    }
+  }
+}

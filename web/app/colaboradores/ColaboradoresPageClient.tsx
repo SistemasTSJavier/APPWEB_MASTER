@@ -18,7 +18,12 @@ import {
   ZONA_FILTRO_SIN_SUFIJO,
 } from "@/lib/servicio-agrupacion";
 import type { AppRole } from "@/lib/app-role";
-import { esRolLegalSoloLectura, roleMayEditColaboradores, roleMayExportColaboradoresCsv } from "@/lib/app-role";
+import {
+  esRolLegalSoloLectura,
+  roleMayEditColaboradores,
+  roleMayEditColaboradoresVacantes,
+  roleMayExportColaboradoresCsv,
+} from "@/lib/app-role";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import { formatoDesdeYyyyMmDd, formatoFechaDiaMesAnio } from "@/lib/fecha-formato-display";
@@ -69,6 +74,7 @@ function textoBusquedaCoincide(c: ColaboradorCompleto, q: string): boolean {
 
 export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
   const puedeEditar = roleMayEditColaboradores(appRole);
+  const puedeEditarVacantes = roleMayEditColaboradoresVacantes(appRole);
   const puedeExportarCsv = roleMayExportColaboradoresCsv(appRole);
   const mostrarCheckboxCsv = puedeEditar || puedeExportarCsv;
   const soloLectura = appRole === "mejora_continua" || esRolLegalSoloLectura(appRole);
@@ -287,7 +293,8 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
               ) : puedeEditar ? (
                 <>
                   Columna <strong>SERVICIO</strong> muestra la linea vigente (MOPER / ultimo movimiento si aplica). Busqueda, filtros y CSV conservan
-                  tambien datos de alta. Usa <strong>Editar</strong> para ajustar expediente.
+                  tambien datos de alta. <strong>Editar</strong> abre el expediente y el catálogo de <strong>vacantes de Cuadrícula</strong> para corregir
+                  servicio, planta y posición.
                 </>
               ) : appRole === "gerente_rh" ? (
                 <>
@@ -579,6 +586,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                           key={c.noEmpleado}
                           colaborador={c}
                           catalogoServicios={catalogoServicios}
+                          editarVacantesCuadricula={puedeEditarVacantes}
                           onCancel={() => setEditandoNo(null)}
                           onGuardado={async (guardado) => {
                             setRows((prev) =>

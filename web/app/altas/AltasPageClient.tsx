@@ -30,6 +30,36 @@ import {
   fechaBajaNormalizadaColaborador,
   mejorCoincidenciaNombreConBajaPorBajaReciente,
 } from "@/lib/altas-coincidencia-nombre";
+import {
+  familiaresDesdeColaboradorReingreso,
+  fechaReingresoSugeridaDesdeExpediente,
+  formAltaDesdeColaboradorReingreso,
+  resolverExpedientePlantillaReingreso,
+} from "@/lib/altas-prefill-reingreso";
+import {
+  consumirVacantePorId,
+  datosAltaDesdeVacante,
+  listarPlantasVacantesPorServicio,
+  listarServiciosDesdeVacantes,
+  listarVacantesPorServicioYPlanta,
+} from "@/lib/altas-vacantes";
+import {
+  loadVacantesCatalogo,
+  VACANTES_CATALOG_UPDATED_EVENT,
+  type VacanteRegistro,
+} from "@/lib/vacantes-catalog";
+import {
+  ALTAS_ESTADO_CIVIL_OPCIONES,
+  ALTAS_ESTADO_TRAMITE_OPCIONES,
+  ALTAS_GESTORES_PROCESO_OPCIONES,
+  calcularSiguienteNoEmpleado,
+  calcularSiguienteNumeroFolio,
+  nombreCompletoDesdePartes,
+  normalizarFamiliaresAltaMayusculas,
+  normalizarFormularioAltaMayusculas,
+  partesNombreDesdeCompleto,
+  valorCampoAltaMayusculas,
+} from "@/lib/altas-form-catalogo";
 
 type Familiar = {
   nombreFamiliar: string;
@@ -60,7 +90,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     origen?: string;
   } | null>(null);
   const [step, setStep] = useState(0);
-  const [pteSequence, setPteSequence] = useState(1);
+  const [siguienteNoSugerido, setSiguienteNoSugerido] = useState("");
+  const [secuenciasCargadas, setSecuenciasCargadas] = useState(false);
   const [form, setForm] = useState({
     // Parte 1
     noEmpleado1: "",
@@ -128,8 +159,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   const progress = useMemo(() => `${step + 1} / ${PARTS.length}`, [step]);
   const empleadoClave = useMemo(() => {
     const userValue = form.noEmpleado1.trim().toUpperCase();
-    return userValue || `PTE-${pteSequence}`;
-  }, [form.noEmpleado1, pteSequence]);
+    return userValue || siguienteNoSugerido || "—";
+  }, [form.noEmpleado1, siguienteNoSugerido]);
 
   const [altaMsg, setAltaMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [expedientePrevio, setExpedientePrevio] = useState<ColaboradorCompleto | null>(null);
@@ -142,6 +173,9 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     total: number;
   } | null>(null);
   const [nombreCoincidenciaBuscando, setNombreCoincidenciaBuscando] = useState(false);
+  const [modoReingreso, setModoReingreso] = useState(false);
+  const [expedienteReingresoOrigen, setExpedienteReingresoOrigen] = useState<ColaboradorCompleto | null>(null);
+  const prefillReingresoAplicadoRef = useRef<string | null>(null);
 
   const reingresoObligatorioPorBaja = Boolean(
     expedientePrevio && colaboradorTieneBaja(expedientePrevio),
@@ -155,8 +189,79 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
 
   const reingresoRequerido = reingresoObligatorioPorBaja || reingresoObligatorioPorNombreDistintoNo;
 
+  const nombreParaCoincidencia = useMemo(
+    () =>
+      form.nombreCompleto.trim() ||
+      nombreCompletoDesdePartes(form.apellidoPaterno, form.apellidoMaterno, form.nombres),
+    [form.nombreCompleto, form.apellidoPaterno, form.apellidoMaterno, form.nombres],
+  );
+
+  const plantillaReingreso = useMemo(
+    () =>
+      resolverExpedientePlantillaReingreso(
+        expedientePrevio,
+        coincidenciaNombreBaja?.mejor ?? null,
+        form.noEmpleado1,
+      ),
+    [expedientePrevio, coincidenciaNombreBaja?.mejor, form.noEmpleado1],
+  );
+
   const [correccionCsvMsg, setCorreccionCsvMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [correccionCsvBusy, setCorreccionCsvBusy] = useState(false);
+
+  const [catalogoVacantes, setCatalogoVacantes] = useState<VacanteRegistro[]>([]);
+  const [vacantesHydrated, setVacantesHydrated] = useState(false);
+  const [claveServicioVacante, setClaveServicioVacante] = useState("");
+  const [vacanteAsignadaId, setVacanteAsignadaId] = useState("");
+
+  const serviciosConVacantes = useMemo(
+    () => listarServiciosDesdeVacantes(catalogoVacantes),
+    [catalogoVacantes],
+  );
+
+  const plantasVacante = useMemo(
+    () => listarPlantasVacantesPorServicio(claveServicioVacante, catalogoVacantes),
+    [claveServicioVacante, catalogoVacantes],
+  );
+
+  const vacantesEnPlanta = useMemo(
+    () => listarVacantesPorServicioYPlanta(claveServicioVacante, form.planta, catalogoVacantes),
+    [claveServicioVacante, form.planta, catalogoVacantes],
+  );
+
+  const hayVacantesEnCatalogo = catalogoVacantes.length > 0;
+
+  useEffect(() => {
+    const recargar = () => setCatalogoVacantes(loadVacantesCatalogo());
+    recargar();
+    setVacantesHydrated(true);
+    window.addEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
+    return () => window.removeEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const list = await listColaboradoresCompletos();
+        if (!active) return;
+        listadoColaboradoresCacheRef.current = list;
+        const nextNo = calcularSiguienteNoEmpleado(list);
+        const nextFolio = calcularSiguienteNumeroFolio(list);
+        setSiguienteNoSugerido(nextNo);
+        setForm((prev) => ({
+          ...prev,
+          numeroFolio: prev.numeroFolio.trim() ? prev.numeroFolio : nextFolio,
+        }));
+        setSecuenciasCargadas(true);
+      } catch {
+        if (active) setSecuenciasCargadas(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const key = form.noEmpleado1.trim().toUpperCase();
@@ -187,7 +292,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   }, [form.noEmpleado1]);
 
   useEffect(() => {
-    const nombre = form.nombreCompleto.trim();
+    const nombre = nombreParaCoincidencia;
     if (!nombre) {
       setCoincidenciaNombreBaja(null);
       setNombreCoincidenciaBuscando(false);
@@ -205,7 +310,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           if (active) setCoincidenciaNombreBaja(null);
           return;
         }
-        const found = findColaboradoresNombreCoincideConBaja(list, form.nombreCompleto, {
+        const found = findColaboradoresNombreCoincideConBaja(list, nombre, {
           excludeNoEmpleado: form.noEmpleado1.trim().toUpperCase(),
         });
         const mejor = mejorCoincidenciaNombreConBajaPorBajaReciente(found);
@@ -221,28 +326,74 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       active = false;
       clearTimeout(timer);
     };
-  }, [form.nombreCompleto, form.noEmpleado1]);
+  }, [nombreParaCoincidencia, form.noEmpleado1]);
 
-  /** Si hay coincidencia por nombre con baja y REINGRESO vacio, sugerir la fecha de baja del expediente coincidente. */
+  /** Rellena partes 1–5 desde expediente con baja (mismo N.º o coincidencia por nombre); enfoque en REINGRESO. */
   useEffect(() => {
-    const mejor = coincidenciaNombreBaja?.mejor;
-    if (!mejor) return;
-    const bajaNorm = fechaBajaNormalizadaColaborador(mejor);
-    if (!bajaNorm) return;
-    setForm((prev) => {
-      if (prev.reingreso.trim()) return prev;
-      return { ...prev, reingreso: bajaNorm };
-    });
-  }, [coincidenciaNombreBaja?.mejor.noEmpleado, coincidenciaNombreBaja?.total]);
+    const fuente = plantillaReingreso;
+    if (!fuente) {
+      prefillReingresoAplicadoRef.current = null;
+      setModoReingreso(false);
+      setExpedienteReingresoOrigen(null);
+      return;
+    }
+    const key = fuente.noEmpleado.trim().toUpperCase();
+    if (prefillReingresoAplicadoRef.current === key) return;
+    prefillReingresoAplicadoRef.current = key;
 
-  function updateField(name: string, value: string) {
+    const reingSug = fechaReingresoSugeridaDesdeExpediente(fuente);
+
     setForm((prev) => {
-      const next = { ...prev, [name]: value };
+      const merged = formAltaDesdeColaboradorReingreso(fuente, {
+        noEmpleadoCapturado: prev.noEmpleado1,
+        numeroFolioActual: prev.numeroFolio,
+      });
+      const noKeep = prev.noEmpleado1.trim().toUpperCase();
+      const folioKeep = prev.numeroFolio.trim() || merged.numeroFolio || "";
+      const reing = prev.reingreso.trim() || reingSug || "";
+      return {
+        ...prev,
+        ...merged,
+        noEmpleado1: noKeep,
+        numeroFolio: folioKeep,
+        reingreso: reing,
+        fechaBaja: "",
+      };
+    });
+    setFamiliares(familiaresDesdeColaboradorReingreso(fuente));
+    const serv = String(fuente.form?.servicio ?? fuente.servicioAsignado ?? "").trim();
+    if (serv) setClaveServicioVacante(serv);
+    setVacanteAsignadaId("");
+    setModoReingreso(true);
+    setExpedienteReingresoOrigen(fuente);
+  }, [plantillaReingreso]);
+
+  function updateField(name: string, value: string, inputType?: string) {
+    setForm((prev) => {
+      const v = valorCampoAltaMayusculas(name, value, inputType);
+      let next = { ...prev, [name]: v };
+
       if (name === "fechaNacimiento") {
-        const fn = normalizarFechaParaInputDate(value.trim());
+        const fn = normalizarFechaParaInputDate(v.trim());
         const ed = fn ? edadAniosAlaFecha(fn) : null;
         next.edad = ed != null ? String(ed) : "";
       }
+
+      if (name === "nombreCompleto") {
+        const partes = partesNombreDesdeCompleto(v);
+        next = {
+          ...next,
+          apellidoPaterno: valorCampoAltaMayusculas("apellidoPaterno", partes.apellidoPaterno),
+          apellidoMaterno: valorCampoAltaMayusculas("apellidoMaterno", partes.apellidoMaterno),
+          nombres: valorCampoAltaMayusculas("nombres", partes.nombres),
+        };
+      }
+
+      if (name === "apellidoPaterno" || name === "apellidoMaterno" || name === "nombres") {
+        const nc = nombreCompletoDesdePartes(next.apellidoPaterno, next.apellidoMaterno, next.nombres);
+        if (nc) next.nombreCompleto = valorCampoAltaMayusculas("nombreCompleto", nc);
+      }
+
       return next;
     });
   }
@@ -255,8 +406,12 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     setFamiliares((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function updateFamiliar(index: number, key: keyof Familiar, value: string) {
-    setFamiliares((prev) => prev.map((f, i) => (i === index ? { ...f, [key]: value } : f)));
+  function updateFamiliar(index: number, key: keyof Familiar, value: string, inputType?: string) {
+    const v =
+      key === "fechaNacimiento" || key === "beneficiarioBancario"
+        ? value
+        : valorCampoAltaMayusculas(key, value, inputType);
+    setFamiliares((prev) => prev.map((f, i) => (i === index ? { ...f, [key]: v } : f)));
   }
 
   async function submitAll(e: FormEvent) {
@@ -267,10 +422,13 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       return;
     }
     const noManual = form.noEmpleado1.trim();
-    const noFinal = noManual ? noManual.toUpperCase() : `PTE-${pteSequence}`;
+    const noFinal = (noManual || siguienteNoSugerido).toUpperCase();
+    if (!noFinal || noFinal === "—") {
+      setAltaMsg({ ok: false, text: "NO HAY SECUENCIA DE EMPLEADO DISPONIBLE. ESPERE A CARGAR O CAPTURE EL N.º MANUALMENTE." });
+      return;
+    }
     const reingNorm = normalizarFechaParaInputDate(form.reingreso.trim());
-    if (noManual) {
-      try {
+    try {
         const prev = await findColaboradorCompletoByNo(noFinal);
         const needReingresoPorNumero = Boolean(prev && colaboradorTieneBaja(prev));
         const needReingresoPorNombre = Boolean(
@@ -292,49 +450,96 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           });
           return;
         }
-      } catch {
-        setAltaMsg({ ok: false, text: "NO SE PUDO VERIFICAR SI EL EMPLEADO YA EXISTE. REVISA CONEXION E INTENTA DE NUEVO." });
-        return;
-      }
+    } catch {
+      setAltaMsg({ ok: false, text: "NO SE PUDO VERIFICAR SI EL EMPLEADO YA EXISTE. REVISA CONEXION E INTENTA DE NUEVO." });
+      return;
     }
-    const flatForm: Record<string, string> = {};
-    for (const [k, v] of Object.entries(form)) {
-      flatForm[k] = String(v ?? "");
-    }
+    const flatForm = normalizarFormularioAltaMayusculas(
+      Object.fromEntries(Object.entries(form).map(([k, v]) => [k, String(v ?? "")])),
+    );
+    flatForm.noEmpleado1 = noFinal;
     const fnNorm = normalizarFechaParaInputDate(flatForm.fechaNacimiento?.trim() ?? "");
     const edadCalc = fnNorm ? edadAniosAlaFecha(fnNorm) : null;
     if (edadCalc != null) flatForm.edad = String(edadCalc);
 
-    const servicioAlta = form.servicio.trim();
+    const nombreGuardar =
+      flatForm.nombreCompleto.trim() ||
+      nombreCompletoDesdePartes(flatForm.apellidoPaterno, flatForm.apellidoMaterno, flatForm.nombres);
+    flatForm.nombreCompleto = nombreGuardar;
+
+    const servicioAlta = flatForm.servicio.trim();
+
+    if (hayVacantesEnCatalogo) {
+      if (!vacantesHydrated) {
+        setAltaMsg({
+          ok: false,
+          text: "ESPERE A QUE CARGUE EL CATALOGO DE VACANTES (CUADRICULA).",
+        });
+        return;
+      }
+      if (!vacanteAsignadaId) {
+        setStep(0);
+        setAltaMsg({
+          ok: false,
+          text: "SELECCIONE SERVICIO, PLANTA Y POSICION DE UNA VACANTE DEL CATALOGO (CUADRICULA).",
+        });
+        return;
+      }
+    }
+
+    const familiaresNorm = normalizarFamiliaresAltaMayusculas(familiares);
 
     try {
       await upsertColaboradorCompleto({
         noEmpleado: noFinal,
-        nombreCompleto: form.nombreCompleto,
-        fechaIngreso: form.fechaIngreso,
-        servicioAsignado: form.servicio,
+        nombreCompleto: nombreGuardar,
+        fechaIngreso: flatForm.fechaIngreso,
+        servicioAsignado: flatForm.servicio,
         ultimoServicio: "",
-        nss: form.imss,
-        posicion: form.posicion,
-        puesto: form.puesto,
+        nss: flatForm.imss,
+        posicion: flatForm.posicion,
+        puesto: flatForm.puesto,
         moperActual: {
           servicio: servicioAlta,
-          puesto: form.puesto.trim(),
+          puesto: flatForm.puesto.trim(),
         },
         registeredAt: new Date().toISOString(),
         form: flatForm,
-        familiares: familiares.map((f) => ({
+        familiares: familiaresNorm.map((f) => ({
           nombreFamiliar: f.nombreFamiliar,
           parentesco: f.parentesco,
           fechaNacimiento: f.fechaNacimiento,
           beneficiarioBancario: f.beneficiarioBancario,
         })),
       });
-      if (!noManual) {
-        setPteSequence((prev) => prev + 1);
+      const consumida = vacanteAsignadaId ? consumirVacantePorId(vacanteAsignadaId) : false;
+      if (consumida) {
+        setCatalogoVacantes(loadVacantesCatalogo());
+        setVacanteAsignadaId("");
+        setClaveServicioVacante("");
       }
       listadoColaboradoresCacheRef.current = null;
-      setAltaMsg({ ok: true, text: "EXPEDIENTE GUARDADO EN SUPABASE." });
+      try {
+        const list = await listColaboradoresCompletos();
+        listadoColaboradoresCacheRef.current = list;
+        setSiguienteNoSugerido(calcularSiguienteNoEmpleado(list));
+        setForm((prev) => ({
+          ...prev,
+          numeroFolio: calcularSiguienteNumeroFolio(list),
+          noEmpleado1: "",
+          servicio: "",
+          noServicio: "",
+          planta: "",
+          posicion: "",
+        }));
+      } catch {
+        setSiguienteNoSugerido((prev) => {
+          const n = Number.parseInt(prev, 10);
+          return Number.isFinite(n) ? String(n + 1) : prev;
+        });
+      }
+      const extraVacante = consumida ? " VACANTE LIBERADA EN CATALOGO CUADRICULA." : "";
+      setAltaMsg({ ok: true, text: `EXPEDIENTE GUARDADO EN SUPABASE.${extraVacante}` });
     } catch (err) {
       setAltaMsg({
         ok: false,
@@ -511,9 +716,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         <section className={`card mb-4 space-y-3 ${!puedeEditarAltas ? "pointer-events-none opacity-50" : ""}`}>
           <h2 className="text-sm font-bold uppercase text-slate-800">Importacion masiva CSV</h2>
           <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-950">
-            <strong>Servicio, N.º de servicio y posición</strong> son <strong>manuales</strong> (formulario y
-            Colaboradores). En CSV masivo esas columnas se ignoran. La asignación desde vacantes de Cuadrícula queda
-            pendiente.
+            En <strong>Parte 1</strong>, servicio/planta/posición salen del catálogo <strong>Cuadrícula → Vacantes</strong>.
+            En CSV masivo esas columnas se ignoran (manual después).
           </p>
           <fieldset className="space-y-2 border-0 p-0">
             <legend className="sr-only">Modo de importacion</legend>
@@ -670,13 +874,32 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
               {altaMsg.text}
             </p>
           ) : null}
+          {modoReingreso && expedienteReingresoOrigen ? (
+            <div className="rounded-lg border-2 border-emerald-600 bg-emerald-50 px-3 py-3 text-sm uppercase leading-snug text-emerald-950">
+              <p className="font-bold">Reingreso: datos del expediente anterior cargados</p>
+              <p className="mt-2 text-xs font-medium text-emerald-900">
+                Origen: expediente <strong>N° {expedienteReingresoOrigen.noEmpleado.trim()}</strong>
+                {(expedienteReingresoOrigen.nombreCompleto ?? "").trim() ? (
+                  <span>
+                    {" "}
+                    — <strong>{(expedienteReingresoOrigen.nombreCompleto ?? "").trim()}</strong>
+                  </span>
+                ) : null}
+                . Revise las <strong>partes 1 a 5</strong>; confirme o corrija <strong>REINGRESO</strong> y actualice cualquier dato que
+                haya cambiado. El N.º de empleado y folio de este alta siguen siendo los de la nueva captura.
+              </p>
+            </div>
+          ) : null}
           <fieldset disabled={!puedeEditarAltas} className="min-w-0 space-y-6 border-0 p-0">
           {step === 0 && (
             <section className="space-y-4">
               <h2 className="text-lg font-bold uppercase">PARTE 1 - DATOS GENERALES</h2>
               <p className="text-sm font-medium uppercase text-slate-500">
                 CLAVE ACTUAL: <span className="font-bold text-slate-800">{empleadoClave}</span>
-                {!form.noEmpleado1.trim() ? " (SE GENERA AUTOMATICAMENTE SI NO CAPTURAS NO DE EMPLEADO)" : ""}
+                {!form.noEmpleado1.trim() && siguienteNoSugerido ? (
+                  <span> (SIGUIENTE EN SECUENCIA: {siguienteNoSugerido})</span>
+                ) : null}
+                {!secuenciasCargadas ? <span className="text-slate-400"> — Cargando secuencias…</span> : null}
               </p>
               {form.noEmpleado1.trim() && !form.noEmpleado1.trim().toUpperCase().startsWith("PTE-") ? (
                 <div className="space-y-2">
@@ -687,6 +910,11 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                     colaboradorTieneBaja(expedientePrevio) ? (
                       <div className="rounded-lg border-2 border-amber-500 bg-amber-50 px-3 py-3 text-sm uppercase leading-snug text-amber-950">
                         <p className="font-bold">Reingreso: expediente ya registrado y con baja</p>
+                        {modoReingreso ? (
+                          <p className="mt-1 text-xs font-bold text-amber-950">
+                            Los campos de todas las partes se rellenaron con ese expediente; edite lo necesario.
+                          </p>
+                        ) : null}
                         <p className="mt-2 text-xs font-medium text-amber-900">
                           Nombre en sistema: <strong>{(expedientePrevio.nombreCompleto ?? "").trim() || "—"}</strong>
                           {" · "}
@@ -729,11 +957,39 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 </div>
               ) : null}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <Field label="NO DE EMPLEADO" value={form.noEmpleado1} onChange={(v) => updateField("noEmpleado1", v)} />
-                <Field label="FECHA DE INGRESO" type="date" value={form.fechaIngreso} onChange={(v) => updateField("fechaIngreso", v)} />
-                <Field label="FECHA DE BAJA" type="date" value={form.fechaBaja} onChange={(v) => updateField("fechaBaja", v)} />
-                <Field label="ENVIO" value={form.envio} onChange={(v) => updateField("envio", v)} />
-                <Field label="REYNA" value={form.reyna} onChange={(v) => updateField("reyna", v)} />
+                <Field
+                  label="NO DE EMPLEADO"
+                  value={form.noEmpleado1}
+                  placeholder={siguienteNoSugerido}
+                  hint="Vacío = siguiente consecutivo del sistema"
+                  onChange={(v) => updateField("noEmpleado1", v)}
+                />
+                <Field
+                  label="FECHA DE INGRESO"
+                  type="date"
+                  value={form.fechaIngreso}
+                  onChange={(v) => updateField("fechaIngreso", v, "date")}
+                />
+                <Field
+                  label="FECHA DE BAJA"
+                  type="date"
+                  value={form.fechaBaja}
+                  onChange={(v) => updateField("fechaBaja", v, "date")}
+                />
+                <SelectField
+                  label="ENVIO"
+                  value={form.envio}
+                  options={[...ALTAS_ESTADO_TRAMITE_OPCIONES]}
+                  allowEmpty
+                  onChange={(v) => updateField("envio", v)}
+                />
+                <SelectField
+                  label="REYNA"
+                  value={form.reyna}
+                  options={[...ALTAS_ESTADO_TRAMITE_OPCIONES]}
+                  allowEmpty
+                  onChange={(v) => updateField("reyna", v)}
+                />
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-end gap-2">
                     <div className="min-w-0 flex-1">
@@ -741,7 +997,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                         label="REINGRESO"
                         type="date"
                         value={form.reingreso}
-                        onChange={(v) => updateField("reingreso", v)}
+                        onChange={(v) => updateField("reingreso", v, "date")}
                         inputClassName={reingresoRequerido ? "ring-2 ring-amber-500" : ""}
                       />
                     </div>
@@ -781,7 +1037,12 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                     <p className="text-[10px] font-medium uppercase text-slate-500">Si ya hubo alta y baja, usa la fecha de reingreso laboral.</p>
                   )}
                 </div>
-                <Field label="NOMBRE COMPLETO" value={form.nombreCompleto} onChange={(v) => updateField("nombreCompleto", v)} />
+                <Field
+                  label="NOMBRE COMPLETO"
+                  value={form.nombreCompleto}
+                  hint="Sugerido: APELLIDO PATERNO APELLIDO MATERNO NOMBRE(S) — sincroniza Parte 2"
+                  onChange={(v) => updateField("nombreCompleto", v)}
+                />
                 {nombreCoincidenciaBuscando ? (
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 md:col-span-2 lg:col-span-3">
                     Buscando coincidencia por nombre en expedientes…
@@ -795,8 +1056,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                       {coincidenciaNombreBaja.total > 1 ? (
                         <span>
                           {" "}
-                          — {coincidenciaNombreBaja.total} registros con el mismo nombre; se toma la <strong>baja mas reciente</strong> para sugerir
-                          reingreso.
+                          — {coincidenciaNombreBaja.total} registros con el mismo nombre; se toma la <strong>baja mas reciente</strong>.
                         </span>
                       ) : null}
                       . Fecha de baja en ese expediente:{" "}
@@ -805,27 +1065,154 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                           String(coincidenciaNombreBaja.mejor.form?.fechaBaja ?? "").trim() ||
                           "—"}
                       </strong>
-                      . Si <strong>REINGRESO</strong> esta vacio, se rellena con esa fecha; corrigela si la fecha laboral de reingreso es distinta.
+                      . {modoReingreso ? (
+                        <span>
+                          Se cargaron los datos de ese expediente en el formulario; revise <strong>REINGRESO</strong> y el resto de partes.
+                        </span>
+                      ) : (
+                        <span>
+                          Al confirmar el nombre se cargan los datos previos; <strong>REINGRESO</strong> se sugiere con la fecha de baja si estaba vacio.
+                        </span>
+                      )}
                     </p>
                   </div>
                 ) : null}
                 <Field label="PUESTO" value={form.puesto} onChange={(v) => updateField("puesto", v)} />
 
-                <div className="md:col-span-2 lg:col-span-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-                  <h3 className="text-sm font-bold uppercase text-slate-900">Servicio y ubicación (manual)</h3>
-                  <p className="text-[11px] text-slate-600">
-                    Capture texto libre. La asignación desde vacantes de Cuadrícula estará disponible más adelante.
+                <div className="md:col-span-2 lg:col-span-3 space-y-3 rounded-lg border-2 border-blue-200 bg-blue-50/50 p-4">
+                  <h3 className="text-sm font-bold uppercase text-blue-950">Asignación desde vacantes (Cuadrícula)</h3>
+                  <p className="text-[11px] font-medium text-blue-900">
+                    Servicio, planta y posición del catálogo local de vacantes. Al guardar el alta, la posición se quita del
+                    catálogo.
                   </p>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <Field
-                      label="SERVICIO (CLIENTE / LUGAR)"
-                      value={form.servicio}
-                      onChange={(v) => updateField("servicio", v)}
-                    />
-                    <Field label="N.º SERVICIO" value={form.noServicio} onChange={(v) => updateField("noServicio", v)} />
-                    <Field label="PLANTA" value={form.planta} onChange={(v) => updateField("planta", v)} />
-                    <Field label="POSICIÓN" value={form.posicion} onChange={(v) => updateField("posicion", v)} />
-                  </div>
+
+                  {!vacantesHydrated ? (
+                    <p className="text-xs font-medium text-slate-600" role="status">
+                      Cargando catálogo de vacantes…
+                    </p>
+                  ) : !hayVacantesEnCatalogo ? (
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold uppercase text-amber-900">
+                        No hay vacantes en catálogo. Importe el CSV en{" "}
+                        <Link href="/cuadricula" className="underline">
+                          Cuadrícula → Vacantes
+                        </Link>{" "}
+                        o capture manualmente:
+                      </p>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                        <Field label="SERVICIO (MANUAL)" value={form.servicio} onChange={(v) => updateField("servicio", v)} />
+                        <Field label="N.º SERVICIO" value={form.noServicio} onChange={(v) => updateField("noServicio", v)} />
+                        <Field label="PLANTA" value={form.planta} onChange={(v) => updateField("planta", v)} />
+                        <Field label="POSICIÓN" value={form.posicion} onChange={(v) => updateField("posicion", v)} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <label className="space-y-1">
+                        <span className="form-label uppercase">Servicio *</span>
+                        <select
+                          className="form-control uppercase"
+                          required={hayVacantesEnCatalogo}
+                          value={claveServicioVacante}
+                          onChange={(e) => {
+                            const clave = e.target.value;
+                            const opt = serviciosConVacantes.find((s) => s.clave === clave);
+                            setClaveServicioVacante(clave);
+                            setVacanteAsignadaId("");
+                            setForm((f) => ({
+                              ...f,
+                              servicio: opt?.servicioLinea ?? "",
+                              noServicio: opt?.rowServiceNo ?? "",
+                              planta: "",
+                              posicion: "",
+                            }));
+                          }}
+                        >
+                          <option value="">Seleccione servicio con vacante…</option>
+                          {serviciosConVacantes.map((s) => (
+                            <option key={s.clave} value={s.clave}>
+                              {s.servicioLinea}
+                              {s.rowServiceNo ? ` (N.º ${s.rowServiceNo})` : ""} — {s.vacantes} vacante
+                              {s.vacantes === 1 ? "" : "s"}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="space-y-1">
+                        <span className="form-label uppercase">Planta *</span>
+                        <select
+                          className="form-control uppercase"
+                          required={hayVacantesEnCatalogo && Boolean(claveServicioVacante)}
+                          value={form.planta}
+                          disabled={!claveServicioVacante}
+                          onChange={(e) => {
+                            setVacanteAsignadaId("");
+                            setForm((f) => ({ ...f, planta: e.target.value, posicion: "" }));
+                          }}
+                        >
+                          <option value="">
+                            {!claveServicioVacante ? "Primero servicio…" : "Seleccione planta…"}
+                          </option>
+                          {plantasVacante.map((p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="space-y-1">
+                        <span className="form-label uppercase">Posición *</span>
+                        <select
+                          className="form-control uppercase"
+                          required={hayVacantesEnCatalogo && Boolean(form.planta)}
+                          value={vacanteAsignadaId}
+                          disabled={!claveServicioVacante || !form.planta}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            const v = vacantesEnPlanta.find((x) => x.id === id);
+                            if (!v) {
+                              setVacanteAsignadaId("");
+                              setForm((f) => ({ ...f, posicion: "" }));
+                              return;
+                            }
+                            const d = datosAltaDesdeVacante(v);
+                            setVacanteAsignadaId(id);
+                            setClaveServicioVacante(d.claveServicio);
+                            setForm((f) => ({
+                              ...f,
+                              servicio: d.servicio,
+                              noServicio: d.noServicio,
+                              planta: d.planta,
+                              posicion: d.posicion,
+                              puesto: d.puesto || f.puesto,
+                            }));
+                          }}
+                        >
+                          <option value="">
+                            {!form.planta ? "Primero planta…" : "Seleccione posición…"}
+                          </option>
+                          {vacantesEnPlanta.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.posicion}
+                              {v.puesto ? ` — ${v.puesto}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <Field label="N.º SERVICIO" value={form.noServicio} onChange={() => undefined} readOnly />
+                      <Field label="LÍNEA SERVICIO" value={form.servicio} onChange={() => undefined} readOnly />
+                    </div>
+                  )}
+
+                  {vacanteAsignadaId ? (
+                    <p className="text-xs font-semibold uppercase text-green-900">
+                      Asignado: {form.servicio} · N.º {form.noServicio || "—"} · {form.planta} · {form.posicion}
+                      {form.puesto ? ` · ${form.puesto}` : ""}
+                    </p>
+                  ) : null}
                 </div>
                 <SelectField
                   label="LOCAL/FORANEO"
@@ -833,7 +1220,12 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                   options={["LOCAL", "FORANEO"]}
                   onChange={(v) => updateField("localForaneo", v)}
                 />
-                <Field label="NUMERO DE EXPEDIENTE" value={form.numeroFolio} onChange={(v) => updateField("numeroFolio", v)} />
+                <Field
+                  label="NUMERO DE EXPEDIENTE"
+                  value={form.numeroFolio}
+                  hint="Formato SPT/T-9167/PE — consecutivo al último registrado"
+                  onChange={(v) => updateField("numeroFolio", v)}
+                />
                 <Field label="CREDITO INFONAVIT" value={form.creditoInfonavit} onChange={(v) => updateField("creditoInfonavit", v)} />
                 <Field label="ESCOLARIDAD" value={form.escolaridad} onChange={(v) => updateField("escolaridad", v)} />
                 <Field label="LICENCIA" value={form.licenciaConducir} onChange={(v) => updateField("licenciaConducir", v)} />
@@ -846,19 +1238,33 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           {step === 1 && (
             <section className="space-y-4">
               <h2 className="text-lg font-bold uppercase">PARTE 2 - IDENTIDAD Y DOMICILIO</h2>
+              <p className="text-xs font-medium uppercase text-slate-500">
+                Apellidos, nombres y N.º de empleado se sincronizan con la PARTE 1 (nombre completo y clave).
+              </p>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <Field label="NO DE EMPLEADO" value={empleadoClave} onChange={() => undefined} readOnly />
                 <Field label="APELLIDO PATERNO" value={form.apellidoPaterno} onChange={(v) => updateField("apellidoPaterno", v)} />
                 <Field label="APELLIDO MATERNO" value={form.apellidoMaterno} onChange={(v) => updateField("apellidoMaterno", v)} />
                 <Field label="NOMBRE(S)" value={form.nombres} onChange={(v) => updateField("nombres", v)} />
-                <Field label="FECHA DE NACIMIENTO" type="date" value={form.fechaNacimiento} onChange={(v) => updateField("fechaNacimiento", v)} />
+                <Field
+                  label="FECHA DE NACIMIENTO"
+                  type="date"
+                  value={form.fechaNacimiento}
+                  onChange={(v) => updateField("fechaNacimiento", v, "date")}
+                />
                 <Field
                   label="EDAD (AL DÍA DE HOY)"
                   value={textoEdadDesdeExpediente(form.fechaNacimiento, form.edad)}
                   onChange={() => {}}
                   readOnly
                 />
-                <Field label="ESTADO CIVIL" value={form.estadoCivil} onChange={(v) => updateField("estadoCivil", v)} />
+                <SelectField
+                  label="ESTADO CIVIL"
+                  value={form.estadoCivil}
+                  options={[...ALTAS_ESTADO_CIVIL_OPCIONES]}
+                  allowEmpty
+                  onChange={(v) => updateField("estadoCivil", v)}
+                />
                 <Field label="CURP" value={form.curp} onChange={(v) => updateField("curp", v)} />
                 <Field label="RFC" value={form.rfc} onChange={(v) => updateField("rfc", v)} />
                 <Field
@@ -919,9 +1325,20 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 <Field label="NO. CUENTA" value={form.numeroCuenta} onChange={(v) => updateField("numeroCuenta", v)} />
                 <Field label="CLABE INTERBANCARIA" value={form.clabeInterbancaria} onChange={(v) => updateField("clabeInterbancaria", v)} />
                 <Field label="NO. TARJETA" value={form.noTarjeta} onChange={(v) => updateField("noTarjeta", v)} />
-                <Field label="SUELDO MENSUAL" type="number" value={form.sueldoMensual} onChange={(v) => updateField("sueldoMensual", v)} />
+                <Field
+                  label="SUELDO MENSUAL"
+                  type="number"
+                  value={form.sueldoMensual}
+                  onChange={(v) => updateField("sueldoMensual", v, "number")}
+                />
                 <Field label="FUENTE DE RECLUTAMIENTO" value={form.fuenteReclutamiento} onChange={(v) => updateField("fuenteReclutamiento", v)} />
-                <Field label="GESTOR DEL PROCESO" value={form.gestorProceso} onChange={(v) => updateField("gestorProceso", v)} />
+                <SelectField
+                  label="GESTOR DEL PROCESO"
+                  value={form.gestorProceso}
+                  options={[...ALTAS_GESTORES_PROCESO_OPCIONES]}
+                  allowEmpty
+                  onChange={(v) => updateField("gestorProceso", v)}
+                />
                 <TextAreaField
                   label="ESTUDIO SOCIOECONOMICO"
                   value={form.estudioSocioeconomico}
@@ -965,7 +1382,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                         label="FECHA NACIMIENTO"
                         type="date"
                         value={familiar.fechaNacimiento}
-                        onChange={(v) => updateFamiliar(index, "fechaNacimiento", v)}
+                        onChange={(v) => updateFamiliar(index, "fechaNacimiento", v, "date")}
                       />
                       <SelectField
                         label="BENEFICIARIO BANCARIO"
@@ -1013,6 +1430,8 @@ function Field({
   className = "",
   readOnly = false,
   inputClassName = "",
+  placeholder,
+  hint,
 }: {
   label: string;
   value: string;
@@ -1021,17 +1440,22 @@ function Field({
   className?: string;
   readOnly?: boolean;
   inputClassName?: string;
+  placeholder?: string;
+  hint?: string;
 }) {
+  const mayus = type !== "date" && type !== "number";
   return (
     <label className={`space-y-1 ${className}`}>
       <span className="form-label uppercase">{label}</span>
       <input
-        className={`form-control uppercase ${readOnly ? "bg-slate-100 text-slate-500" : ""} ${inputClassName}`.trim()}
+        className={`form-control ${mayus ? "uppercase" : ""} ${readOnly ? "bg-slate-100 text-slate-500" : ""} ${inputClassName}`.trim()}
         type={type}
         value={value}
         readOnly={readOnly}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
       />
+      {hint ? <span className="text-[10px] font-medium uppercase text-slate-500">{hint}</span> : null}
     </label>
   );
 }
@@ -1041,16 +1465,21 @@ function SelectField({
   value,
   options,
   onChange,
+  allowEmpty,
 }: {
   label: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
+  allowEmpty?: boolean;
 }) {
   return (
     <label className="space-y-1">
       <span className="form-label uppercase">{label}</span>
       <select className="form-control uppercase" value={value} onChange={(e) => onChange(e.target.value)}>
+        {allowEmpty ? (
+          <option value="">— SELECCIONE —</option>
+        ) : null}
         {options.map((opt) => (
           <option key={opt} value={opt}>
             {opt}

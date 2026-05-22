@@ -152,8 +152,18 @@ export function roleMayWriteAltas(role: AppRole): boolean {
   return role === "admin" || role === "aux_rh";
 }
 
-/** Expediente Colaboradores (POST, fotos, import CSV columna, sincronizar MOPER→expediente). */
+/** Expediente Colaboradores: editar expediente y vacantes (Cuadrícula). Solo Admin y Aux RH. */
 export function roleMayEditColaboradores(role: AppRole): boolean {
+  return role === "admin" || role === "aux_rh";
+}
+
+/** Misma regla que edición de expediente (import CSV columna, vacantes en editor). */
+export function roleMayEditColaboradoresVacantes(role: AppRole): boolean {
+  return roleMayEditColaboradores(role);
+}
+
+/** Otros módulos que antes compartían edición de colaboradores (Bajas, legal). */
+export function roleMayEditColaboradoresLegacyRh(role: AppRole): boolean {
   return role === "admin" || role === "rh" || role === "aux_rh";
 }
 

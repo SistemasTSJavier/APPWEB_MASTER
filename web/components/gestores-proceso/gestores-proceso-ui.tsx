@@ -57,7 +57,7 @@ export function GuiaRapidaGestores({ open, onToggle }: { open: boolean; onToggle
           <GuiaPaso
             n={3}
             titulo="Revise el detalle"
-            texto="Al elegir un gestor verá la lista de personas. Si el texto del gestor coincide con un colaborador del sistema, verá también su N.º y fecha de ingreso."
+            texto="Al elegir un gestor verá la lista de personas. El sistema intenta enlazar el texto con el colaborador de nombre más parecido en expediente (N.º y fecha de ingreso)."
           />
         </div>
       ) : null}
@@ -78,9 +78,9 @@ function GuiaPaso({ n, titulo, texto }: { n: number; titulo: string; texto: stri
 export function ConsejoCapturaGestor() {
   return (
     <p className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs leading-relaxed text-amber-950">
-      <strong>Tip para vincular al gestor:</strong> en el campo «Gestor del proceso» use el{" "}
-      <strong>mismo N.º de empleado</strong> o el <strong>nombre completo</strong> que aparece en el
-      expediente del colaborador que actúa como gestor.
+      <strong>Tip:</strong> puede usar N.º de empleado o nombre; si el nombre no es exacto, el reporte busca la{" "}
+      <strong>coincidencia más parecida</strong> en el expediente (apellidos, abreviaturas y pequeñas diferencias de
+      escritura).
     </p>
   );
 }
@@ -101,7 +101,7 @@ const MATCH_TONE: Record<
     text: "text-emerald-800",
     icon: "✓",
   },
-  nombre_parcial: {
+  nombre_similar: {
     ring: "ring-amber-200",
     bg: "bg-amber-50",
     text: "text-amber-900",
@@ -129,8 +129,8 @@ export function MatchBadge({ tipo, compact }: { tipo: GestorMatchTipo; compact?:
       ? "Por N.º empleado"
       : tipo === "nombre_exacto"
         ? "Nombre exacto"
-        : tipo === "nombre_parcial"
-          ? "Nombre similar"
+        : tipo === "nombre_similar"
+          ? "Nombre más parecido"
           : tipo === "texto_libre"
             ? "Sin vínculo"
             : "Sin gestor";

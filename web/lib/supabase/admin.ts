@@ -40,7 +40,10 @@ export function supabaseServerEnvMissing(): string[] {
  */
 export function hintSupabaseTablePermissionError(message: string): string {
   if (!message || !/permission denied/i.test(message)) return message;
-  return `${message} — Si ya usas SUPABASE_SERVICE_ROLE_KEY correcta, ejecuta en Supabase → SQL Editor el script web/supabase/migrations/003_grants_service_role.sql (GRANT a service_role). Si la clave fuera anon por error, sustitúyela por la secreta service_role y reinicia el servidor.`;
+  const seqHint = /sequence/i.test(message)
+    ? " Incluye GRANT USAGE, SELECT ON SEQUENCE public.moper_registros_id_seq (ver 015_moper_registros_grants.sql)."
+    : "";
+  return `${message} — Si ya usas SUPABASE_SERVICE_ROLE_KEY correcta, ejecuta en Supabase → SQL Editor web/supabase/migrations/003_grants_service_role.sql y, para MOPER, 015_moper_registros_grants.sql.${seqHint} Si la clave fuera anon, usa service_role y reinicia el servidor.`;
 }
 
 /**

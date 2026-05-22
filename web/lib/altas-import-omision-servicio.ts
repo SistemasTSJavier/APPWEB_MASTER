@@ -1,12 +1,10 @@
 import type { CsvFieldKey } from "@/lib/empleado-csv-map";
 
-/**
- * Servicio, N.º de servicio y posición: captura manual en altas e ignoradas en CSV masivo.
- * La asignación desde vacantes de Cuadrícula queda pendiente hasta automatizar.
- */
-export const ALTAS_SERVICIO_POSICION_SOLO_MANUAL = true;
+/** Formulario Parte 1: servicio/planta/posición desde catálogo Vacantes (Cuadrícula). */
+export const ALTAS_FORM_USA_VACANTES_CUADRICULA = true;
 
-export const ALTAS_IMPORT_OMITE_SERVICIO_POSICION = ALTAS_SERVICIO_POSICION_SOLO_MANUAL;
+/** Importación masiva CSV: servicio/posición siguen ignoradas (captura manual después). */
+export const ALTAS_IMPORT_OMITE_SERVICIO_POSICION = true;
 
 const CSV_KEYS_OMITIDAS: readonly CsvFieldKey[] = [
   "servicio",

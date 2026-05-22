@@ -1,0 +1,197 @@
+import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
+
+/** Envío / Reyna — mismo catálogo. */
+export const ALTAS_ESTADO_TRAMITE_OPCIONES = [
+  "SOLICITADO",
+  "PENDIENTE",
+  "NO APLICA",
+  "ENVIADA",
+  "RECIBIDA",
+] as const;
+
+export const ALTAS_ESTADO_CIVIL_OPCIONES = [
+  "SOLTERO",
+  "VIUDO",
+  "SEPARADO",
+  "DIVORCIADO",
+  "UNION LIBRE",
+  "CASADO",
+] as const;
+
+export const ALTAS_GESTORES_PROCESO_OPCIONES = [
+  "BERTHA KARINA TIRADO SANCHEZ",
+  "MARIA YESSENIA GUERRA MUÑIZ",
+  "JUAN EDUARD TREJO RODRIGUEZ",
+  "ELIEZER ELIUD VARGAS ESQUIVEL",
+  "MARGARITA MUÑIZ VERDIN",
+  "BEATRIZ ROSALES PEREZ",
+  "JOSE ALEJANDRO RODRIGUEZ VALDEZ",
+  "RUTH ESTEFANI ROBLES LOPEZ",
+  "VALESKA MARISOL ZUÑIGA SANCHEZ",
+] as const;
+
+/** Campos que no se convierten a mayúsculas (fechas y numéricos puros). */
+export const ALTAS_CAMPOS_SIN_MAYUSCULAS = new Set([
+  "fechaIngreso",
+  "fechaBaja",
+  "reingreso",
+  "fechaNacimiento",
+  "edad",
+  "sueldoMensual",
+]);
+
+export function valorCampoAltaMayusculas(campo: string, valor: string, inputType?: string): string {
+  if (inputType === "date" || inputType === "number" || ALTAS_CAMPOS_SIN_MAYUSCULAS.has(campo)) {
+    return valor;
+  }
+  return valor.toUpperCase();
+}
+
+export function partesNombreDesdeCompleto(completo: string): {
+  apellidoPaterno: string;
+  apellidoMaterno: string;
+  nombres: string;
+} {
+  const parts = completo.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    return { apellidoPaterno: "", apellidoMaterno: "", nombres: "" };
+  }
+  if (parts.length === 1) {
+    return { apellidoPaterno: "", apellidoMaterno: "", nombres: parts[0]! };
+  }
+  if (parts.length === 2) {
+    return { apellidoPaterno: parts[0]!, apellidoMaterno: "", nombres: parts[1]! };
+  }
+  return {
+    apellidoPaterno: parts[0]!,
+    apellidoMaterno: parts[1]!,
+    nombres: parts.slice(2).join(" "),
+  };
+}
+
+/** Mismo criterio que el importador de altas: nombres + apellidos. */
+export function nombreCompletoDesdePartes(
+  apellidoPaterno: string,
+  apellidoMaterno: string,
+  nombres: string,
+): string {
+  return [nombres, apellidoPaterno, apellidoMaterno].filter((s) => String(s ?? "").trim()).join(" ").trim();
+}
+
+function numeroDesdeTexto(raw: string): number | null {
+  const t = String(raw ?? "").trim();
+  if (!t) return null;
+  if (/^\d+$/.test(t)) return Number.parseInt(t, 10);
+  const pte = /^PTE-(\d+)$/i.exec(t);
+  if (pte) return Number.parseInt(pte[1]!, 10);
+  const digits = t.replace(/\D/g, "");
+  if (digits.length >= 1) {
+    const n = Number.parseInt(digits, 10);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Siguiente N.º de empleado numérico según el máximo en expedientes. */
+export function calcularSiguienteNoEmpleado(list: ColaboradorCompleto[]): string {
+  let max = 0;
+  for (const c of list) {
+    const n = numeroDesdeTexto(c.noEmpleado);
+    if (n != null && n > max) max = n;
+  }
+  return String(max + 1);
+}
+
+/** Formato expediente: SPT/T-9167/PE (prefijo / T-consecutivo / sufijo). */
+export const FOLIO_EXPEDIENTE_PREFIJO_DEFAULT = "SPT";
+export const FOLIO_EXPEDIENTE_SUFIJO_DEFAULT = "PE";
+
+const FOLIO_EXPEDIENTE_REGEX = /^([A-Z0-9]+)\/T-(\d+)\/([A-Z]{2,6})$/i;
+
+export type FolioExpedientePartes = {
+  prefijo: string;
+  consecutivo: number;
+  sufijo: string;
+};
+
+export function parseNumeroFolioExpediente(raw: string): FolioExpedientePartes | null {
+  const t = String(raw ?? "").trim().toUpperCase();
+  const m = FOLIO_EXPEDIENTE_REGEX.exec(t);
+  if (!m) return null;
+  const consecutivo = Number.parseInt(m[2]!, 10);
+  if (!Number.isFinite(consecutivo)) return null;
+  return {
+    prefijo: m[1]!.toUpperCase(),
+    consecutivo,
+    sufijo: m[3]!.toUpperCase(),
+  };
+}
+
+export function formatearNumeroFolioExpediente(partes: FolioExpedientePartes): string {
+  return `${partes.prefijo}/T-${partes.consecutivo}/${partes.sufijo}`;
+}
+
+/**
+ * Siguiente folio completo (ej. SPT/T-9168/PE) según el mayor consecutivo en expedientes.
+ * Si solo hay números sueltos, usa plantilla SPT/T-N/PE.
+ */
+export function calcularSiguienteNumeroFolio(list: ColaboradorCompleto[]): string {
+  let mejor: FolioExpedientePartes | null = null;
+  let maxSuelto = 0;
+
+  for (const c of list) {
+    const f = String(c.form?.numeroFolio ?? "").trim();
+    if (!f) continue;
+    const parsed = parseNumeroFolioExpediente(f);
+    if (parsed) {
+      if (!mejor || parsed.consecutivo > mejor.consecutivo) {
+        mejor = parsed;
+      }
+      continue;
+    }
+    const n = numeroDesdeTexto(f);
+    if (n != null && n > maxSuelto) maxSuelto = n;
+  }
+
+  if (mejor) {
+    return formatearNumeroFolioExpediente({
+      prefijo: mejor.prefijo,
+      consecutivo: mejor.consecutivo + 1,
+      sufijo: mejor.sufijo,
+    });
+  }
+
+  const base = maxSuelto > 0 ? maxSuelto + 1 : 1;
+  return formatearNumeroFolioExpediente({
+    prefijo: FOLIO_EXPEDIENTE_PREFIJO_DEFAULT,
+    consecutivo: base,
+    sufijo: FOLIO_EXPEDIENTE_SUFIJO_DEFAULT,
+  });
+}
+
+export type FamiliarAltaForm = {
+  nombreFamiliar: string;
+  parentesco: string;
+  fechaNacimiento: string;
+  beneficiarioBancario: "SI" | "NO";
+};
+
+export function normalizarFamiliaresAltaMayusculas(familiares: FamiliarAltaForm[]): FamiliarAltaForm[] {
+  return familiares.map((f) => ({
+    ...f,
+    nombreFamiliar: f.nombreFamiliar.toUpperCase(),
+    parentesco: f.parentesco.toUpperCase(),
+    fechaNacimiento: f.fechaNacimiento,
+    beneficiarioBancario: f.beneficiarioBancario,
+  }));
+}
+
+export function normalizarFormularioAltaMayusculas(
+  form: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(form)) {
+    out[k] = valorCampoAltaMayusculas(k, String(v ?? ""));
+  }
+  return out;
+}

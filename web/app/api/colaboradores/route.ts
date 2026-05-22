@@ -9,32 +9,12 @@ import {
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores, roleMayReadColaboradoresApi } from "@/lib/app-role";
+import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 
 export const dynamic = "force-dynamic";
 
 function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
-  const key = data.noEmpleado.trim().toUpperCase();
-  return {
-    ...data,
-    noEmpleado: key,
-    nombreCompleto: data.nombreCompleto.trim(),
-    servicioAsignado: data.servicioAsignado.trim(),
-    ultimoServicio: data.ultimoServicio.trim(),
-    nss: data.nss.trim(),
-    posicion: data.posicion.trim(),
-    puesto: data.puesto.trim(),
-    form: data.form,
-    familiares: data.familiares,
-    registeredAt: data.registeredAt,
-    ...(data.moperActual
-      ? {
-          moperActual: {
-            servicio: data.moperActual.servicio.trim(),
-            puesto: data.moperActual.puesto.trim(),
-          },
-        }
-      : {}),
-  };
+  return colaboradorCompletoMayusculas(data);
 }
 
 /** GET: lista todos los expedientes */

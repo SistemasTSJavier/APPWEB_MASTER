@@ -7,7 +7,7 @@ import {
   EXPEDIENTE_LEGAL_BUCKET,
   EXPEDIENTE_LEGAL_MAX_BYTES,
 } from "@/lib/expediente-legal-constants";
-import { type AppRole, roleMayEditColaboradores } from "@/lib/app-role";
+import { type AppRole, roleMayEditColaboradoresLegacyRh } from "@/lib/app-role";
 import { formatoFechaDiaMesAnio } from "@/lib/fecha-formato-display";
 
 const EXPEDIENTE_LEGAL_MAX_MB = Math.round(EXPEDIENTE_LEGAL_MAX_BYTES / (1024 * 1024));
@@ -45,7 +45,7 @@ async function fetchLegalFiles(noEmpleado: string): Promise<LegalFile[]> {
 }
 
 export function ExpedientesLegalPageClient({ appRole }: { appRole: AppRole }) {
-  const puedeEditar = roleMayEditColaboradores(appRole);
+  const puedeEditar = roleMayEditColaboradoresLegacyRh(appRole);
 
   const [rows, setRows] = useState<ColaboradorCompleto[]>([]);
   const [listaError, setListaError] = useState<string | null>(null);

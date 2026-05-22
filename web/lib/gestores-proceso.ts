@@ -1,8 +1,15 @@
 import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
+import { normalizarNombreParaCoincidencia } from "@/lib/altas-coincidencia-nombre";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { formatoDesdeYyyyMmDd } from "@/lib/fecha-formato-display";
 import { plantaExpedienteColaborador } from "@/lib/colaboradores-catalogo-display";
+import {
+  buildGestorNombreCandidatos,
+  mejorCoincidenciaNombreGestor,
+  nombreCompletoExpediente,
+  type GestorNombreCandidato,
+} from "@/lib/gestores-proceso-nombre-similitud";
 
 const TZ = "America/Mexico_City";
 
@@ -11,7 +18,7 @@ export type GestorProcesoPeriodo = "semana" | "mes";
 export type GestorMatchTipo =
   | "no_empleado"
   | "nombre_exacto"
-  | "nombre_parcial"
+  | "nombre_similar"
   | "texto_libre"
   | "sin_gestor";
 
@@ -53,12 +60,7 @@ export type GestoresProcesoReport = {
 };
 
 function normTexto(s: string): string {
-  return s
-    .trim()
-    .replace(/\s+/g, " ")
-    .toUpperCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+  return normalizarNombreParaCoincidencia(s);
 }
 
 function fechaIngresoEfectiva(c: ColaboradorCompleto): string {
@@ -136,6 +138,7 @@ function enRangoInclusivo(fechaYmd: string, desdeIso: string, hastaIso: string):
 type ColaboradorIndex = {
   byEmp: Map<string, ColaboradorCompleto>;
   byNombre: Map<string, ColaboradorCompleto[]>;
+  candidatosNombre: GestorNombreCandidato[];
 };
 
 function buildColaboradorIndex(list: ColaboradorCompleto[]): ColaboradorIndex {
@@ -144,14 +147,14 @@ function buildColaboradorIndex(list: ColaboradorCompleto[]): ColaboradorIndex {
   for (const c of list) {
     const emp = canonicalEmpNoAttendance(c.noEmpleado);
     if (emp) byEmp.set(emp, c);
-    const nom = normTexto(c.nombreCompleto);
+    const nom = normTexto(nombreCompletoExpediente(c));
     if (nom) {
       const arr = byNombre.get(nom) ?? [];
       arr.push(c);
       byNombre.set(nom, arr);
     }
   }
-  return { byEmp, byNombre };
+  return { byEmp, byNombre, candidatosNombre: buildGestorNombreCandidatos(list) };
 }
 
 function vinculoDesdeColaborador(c: ColaboradorCompleto): GestorColaboradorVinculo {
@@ -166,7 +169,7 @@ function vinculoDesdeColaborador(c: ColaboradorCompleto): GestorColaboradorVincu
 export function resolverGestorProceso(
   gestorTexto: string,
   index: ColaboradorIndex,
-  todos: ColaboradorCompleto[],
+  _todos?: ColaboradorCompleto[],
 ): {
   key: string;
   label: string;
@@ -189,7 +192,7 @@ export function resolverGestorProceso(
     if (hit) {
       return {
         key: `emp:${empCanon}`,
-        label: hit.nombreCompleto,
+        label: nombreCompletoExpediente(hit),
         matchTipo: "no_empleado",
         gestorColaborador: vinculoDesdeColaborador(hit),
       };
@@ -202,24 +205,20 @@ export function resolverGestorProceso(
     const hit = exact[0]!;
     return {
       key: `nom:${nom}`,
-      label: hit.nombreCompleto,
+      label: nombreCompletoExpediente(hit),
       matchTipo: "nombre_exacto",
       gestorColaborador: vinculoDesdeColaborador(hit),
     };
   }
 
-  const parciales: ColaboradorCompleto[] = [];
-  for (const c of todos) {
-    const cn = normTexto(c.nombreCompleto);
-    if (!cn || cn === nom) continue;
-    if (cn.includes(nom) || nom.includes(cn)) parciales.push(c);
-  }
-  if (parciales.length === 1) {
-    const hit = parciales[0]!;
+  const mejor = mejorCoincidenciaNombreGestor(raw, index.candidatosNombre);
+  if (mejor) {
+    const hit = mejor.candidato.colaborador;
+    const keyNorm = mejor.candidato.norm;
     return {
-      key: `parcial:${normTexto(hit.nombreCompleto)}`,
-      label: hit.nombreCompleto,
-      matchTipo: "nombre_parcial",
+      key: `sim:${keyNorm}`,
+      label: nombreCompletoExpediente(hit),
+      matchTipo: mejor.score >= 99.5 ? "nombre_exacto" : "nombre_similar",
       gestorColaborador: vinculoDesdeColaborador(hit),
     };
   }
@@ -320,8 +319,8 @@ export function matchTipoLabel(t: GestorMatchTipo): string {
       return "Identificado por N.º de empleado en expediente";
     case "nombre_exacto":
       return "Identificado por nombre completo exacto";
-    case "nombre_parcial":
-      return "Identificado por nombre parecido (una sola coincidencia)";
+    case "nombre_similar":
+      return "Identificado por el nombre más parecido en expediente";
     case "texto_libre":
       return "Solo texto en alta; no coincide con ningún colaborador";
     case "sin_gestor":

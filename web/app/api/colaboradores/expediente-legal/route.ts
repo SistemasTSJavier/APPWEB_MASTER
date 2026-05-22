@@ -6,7 +6,11 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayEditColaboradores, roleMayAccessExpedientesLegal, roleMayReadColaboradoresApi } from "@/lib/app-role";
+import {
+  roleMayAccessExpedientesLegal,
+  roleMayEditColaboradoresLegacyRh,
+  roleMayReadColaboradoresApi,
+} from "@/lib/app-role";
 import { EXPEDIENTE_LEGAL_BUCKET } from "@/lib/expediente-legal-constants";
 
 export const dynamic = "force-dynamic";
@@ -92,7 +96,7 @@ export async function GET(req: Request) {
 export async function DELETE(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
-  if (!roleMayEditColaboradores(auth.role)) {
+  if (!roleMayEditColaboradoresLegacyRh(auth.role)) {
     return NextResponse.json({ error: "No autorizado para eliminar expedientes legal" }, { status: 403 });
   }
 

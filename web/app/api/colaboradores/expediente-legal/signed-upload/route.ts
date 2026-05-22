@@ -7,7 +7,7 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayEditColaboradores } from "@/lib/app-role";
+import { roleMayEditColaboradoresLegacyRh } from "@/lib/app-role";
 import {
   EXPEDIENTE_LEGAL_BUCKET,
   EXPEDIENTE_LEGAL_MAX_BYTES,
@@ -32,7 +32,7 @@ async function colaboradorExiste(
 export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
-  if (!roleMayEditColaboradores(auth.role)) {
+  if (!roleMayEditColaboradoresLegacyRh(auth.role)) {
     return NextResponse.json({ error: "No autorizado para subir expedientes legal" }, { status: 403 });
   }
 
