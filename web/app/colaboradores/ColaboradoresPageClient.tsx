@@ -101,6 +101,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
   const [masivoCsvPreserveMoper, setMasivoCsvPreserveMoper] = useState(true);
   const [masivoCsvDetalle, setMasivoCsvDetalle] = useState<{
     imported: number;
+    filasCsvValidas: number;
     skippedEmpty: number;
     lotes: number;
     duplicateNosMerged: number;
@@ -242,6 +243,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         error?: string;
         ok?: boolean;
         imported?: number;
+        filasCsvValidas?: number;
         skippedEmpty?: number;
         lotes?: number;
         duplicateNosMerged?: number;
@@ -257,6 +259,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
       }
       setMasivoCsvDetalle({
         imported: Number(j.imported ?? 0),
+        filasCsvValidas: Number(j.filasCsvValidas ?? 0),
         skippedEmpty: Number(j.skippedEmpty ?? 0),
         lotes: Number(j.lotes ?? 0),
         duplicateNosMerged: Number(j.duplicateNosMerged ?? 0),
@@ -519,7 +522,12 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
             {masivoCsvDetalle ? (
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">
                 <ul className="list-inside list-disc space-y-0.5 font-semibold uppercase">
-                  <li>Expedientes importados o actualizados: {masivoCsvDetalle.imported}</li>
+                  <li>Expedientes guardados (N° unicos): {masivoCsvDetalle.imported}</li>
+                  {masivoCsvDetalle.filasCsvValidas > masivoCsvDetalle.imported ? (
+                    <li className="text-amber-900">
+                      Filas validas en CSV: {masivoCsvDetalle.filasCsvValidas} (diferencia por N° repetidos u omitidos)
+                    </li>
+                  ) : null}
                   <li>Filas vacias omitidas: {masivoCsvDetalle.skippedEmpty}</li>
                   {masivoCsvDetalle.duplicateNosMerged > 0 ? (
                     <li className="text-amber-900">

@@ -1,6 +1,6 @@
-import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { createSupabaseServiceRoleClient, isSupabaseServerConfigured } from "@/lib/supabase/admin";
+import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 
 export async function listColaboradoresGestoresServer(): Promise<{
   list: ColaboradorCompleto[];
@@ -12,12 +12,12 @@ export async function listColaboradoresGestoresServer(): Promise<{
   const admin = createSupabaseServiceRoleClient();
   if (!admin) return { list: [], fuente: "sin_datos" };
 
-  const { data, error } = await admin.from("colaboradores").select("data");
-  if (error) return { list: [], fuente: "sin_datos" };
-
-  const list = (data ?? [])
-    .map((r: { data: unknown }) => normalizeToCompleto(r.data))
-    .filter((c): c is ColaboradorCompleto => c !== null);
+  let list: ColaboradorCompleto[] = [];
+  try {
+    list = await fetchAllColaboradoresCompletos(admin);
+  } catch {
+    return { list: [], fuente: "sin_datos" };
+  }
 
   return { list, fuente: "supabase" };
 }

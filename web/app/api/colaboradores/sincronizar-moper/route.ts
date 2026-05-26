@@ -9,6 +9,7 @@ import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import { mergeColaboradorConDestinoMoper } from "@/lib/colaboradores-data";
 import type { MoperHistorialEntrada } from "@/lib/moper-historial-types";
 import { nombreServicioCanonicoDesdeCatalogo } from "@/lib/servicios-catalogo-resolve";
+import { fetchAllColaboradoresDbRows } from "@/lib/colaboradores-supabase-fetch-all";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores } from "@/lib/app-role";
 
@@ -102,13 +103,18 @@ export async function POST() {
     }
   }
 
-  const { data: colRows, error: colErr } = await admin.from("colaboradores").select("no_empleado, data");
-  if (colErr) {
-    return NextResponse.json({ error: hintSupabaseClientError(colErr.message) }, { status: 500 });
+  let colRows: Awaited<ReturnType<typeof fetchAllColaboradoresDbRows>>;
+  try {
+    colRows = await fetchAllColaboradoresDbRows(admin);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error al leer colaboradores" },
+      { status: 500 },
+    );
   }
 
   const expedientePorNo = new Map<string, ColaboradorCompleto>();
-  for (const row of colRows ?? []) {
+  for (const row of colRows) {
     const c = normalizeToCompleto(row.data);
     if (c) expedientePorNo.set(c.noEmpleado, c);
   }

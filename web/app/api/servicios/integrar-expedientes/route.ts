@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
+import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { serviciosLiteralesUnicosDesdeExpedientes } from "@/lib/servicios-desde-colaboradores";
 import {
   createSupabaseServiceRoleClient,
@@ -29,14 +29,15 @@ export async function POST() {
     return NextResponse.json({ error: "Cliente no disponible" }, { status: 503 });
   }
 
-  const { data: rowsRaw, error: errCollab } = await admin.from("colaboradores").select("data");
-  if (errCollab) {
-    return NextResponse.json({ error: hintSupabaseClientError(errCollab.message) }, { status: 500 });
+  let lista: ColaboradorCompleto[];
+  try {
+    lista = await fetchAllColaboradoresCompletos(admin);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error al leer colaboradores" },
+      { status: 500 },
+    );
   }
-
-  const lista: ColaboradorCompleto[] = (rowsRaw ?? [])
-    .map((r: { data: unknown }) => normalizeToCompleto(r.data))
-    .filter((c): c is ColaboradorCompleto => c !== null);
 
   const candidatos = serviciosLiteralesUnicosDesdeExpedientes(lista);
   let inserted = 0;

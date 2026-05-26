@@ -14,6 +14,7 @@ import {
   omitServicioPosicionEnImportPick,
 } from "@/lib/altas-import-omision-servicio";
 import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
+import { fetchAllColaboradoresDbRows } from "@/lib/colaboradores-supabase-fetch-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hintSupabaseClientError } from "@/lib/supabase/admin";
 import { dedupeColaboradoresUpsertLastWins } from "@/lib/colaboradores-upsert-dedupe";
@@ -184,6 +185,8 @@ export type ColaboradoresCsvMasivoOptions = {
 export type ColaboradoresCsvMasivoResult = AltasCsvImportResult & {
   lotes: number;
   filasProcesadas: number;
+  /** Filas del CSV que generaron payload (antes de deduplicar por N°). */
+  filasCsvValidas: number;
   /** Filas con el mismo N° que otra en el CSV; se guardó una sola vez (última fila gana). */
   duplicateNosMerged: number;
 };
@@ -347,12 +350,11 @@ export async function importColaboradoresCsvMasivoEnServidor(
 
   let existingByNo = options?.existingByNo;
   if (options?.mergeExisting && !existingByNo) {
-    const { data, error } = await admin.from("colaboradores").select("no_empleado, data");
-    if (error) throw new Error(hintSupabaseClientError(error.message));
+    const dbRows = await fetchAllColaboradoresDbRows(admin);
     existingByNo = new Map();
-    for (const row of data ?? []) {
-      const no = String((row as { no_empleado: string }).no_empleado ?? "").trim().toUpperCase();
-      const raw = (row as { data: ColaboradorCompleto }).data;
+    for (const row of dbRows) {
+      const no = String(row.no_empleado ?? "").trim().toUpperCase();
+      const raw = row.data as ColaboradorCompleto;
       if (no && raw) existingByNo.set(no, raw);
     }
   }
@@ -370,6 +372,7 @@ export async function importColaboradoresCsvMasivoEnServidor(
       lotes: 0,
       filasProcesadas: 0,
       duplicateNosMerged: 0,
+      filasCsvValidas: 0,
     };
   }
 
@@ -385,6 +388,7 @@ export async function importColaboradoresCsvMasivoEnServidor(
     errors: parsed.errors,
     lotes,
     filasProcesadas: parsed.payloads.length + parsed.skippedEmpty + parsed.errors.length,
+    filasCsvValidas: parsed.payloads.length,
     duplicateNosMerged: duplicateRowsMerged,
   };
 }

@@ -9,6 +9,7 @@ import {
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores } from "@/lib/app-role";
 import { mapaColaboradoresPorNo, procesarCsvActualizacionUnaColumna } from "@/lib/colaboradores-csv-columna-import";
+import { fetchAllColaboradoresData } from "@/lib/colaboradores-supabase-fetch-all";
 
 export const dynamic = "force-dynamic";
 
@@ -72,12 +73,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `CSV demasiado grande (maximo ${MAX_CSV_CHARS} caracteres)` }, { status: 400 });
   }
 
-  const { data: dbRows, error: selErr } = await admin.from("colaboradores").select("data");
-  if (selErr) {
-    return NextResponse.json({ error: hintSupabaseClientError(selErr.message) }, { status: 500 });
+  let dbRows: { data: unknown }[];
+  try {
+    const dataList = await fetchAllColaboradoresData(admin);
+    dbRows = dataList.map((data) => ({ data }));
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error al leer colaboradores" },
+      { status: 500 },
+    );
   }
 
-  const byNo = mapaColaboradoresPorNo((dbRows ?? []) as { data: unknown }[]);
+  const byNo = mapaColaboradoresPorNo(dbRows);
   const result = procesarCsvActualizacionUnaColumna(csvText, byNo);
   if (!result.ok) {
     return NextResponse.json({ error: result.message }, { status: 400 });

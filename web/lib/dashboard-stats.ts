@@ -1,9 +1,9 @@
-import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { claveServicioAgrupada, servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { createSupabaseServiceRoleClient, isSupabaseServerConfigured } from "@/lib/supabase/admin";
+import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { aniversariosEmpresaProximaSemana, type AniversarioEmpresaSemana } from "@/lib/aniversario-empresa-semana";
 import { cumpleanosActivosEnMes, type CumpleaneroMes } from "@/lib/cumpleanos-mes";
 
@@ -152,8 +152,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     };
   }
 
-  const { data, error } = await admin.from("colaboradores").select("data");
-  if (error) {
+  let list: ColaboradorCompleto[] = [];
+  try {
+    list = await fetchAllColaboradoresCompletos(admin);
+  } catch {
     return {
       totalColaboradores: 0,
       activosTotal: 0,
@@ -167,10 +169,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       fuente: "sin_datos",
     };
   }
-
-  const list = (data ?? [])
-    .map((r: { data: unknown }) => normalizeToCompleto(r.data))
-    .filter((c): c is ColaboradorCompleto => c !== null);
 
   const { year, month } = yearMonthMexicoCity(new Date());
   let moperEsteMes = 0;

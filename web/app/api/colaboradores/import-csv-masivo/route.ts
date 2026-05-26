@@ -61,6 +61,7 @@ export async function POST(req: Request) {
       skippedEmpty: result.skippedEmpty,
       errors: result.errors,
       lotes: result.lotes,
+      filasCsvValidas: result.filasCsvValidas,
       duplicateNosMerged: result.duplicateNosMerged,
       maxFilasPorArchivo: COLABORADORES_CSV_MASIVO_FILAS_MAX,
     });

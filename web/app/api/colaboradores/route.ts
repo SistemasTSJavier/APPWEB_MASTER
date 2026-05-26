@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import {
   createSupabaseServiceRoleClient,
@@ -10,6 +9,7 @@ import {
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores, roleMayReadColaboradoresApi } from "@/lib/app-role";
 import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
+import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 
 export const dynamic = "force-dynamic";
 
@@ -41,14 +41,15 @@ export async function GET() {
     return NextResponse.json({ error: "Cliente Supabase no disponible" }, { status: 503 });
   }
 
-  const { data, error } = await admin.from("colaboradores").select("data").order("no_empleado", { ascending: true });
-  if (error) {
-    return NextResponse.json({ error: hintSupabaseClientError(error.message) }, { status: 500 });
+  try {
+    const rows = await fetchAllColaboradoresCompletos(admin);
+    return NextResponse.json(rows);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error al listar colaboradores" },
+      { status: 500 },
+    );
   }
-  const rows = (data ?? [])
-    .map((r: { data: unknown }) => normalizeToCompleto(r.data))
-    .filter((c): c is ColaboradorCompleto => c !== null);
-  return NextResponse.json(rows);
 }
 
 /** POST: guardar o actualizar un expediente */
