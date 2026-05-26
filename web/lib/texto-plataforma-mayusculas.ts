@@ -45,14 +45,14 @@ export function familiarMayusculas(f: FamiliarGuardado): FamiliarGuardado {
 export function colaboradorCompletoMayusculas(c: ColaboradorCompleto): ColaboradorCompleto {
   return {
     ...c,
-    noEmpleado: c.noEmpleado.trim().toUpperCase(),
+    noEmpleado: String(c.noEmpleado ?? "").trim().toUpperCase(),
     nombreCompleto: aMayusculasPlataforma(c.nombreCompleto),
     fechaIngreso: c.fechaIngreso,
     servicioAsignado: aMayusculasPlataforma(c.servicioAsignado),
     ultimoServicio: aMayusculasPlataforma(c.ultimoServicio),
-    nss: c.nss.trim(),
-    posicion: aMayusculasPlataforma(c.posicion),
-    puesto: aMayusculasPlataforma(c.puesto),
+    nss: String(c.nss ?? "").trim(),
+    posicion: aMayusculasPlataforma(c.posicion ?? ""),
+    puesto: aMayusculasPlataforma(c.puesto ?? ""),
     form: formRecordMayusculas(c.form ?? {}),
     familiares: (c.familiares ?? []).map(familiarMayusculas),
     moperActual: c.moperActual

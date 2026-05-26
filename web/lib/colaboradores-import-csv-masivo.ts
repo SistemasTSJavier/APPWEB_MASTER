@@ -21,18 +21,18 @@ export const COLABORADORES_CSV_MASIVO_CHUNK_DEFAULT = 500;
 export const COLABORADORES_CSV_MASIVO_CHUNK_MAX = 2000;
 export const COLABORADORES_CSV_MASIVO_FILAS_MAX = 2000;
 
-function normalizeNo(no: string): string {
-  return no.trim().toUpperCase();
+function normalizeNo(no: string | undefined | null): string {
+  return String(no ?? "").trim().toUpperCase();
 }
 
 function g(m: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
   return (m[k] ?? "").trim();
 }
 
-function pickStr(csv: string, prev?: string): string {
-  const t = csv.trim();
+function pickStr(csv: string | undefined | null, prev?: string | null): string {
+  const t = String(csv ?? "").trim();
   if (t) return t;
-  return (prev ?? "").trim();
+  return String(prev ?? "").trim();
 }
 
 function beneficiarioNorm(s: string): "SI" | "NO" {
