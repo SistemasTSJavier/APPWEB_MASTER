@@ -63,6 +63,8 @@ export async function POST(req: Request) {
       lotes: result.lotes,
       filasCsvValidas: result.filasCsvValidas,
       duplicateNosMerged: result.duplicateNosMerged,
+      resolvedByNombre: result.resolvedByNombre,
+      avisos: result.avisos,
       maxFilasPorArchivo: COLABORADORES_CSV_MASIVO_FILAS_MAX,
     });
   } catch (e) {

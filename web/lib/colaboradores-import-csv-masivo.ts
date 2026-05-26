@@ -15,6 +15,14 @@ import {
 } from "@/lib/altas-import-omision-servicio";
 import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 import { fetchAllColaboradoresDbRows } from "@/lib/colaboradores-supabase-fetch-all";
+import { nombreCompletoDesdePartes } from "@/lib/altas-form-catalogo";
+import { normalizarNombreParaCoincidencia } from "@/lib/altas-coincidencia-nombre";
+import {
+  AutoNoEmpleadoImportMasivo,
+  buildColaboradoresImportIndexes,
+  resolverIdentidadFilaImportMasivo,
+  type ColaboradoresImportIndexes,
+} from "@/lib/colaboradores-import-identidad";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hintSupabaseClientError } from "@/lib/supabase/admin";
 import { dedupeColaboradoresUpsertLastWins } from "@/lib/colaboradores-upsert-dedupe";
@@ -22,10 +30,6 @@ import { dedupeColaboradoresUpsertLastWins } from "@/lib/colaboradores-upsert-de
 export const COLABORADORES_CSV_MASIVO_CHUNK_DEFAULT = 500;
 export const COLABORADORES_CSV_MASIVO_CHUNK_MAX = 2000;
 export const COLABORADORES_CSV_MASIVO_FILAS_MAX = 2000;
-
-function normalizeNo(no: string | undefined | null): string {
-  return String(no ?? "").trim().toUpperCase();
-}
 
 function g(m: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
   return (m[k] ?? "").trim();
@@ -155,9 +159,13 @@ function mergeAltasForm(
 function nombreCompletoFrom(fieldMap: Partial<Record<CsvFieldKey, string>>, form: Record<string, string>): string {
   let n = g(fieldMap, "nombreCompleto") || form.nombreCompleto?.trim() || "";
   if (!n) {
-    n = [form.nombres, form.apellidoPaterno, form.apellidoMaterno].filter(Boolean).join(" ").trim();
+    n = nombreCompletoDesdePartes(
+      g(fieldMap, "apellidoPaterno") || form.apellidoPaterno || "",
+      g(fieldMap, "apellidoMaterno") || form.apellidoMaterno || "",
+      g(fieldMap, "nombres") || form.nombres || "",
+    );
   }
-  return n;
+  return n.trim();
 }
 
 function buildFamiliaresClasico(m: Partial<Record<CsvFieldKey, string>>): FamiliarGuardado[] {
@@ -176,29 +184,42 @@ function buildFamiliaresClasico(m: Partial<Record<CsvFieldKey, string>>): Famili
 
 export type ColaboradoresCsvMasivoOptions = {
   preserveMoper?: boolean;
-  /** Si true, mezcla cada fila con el expediente ya guardado (requiere mapa previo). */
+  /** Si true, mezcla cada fila con el expediente ya guardado (requiere índice previo). */
   mergeExisting?: boolean;
   chunkSize?: number;
   existingByNo?: Map<string, ColaboradorCompleto>;
+  /** Expedientes ya en BD (para coincidencia por nombre y reutilizar N°). */
+  existingList?: ColaboradorCompleto[];
 };
 
 export type ColaboradoresCsvMasivoResult = AltasCsvImportResult & {
   lotes: number;
   filasProcesadas: number;
-  /** Filas del CSV que generaron payload (antes de deduplicar por N°). */
   filasCsvValidas: number;
-  /** Filas con el mismo N° que otra en el CSV; se guardó una sola vez (última fila gana). */
   duplicateNosMerged: number;
+  /** Filas cuyo N° se resolvió por nombre (BD o mismo CSV). */
+  resolvedByNombre: number;
+  avisos: Array<{ row: number; message: string }>;
 };
 
 /** Parsea CSV a payloads sin persistir (para pruebas o lotes en servidor). */
 export function parseColaboradoresCsvMasivo(
   text: string,
   options?: ColaboradoresCsvMasivoOptions,
-): { payloads: ColaboradorCompleto[]; skippedEmpty: number; errors: Array<{ row: number; message: string }> } {
+): {
+  payloads: ColaboradorCompleto[];
+  skippedEmpty: number;
+  errors: Array<{ row: number; message: string }>;
+  avisos: Array<{ row: number; message: string }>;
+  resolvedByNombre: number;
+} {
   const preserveMoper = options?.preserveMoper !== false;
   const mergeExisting = options?.mergeExisting === true;
-  const existingByNo = options?.existingByNo ?? new Map();
+  const existingList = options?.existingList ?? [];
+  const indexes: ColaboradoresImportIndexes =
+    options?.existingByNo && options.existingByNo.size > 0
+      ? buildColaboradoresImportIndexes([...options.existingByNo.values()])
+      : buildColaboradoresImportIndexes(existingList);
 
   const stripped = text.replace(/^\uFEFF/, "");
   const rows = parseCsvContent(stripped);
@@ -207,6 +228,8 @@ export function parseColaboradoresCsvMasivo(
       payloads: [],
       skippedEmpty: 0,
       errors: [{ row: 1, message: "EL ARCHIVO NO TIENE FILAS DE DATOS (MINIMO: ENCABEZADOS + 1 FILA)." }],
+      avisos: [],
+      resolvedByNombre: 0,
     };
   }
 
@@ -220,6 +243,8 @@ export function parseColaboradoresCsvMasivo(
           message: `MAXIMO ${COLABORADORES_CSV_MASIVO_FILAS_MAX} FILAS POR ARCHIVO. DIVIDE EL CSV O IMPORTA EN DOS TANDAS.`,
         },
       ],
+      avisos: [],
+      resolvedByNombre: 0,
     };
   }
 
@@ -230,7 +255,11 @@ export function parseColaboradoresCsvMasivo(
 
   const payloads: ColaboradorCompleto[] = [];
   let skippedEmpty = 0;
+  let resolvedByNombre = 0;
   const errors: Array<{ row: number; message: string }> = [];
+  const avisos: Array<{ row: number; message: string }> = [];
+  const loteByNombre = new Map<string, string>();
+  const autoNo = new AutoNoEmpleadoImportMasivo(existingList);
 
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
@@ -241,30 +270,55 @@ export function parseColaboradoresCsvMasivo(
 
     const fieldMap = omitServicioPosicionEnImportPick(rowToFieldMap(cells, fieldIndex));
     const formExtras = formRecordSinServicioPosicionImport(collectFormCells(cells, formColIx));
-    const ultimoServicioExplicitDesdeFila =
-      g(fieldMap, "ultimoServicio").trim() || (formExtras.ultimoServicio ?? "").trim();
+    let formPartial = mergeAltasForm(fieldMap, formExtras);
+    const rowLabel = r + 1;
+
+    const nombreCompleto = nombreCompletoFrom(fieldMap, formPartial);
+    if (!nombreCompleto.trim()) {
+      errors.push({
+        row: rowLabel,
+        message: "SIN NOMBRE (NOMBRE_COMPLETO O NOMBRES+APELLIDOS).",
+      });
+      continue;
+    }
+    formPartial.nombreCompleto = nombreCompleto;
 
     const noRaw =
       g(fieldMap, "noEmpleado").trim() || formExtras.noEmpleado1?.trim() || formExtras.NO_EMPLEADO1?.trim() || "";
-    const no = normalizeNo(noRaw);
-    const rowLabel = r + 1;
 
-    if (!no) {
-      errors.push({ row: rowLabel, message: "SIN N° DE EMPLEADO." });
+    const identidad = resolverIdentidadFilaImportMasivo({
+      nombreCompleto,
+      noCsv: noRaw,
+      fieldMap,
+      indexes,
+      loteByNombre,
+      autoNo,
+      rowLabel,
+    });
+
+    if (!identidad) {
+      errors.push({ row: rowLabel, message: "NO SE PUDO IDENTIFICAR EXPEDIENTE (NOMBRE DEMASIADO CORTO Y SIN N°/CURP/IMSS)." });
       continue;
     }
 
-    const existing = mergeExisting ? (existingByNo.get(no) ?? null) : null;
-    let formPartial = mergeAltasForm(fieldMap, formExtras);
+    if (identidad.matchedBy === "nombre_bd" || identidad.matchedBy === "nombre_lote") {
+      resolvedByNombre += 1;
+    }
+    if (identidad.aviso) {
+      avisos.push({ row: rowLabel, message: identidad.aviso });
+    }
+
+    const no = identidad.noEmpleado;
+    const existingDb = identidad.existing;
+    const existing = mergeExisting ? existingDb : null;
     formPartial = mergeFormPreserve(existing?.form ?? {}, formPartial);
     formPartial.noEmpleado1 = no;
 
-    const nombreCompleto = nombreCompletoFrom(fieldMap, formPartial);
+    loteByNombre.set(normalizarNombreParaCoincidencia(nombreCompleto), no);
+
     const nombreFinal = pickStr(nombreCompleto, existing?.nombreCompleto ?? "");
-    if (!nombreFinal) {
-      errors.push({ row: rowLabel, message: "SIN NOMBRE (NOMBRE_COMPLETO O NOMBRES+APELLIDOS)." });
-      continue;
-    }
+    const ultimoServicioExplicitDesdeFila =
+      g(fieldMap, "ultimoServicio").trim() || (formExtras.ultimoServicio ?? "").trim();
 
     const servicioCsv = ALTAS_IMPORT_OMITE_SERVICIO_POSICION
       ? String(existing?.servicioAsignado ?? "").trim()
@@ -272,7 +326,7 @@ export function parseColaboradoresCsvMasivo(
     const puestoCsv = pickStr(formPartial.puesto, existing?.puesto ?? "");
     const mergedMoper = mergeMoperEnImportColaboradorCsv({
       preserveMoper,
-      existing,
+      existing: preserveMoper ? existingDb : existing,
       csvUltimoServicioExplicit: ultimoServicioExplicitDesdeFila,
       servicioCsv,
       puestoCsv,
@@ -316,7 +370,7 @@ export function parseColaboradoresCsvMasivo(
     );
   }
 
-  return { payloads, skippedEmpty, errors };
+  return { payloads, skippedEmpty, errors, avisos, resolvedByNombre };
 }
 
 async function persistChunks(
@@ -348,20 +402,17 @@ export async function importColaboradoresCsvMasivoEnServidor(
     Math.max(50, options?.chunkSize ?? COLABORADORES_CSV_MASIVO_CHUNK_DEFAULT),
   );
 
-  let existingByNo = options?.existingByNo;
-  if (options?.mergeExisting && !existingByNo) {
+  let existingList = options?.existingList;
+  if (!existingList) {
     const dbRows = await fetchAllColaboradoresDbRows(admin);
-    existingByNo = new Map();
-    for (const row of dbRows) {
-      const no = String(row.no_empleado ?? "").trim().toUpperCase();
-      const raw = row.data as ColaboradorCompleto;
-      if (no && raw) existingByNo.set(no, raw);
-    }
+    existingList = dbRows
+      .map((row) => row.data as ColaboradorCompleto)
+      .filter((c) => c && String(c.noEmpleado ?? "").trim());
   }
 
   const parsed = parseColaboradoresCsvMasivo(csvText, {
     ...options,
-    existingByNo: existingByNo ?? new Map(),
+    existingList,
   });
 
   if (parsed.errors.some((e) => e.row === 0)) {
@@ -373,6 +424,8 @@ export async function importColaboradoresCsvMasivoEnServidor(
       filasProcesadas: 0,
       duplicateNosMerged: 0,
       filasCsvValidas: 0,
+      resolvedByNombre: 0,
+      avisos: parsed.avisos,
     };
   }
 
@@ -386,9 +439,11 @@ export async function importColaboradoresCsvMasivoEnServidor(
     imported: payloadsUnicos.length,
     skippedEmpty: parsed.skippedEmpty,
     errors: parsed.errors,
+    avisos: parsed.avisos,
     lotes,
     filasProcesadas: parsed.payloads.length + parsed.skippedEmpty + parsed.errors.length,
     filasCsvValidas: parsed.payloads.length,
     duplicateNosMerged: duplicateRowsMerged,
+    resolvedByNombre: parsed.resolvedByNombre,
   };
 }

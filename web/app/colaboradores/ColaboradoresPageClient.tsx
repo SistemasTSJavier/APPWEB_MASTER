@@ -105,7 +105,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
     skippedEmpty: number;
     lotes: number;
     duplicateNosMerged: number;
+    resolvedByNombre: number;
     errores: Array<{ row: number; message: string }>;
+    avisos: Array<{ row: number; message: string }>;
   } | null>(null);
   const [columnaCsvDetalle, setColumnaCsvDetalle] = useState<{
     dataFieldKey: string;
@@ -247,6 +249,8 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         skippedEmpty?: number;
         lotes?: number;
         duplicateNosMerged?: number;
+        resolvedByNombre?: number;
+        avisos?: Array<{ row: number; message: string }>;
         errors?: Array<{ row: number; message: string }>;
       } = {};
       try {
@@ -263,7 +267,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         skippedEmpty: Number(j.skippedEmpty ?? 0),
         lotes: Number(j.lotes ?? 0),
         duplicateNosMerged: Number(j.duplicateNosMerged ?? 0),
+        resolvedByNombre: Number(j.resolvedByNombre ?? 0),
         errores: Array.isArray(j.errors) ? j.errors : [],
+        avisos: Array.isArray(j.avisos) ? j.avisos : [],
       });
       setMasivoCsvMsg("IMPORTACION MASIVA TERMINADA.");
       await recargarColaboradores();
@@ -473,8 +479,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
               <a className="font-bold text-emerald-900 underline" href="/plantillas/empleado_completo.csv" download>
                 empleado_completo.csv
               </a>
-              ). Hasta <strong>2.000 filas</strong> por archivo; el servidor guarda en lotes. Para cargas historicas grandes (1.000–2.000+), deja desmarcado{" "}
-              <strong>Mezclar con expediente existente</strong> (mas rapido). Usa <strong>Importar una columna</strong> arriba si solo actualizas un campo.
+              ). Hasta <strong>2.000 filas</strong> por archivo. La identificación prioriza{" "}
+              <strong>nombre completo</strong> (o nombres + apellidos) sobre el N° de empleado; si falta N°, se busca coincidencia en BD, luego CURP/IMSS/RFC o N° auto.
+              Para cargas historicas deja desmarcado <strong>Mezclar con expediente existente</strong> (sobrescribe campos vacios del CSV).
             </p>
             <div className="flex flex-wrap gap-4 text-xs font-semibold uppercase text-slate-800">
               <label className="flex cursor-pointer items-center gap-2">
@@ -523,6 +530,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">
                 <ul className="list-inside list-disc space-y-0.5 font-semibold uppercase">
                   <li>Expedientes guardados (N° unicos): {masivoCsvDetalle.imported}</li>
+                  {masivoCsvDetalle.resolvedByNombre > 0 ? (
+                    <li>Filas identificadas por nombre (N° reutilizado o corregido): {masivoCsvDetalle.resolvedByNombre}</li>
+                  ) : null}
                   {masivoCsvDetalle.filasCsvValidas > masivoCsvDetalle.imported ? (
                     <li className="text-amber-900">
                       Filas validas en CSV: {masivoCsvDetalle.filasCsvValidas} (diferencia por N° repetidos u omitidos)
@@ -537,6 +547,19 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                   ) : null}
                   <li>Lotes guardados en servidor: {masivoCsvDetalle.lotes}</li>
                 </ul>
+                {masivoCsvDetalle.avisos.length > 0 ? (
+                  <div className="mt-2 border-t border-slate-100 pt-2">
+                    <p className="font-bold uppercase text-sky-900">Avisos (fila importada)</p>
+                    <ul className="mt-1 max-h-32 overflow-y-auto font-mono text-[11px] font-medium normal-case text-sky-950">
+                      {masivoCsvDetalle.avisos.slice(0, 40).map((a) => (
+                        <li key={`${a.row}-${a.message}`}>{a.message}</li>
+                      ))}
+                      {masivoCsvDetalle.avisos.length > 40 ? (
+                        <li className="font-sans font-bold uppercase">… y {masivoCsvDetalle.avisos.length - 40} mas</li>
+                      ) : null}
+                    </ul>
+                  </div>
+                ) : null}
                 {masivoCsvDetalle.errores.length > 0 ? (
                   <div className="mt-2 border-t border-slate-100 pt-2">
                     <p className="font-bold uppercase text-amber-900">Filas con error (no importadas)</p>
