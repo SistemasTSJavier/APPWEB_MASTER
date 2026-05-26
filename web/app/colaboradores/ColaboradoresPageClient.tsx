@@ -103,6 +103,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
     imported: number;
     skippedEmpty: number;
     lotes: number;
+    duplicateNosMerged: number;
     errores: Array<{ row: number; message: string }>;
   } | null>(null);
   const [columnaCsvDetalle, setColumnaCsvDetalle] = useState<{
@@ -243,6 +244,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         imported?: number;
         skippedEmpty?: number;
         lotes?: number;
+        duplicateNosMerged?: number;
         errors?: Array<{ row: number; message: string }>;
       } = {};
       try {
@@ -257,6 +259,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         imported: Number(j.imported ?? 0),
         skippedEmpty: Number(j.skippedEmpty ?? 0),
         lotes: Number(j.lotes ?? 0),
+        duplicateNosMerged: Number(j.duplicateNosMerged ?? 0),
         errores: Array.isArray(j.errors) ? j.errors : [],
       });
       setMasivoCsvMsg("IMPORTACION MASIVA TERMINADA.");
@@ -518,6 +521,12 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                 <ul className="list-inside list-disc space-y-0.5 font-semibold uppercase">
                   <li>Expedientes importados o actualizados: {masivoCsvDetalle.imported}</li>
                   <li>Filas vacias omitidas: {masivoCsvDetalle.skippedEmpty}</li>
+                  {masivoCsvDetalle.duplicateNosMerged > 0 ? (
+                    <li className="text-amber-900">
+                      Filas con N° de empleado repetido en el archivo (se guardó la última):{" "}
+                      {masivoCsvDetalle.duplicateNosMerged}
+                    </li>
+                  ) : null}
                   <li>Lotes guardados en servidor: {masivoCsvDetalle.lotes}</li>
                 </ul>
                 {masivoCsvDetalle.errores.length > 0 ? (

@@ -16,6 +16,7 @@ import {
 import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hintSupabaseClientError } from "@/lib/supabase/admin";
+import { dedupeColaboradoresUpsertLastWins } from "@/lib/colaboradores-upsert-dedupe";
 
 export const COLABORADORES_CSV_MASIVO_CHUNK_DEFAULT = 500;
 export const COLABORADORES_CSV_MASIVO_CHUNK_MAX = 2000;
@@ -183,6 +184,8 @@ export type ColaboradoresCsvMasivoOptions = {
 export type ColaboradoresCsvMasivoResult = AltasCsvImportResult & {
   lotes: number;
   filasProcesadas: number;
+  /** Filas con el mismo N° que otra en el CSV; se guardó una sola vez (última fila gana). */
+  duplicateNosMerged: number;
 };
 
 /** Parsea CSV a payloads sin persistir (para pruebas o lotes en servidor). */
@@ -366,19 +369,22 @@ export async function importColaboradoresCsvMasivoEnServidor(
       errors: parsed.errors,
       lotes: 0,
       filasProcesadas: 0,
+      duplicateNosMerged: 0,
     };
   }
 
-  const lotes = parsed.payloads.length > 0 ? Math.ceil(parsed.payloads.length / chunkSize) : 0;
-  if (parsed.payloads.length > 0) {
-    await persistChunks(admin, parsed.payloads, chunkSize);
+  const { unique: payloadsUnicos, duplicateRowsMerged } = dedupeColaboradoresUpsertLastWins(parsed.payloads);
+  const lotes = payloadsUnicos.length > 0 ? Math.ceil(payloadsUnicos.length / chunkSize) : 0;
+  if (payloadsUnicos.length > 0) {
+    await persistChunks(admin, payloadsUnicos, chunkSize);
   }
 
   return {
-    imported: parsed.payloads.length,
+    imported: payloadsUnicos.length,
     skippedEmpty: parsed.skippedEmpty,
     errors: parsed.errors,
     lotes,
     filasProcesadas: parsed.payloads.length + parsed.skippedEmpty + parsed.errors.length,
+    duplicateNosMerged: duplicateRowsMerged,
   };
 }

@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores } from "@/lib/app-role";
+import { dedupeColaboradoresUpsertLastWins } from "@/lib/colaboradores-upsert-dedupe";
 
 export const dynamic = "force-dynamic";
 
@@ -69,18 +70,17 @@ export async function POST(req: Request) {
   }
 
   const now = new Date().toISOString();
-  const rows = items.map((raw) => {
-    const p = normalizePayload(raw);
-    return {
-      no_empleado: p.noEmpleado,
-      data: p as unknown as Record<string, unknown>,
-      updated_at: now,
-    };
-  });
+  const normalized = items.map((raw) => normalizePayload(raw));
+  const { unique, duplicateRowsMerged } = dedupeColaboradoresUpsertLastWins(normalized);
+  const rows = unique.map((p) => ({
+    no_empleado: p.noEmpleado,
+    data: p as unknown as Record<string, unknown>,
+    updated_at: now,
+  }));
 
   const { error } = await admin.from("colaboradores").upsert(rows, { onConflict: "no_empleado" });
   if (error) {
     return NextResponse.json({ error: hintSupabaseClientError(error.message) }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, count: rows.length });
+  return NextResponse.json({ ok: true, count: rows.length, duplicateNosMerged: duplicateRowsMerged });
 }
