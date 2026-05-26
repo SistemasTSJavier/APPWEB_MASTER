@@ -95,6 +95,16 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
 
   const [columnaCsvBusy, setColumnaCsvBusy] = useState(false);
   const [columnaCsvMsg, setColumnaCsvMsg] = useState<string | null>(null);
+  const [masivoCsvBusy, setMasivoCsvBusy] = useState(false);
+  const [masivoCsvMsg, setMasivoCsvMsg] = useState<string | null>(null);
+  const [masivoCsvMergeExisting, setMasivoCsvMergeExisting] = useState(false);
+  const [masivoCsvPreserveMoper, setMasivoCsvPreserveMoper] = useState(true);
+  const [masivoCsvDetalle, setMasivoCsvDetalle] = useState<{
+    imported: number;
+    skippedEmpty: number;
+    lotes: number;
+    errores: Array<{ row: number; message: string }>;
+  } | null>(null);
   const [columnaCsvDetalle, setColumnaCsvDetalle] = useState<{
     dataFieldKey: string;
     dataHeaderLabel: string;
@@ -162,7 +172,14 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ csvText: text }),
       });
-      const j = (await r.json().catch(() => ({}))) as {
+      const rawBody = await r.text();
+      const contentType = r.headers.get("content-type") ?? "";
+      if (contentType.includes("text/html")) {
+        throw new Error(
+          "LA RUTA API NO RESPONDE (404 HTML). USA /colaboradores Y REINICIA npm run dev EN LA CARPETA web.",
+        );
+      }
+      let j: {
         error?: string;
         ok?: boolean;
         dataFieldKey?: string;
@@ -171,7 +188,12 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         ignoradosNoExiste?: number;
         filasVaciasOsinDato?: number;
         errores?: Array<{ row: number; message: string }>;
-      };
+      } = {};
+      try {
+        j = JSON.parse(rawBody || "{}") as typeof j;
+      } catch {
+        j = {};
+      }
       if (!r.ok) {
         throw new Error(j.error ?? `Error ${r.status}`);
       }
@@ -189,6 +211,60 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
       setColumnaCsvMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL IMPORTAR CSV.");
     } finally {
       setColumnaCsvBusy(false);
+    }
+  }
+
+  async function importarCsvMasivoDesdeArchivo(file: File | null) {
+    if (!file) return;
+    setMasivoCsvBusy(true);
+    setMasivoCsvMsg(null);
+    setMasivoCsvDetalle(null);
+    try {
+      const text = await file.text();
+      const r = await fetch("/api/colaboradores/import-csv-masivo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          csvText: text,
+          preserveMoper: masivoCsvPreserveMoper,
+          mergeExisting: masivoCsvMergeExisting,
+        }),
+      });
+      const rawBody = await r.text();
+      const contentType = r.headers.get("content-type") ?? "";
+      if (contentType.includes("text/html")) {
+        throw new Error(
+          "LA RUTA API NO RESPONDE (404 HTML). ABRE EL MODULO EN /colaboradores (NO /api/colaboradores). REINICIA npm run dev DENTRO DE LA CARPETA web.",
+        );
+      }
+      let j: {
+        error?: string;
+        ok?: boolean;
+        imported?: number;
+        skippedEmpty?: number;
+        lotes?: number;
+        errors?: Array<{ row: number; message: string }>;
+      } = {};
+      try {
+        j = JSON.parse(rawBody || "{}") as typeof j;
+      } catch {
+        j = {};
+      }
+      if (!r.ok) {
+        throw new Error(j.error ?? `Error ${r.status}`);
+      }
+      setMasivoCsvDetalle({
+        imported: Number(j.imported ?? 0),
+        skippedEmpty: Number(j.skippedEmpty ?? 0),
+        lotes: Number(j.lotes ?? 0),
+        errores: Array.isArray(j.errors) ? j.errors : [],
+      });
+      setMasivoCsvMsg("IMPORTACION MASIVA TERMINADA.");
+      await recargarColaboradores();
+    } catch (e) {
+      setMasivoCsvMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL IMPORTAR CSV MASIVO.");
+    } finally {
+      setMasivoCsvBusy(false);
     }
   }
 
@@ -375,6 +451,87 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                           Fila {err.row}: {err.message}
                         </li>
                       ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {puedeEditar ? (
+          <section className="card mb-4 space-y-3 border border-emerald-200 bg-emerald-50/40">
+            <h2 className="text-sm font-bold uppercase text-slate-900">Importar expedientes completos (CSV masivo)</h2>
+            <p className="text-xs font-medium leading-relaxed text-slate-700">
+              Un solo archivo con las <strong>5 partes del expediente</strong> (mismas columnas que Altas / plantilla{" "}
+              <a className="font-bold text-emerald-900 underline" href="/plantillas/empleado_completo.csv" download>
+                empleado_completo.csv
+              </a>
+              ). Hasta <strong>2.000 filas</strong> por archivo; el servidor guarda en lotes. Para cargas historicas grandes (1.000–2.000+), deja desmarcado{" "}
+              <strong>Mezclar con expediente existente</strong> (mas rapido). Usa <strong>Importar una columna</strong> arriba si solo actualizas un campo.
+            </p>
+            <div className="flex flex-wrap gap-4 text-xs font-semibold uppercase text-slate-800">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={masivoCsvPreserveMoper}
+                  disabled={masivoCsvBusy}
+                  onChange={(e) => setMasivoCsvPreserveMoper(e.target.checked)}
+                />
+                Conservar linea MOPER vigente si el CSV no trae ULTIMO_SERVICIO
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={masivoCsvMergeExisting}
+                  disabled={masivoCsvBusy}
+                  onChange={(e) => setMasivoCsvMergeExisting(e.target.checked)}
+                />
+                Mezclar con expediente existente (reimportacion parcial)
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                disabled={masivoCsvBusy}
+                className="max-w-full text-sm font-medium text-slate-800 file:mr-2 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-bold file:uppercase"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  e.target.value = "";
+                  void importarCsvMasivoDesdeArchivo(f);
+                }}
+              />
+              {masivoCsvBusy ? <span className="text-xs font-bold uppercase text-slate-600">Procesando en servidor…</span> : null}
+            </div>
+            {masivoCsvMsg ? (
+              <p
+                className={`text-xs font-bold uppercase ${
+                  masivoCsvMsg.includes("ERROR") || masivoCsvMsg.includes("NO ") ? "text-red-800" : "text-emerald-900"
+                }`}
+              >
+                {masivoCsvMsg}
+              </p>
+            ) : null}
+            {masivoCsvDetalle ? (
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">
+                <ul className="list-inside list-disc space-y-0.5 font-semibold uppercase">
+                  <li>Expedientes importados o actualizados: {masivoCsvDetalle.imported}</li>
+                  <li>Filas vacias omitidas: {masivoCsvDetalle.skippedEmpty}</li>
+                  <li>Lotes guardados en servidor: {masivoCsvDetalle.lotes}</li>
+                </ul>
+                {masivoCsvDetalle.errores.length > 0 ? (
+                  <div className="mt-2 border-t border-slate-100 pt-2">
+                    <p className="font-bold uppercase text-amber-900">Filas con error (no importadas)</p>
+                    <ul className="mt-1 max-h-40 overflow-y-auto font-mono text-[11px] font-medium normal-case text-amber-950">
+                      {masivoCsvDetalle.errores.slice(0, 80).map((err) => (
+                        <li key={`${err.row}-${err.message}`}>
+                          Fila {err.row}: {err.message}
+                        </li>
+                      ))}
+                      {masivoCsvDetalle.errores.length > 80 ? (
+                        <li className="font-sans font-bold uppercase">… y {masivoCsvDetalle.errores.length - 80} mas</li>
+                      ) : null}
                     </ul>
                   </div>
                 ) : null}
