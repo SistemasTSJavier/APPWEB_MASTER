@@ -12,6 +12,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
  * - aux_legal / gerente_legal: Colaboradores, Expedientes legal e historial MOPER solo consulta.
  * - editor_cuadricula: inicio, Bajas, Colaboradores y MOPER solo consulta; Cuadrícula con captura/guardado e import CSV.
+ * - capacitacion: inicio y sección Categorización únicamente.
  */
 export type AppRole =
   | "admin"
@@ -22,7 +23,8 @@ export type AppRole =
   | "aux_rh"
   | "aux_legal"
   | "gerente_legal"
-  | "editor_cuadricula";
+  | "editor_cuadricula"
+  | "capacitacion";
 
 /** Correos previstos para usuarios legales (referencia al crear usuarios en Supabase). */
 export const AUX_LEGAL_EMAIL = "auxlegal@tacticalsupport.com.mx";
@@ -30,6 +32,9 @@ export const GERENTE_LEGAL_EMAIL = "gerentelegal@tacticalsupport.com.mx";
 
 /** Coordinador centro de control: editor de cuadrícula (metadata app_role: editor_cuadricula). */
 export const EDITOR_CUADRICULA_EMAIL = "coordinadorcentrodecontrol@tacticalsupport.com.mx";
+
+/** Usuario de capacitación: acceso a Categorización (metadata app_role: capacitacion o correo autorizado). */
+export const CAPACITACION_EMAIL = "capacitacion@tacticalsupport.com.mx";
 
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -59,6 +64,9 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   "editor cuadrícula": "editor_cuadricula",
   coordinador_centro_control: "editor_cuadricula",
   "coordinador centro de control": "editor_cuadricula",
+  capacitacion: "capacitacion",
+  capacitación: "capacitacion",
+  "capacitacion rh": "capacitacion",
 };
 
 export function parseAppRole(raw: unknown): AppRole | null {
@@ -77,6 +85,7 @@ export const APP_ROLE_LABEL: Record<AppRole, string> = {
   aux_legal: "Aux legal",
   gerente_legal: "Gerente legal",
   editor_cuadricula: "Editor cuadrícula",
+  capacitacion: "Capacitación",
 };
 
 /** Primera sección de la ruta, p. ej. `/colaboradores/xxx` → `/colaboradores` */
@@ -88,7 +97,18 @@ export function routeSection(pathname: string): string {
 }
 
 const SECTION_ROLES: Record<string, readonly AppRole[]> = {
-  "/": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
+  "/": [
+    "admin",
+    "rh",
+    "aux_rh",
+    "gerente_rh",
+    "mejora_continua",
+    "nominas",
+    "aux_legal",
+    "gerente_legal",
+    "editor_cuadricula",
+    "capacitacion",
+  ],
   "/altas": ["admin", "rh", "aux_rh"],
   "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "editor_cuadricula"],
   "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
@@ -98,6 +118,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/servicios": ["admin", "rh", "aux_rh"],
   "/sgc": ["admin", "mejora_continua"],
   "/gestores-proceso": ["admin", "gerente_rh"],
+  "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
 };
 
 /** Único usuario RRHH con acceso legacy a Ficha técnica por correo (además de admin y roles ampliados). */
@@ -110,11 +131,21 @@ export function mayAccessFichaTecnica(role: AppRole, email: string | null | unde
   return false;
 }
 
+/** Categorización: admin, gerente RH, rol capacitacion o correo capacitacion@tacticalsupport.com.mx */
+export function roleMayAccessCategorizacion(role: AppRole, email?: string | null): boolean {
+  if (role === "admin" || role === "gerente_rh" || role === "capacitacion") return true;
+  const e = (email ?? "").trim().toLowerCase();
+  return e === CAPACITACION_EMAIL.toLowerCase();
+}
+
 export function canAccessPath(role: AppRole, pathname: string, userEmail?: string | null): boolean {
   if (pathname.startsWith("/auth/signout")) return true;
   const sec = routeSection(pathname);
   if (sec === "/ficha-tecnica") {
     return mayAccessFichaTecnica(role, userEmail);
+  }
+  if (sec === "/categorizacion") {
+    return roleMayAccessCategorizacion(role, userEmail);
   }
   const allowed = SECTION_ROLES[sec];
   if (!allowed) return role === "admin";
@@ -285,6 +316,10 @@ export function roleMayAccessGestoresProceso(role: AppRole): boolean {
 
 /** Enlaces del panel lateral en la página de inicio (según rol). */
 export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { href: string; label: string }[] {
+  if (role === "capacitacion") {
+    return [{ href: "/categorizacion", label: "Categorización" }];
+  }
+
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
     { href: "/servicios", label: "Servicios", roles: ["admin", "rh", "aux_rh"] },
@@ -316,10 +351,16 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       label: "Gestores proceso",
       roles: ["admin", "gerente_rh"],
     },
+    {
+      href: "/categorizacion",
+      label: "Categorización",
+      roles: ["admin", "gerente_rh", "capacitacion"],
+    },
   ];
   return items.filter((i) => {
     if (role === "admin") return true;
     if (i.href === "/ficha-tecnica") return mayAccessFichaTecnica(role, userEmail);
+    if (i.href === "/categorizacion") return roleMayAccessCategorizacion(role, userEmail);
     return i.roles.includes(role);
   });
 }

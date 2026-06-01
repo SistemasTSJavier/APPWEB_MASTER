@@ -20,11 +20,10 @@ import {
 import { downloadCsv } from "@/lib/colaboradores-csv";
 import type { AppRole } from "@/lib/app-role";
 import { roleMayWriteAltas } from "@/lib/app-role";
-import { aplicarUnSoloCampoColaborador } from "@/lib/altas-un-campo";
 import {
   generarPlantillaCorreccionCsvDosColumnas,
-  parseCorreccionCsvDosColumnas,
 } from "@/lib/altas-csv-correccion-dos-columnas";
+import { generarPlantillaRenumeracionCsv } from "@/lib/altas-csv-renumeracion";
 import {
   findColaboradoresNombreCoincideConBaja,
   fechaBajaNormalizadaColaborador,
@@ -80,6 +79,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   const puedeEditarAltas = roleMayWriteAltas(appRole);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const csvCorreccionDosRef = useRef<HTMLInputElement>(null);
+  const csvRenumeracionRef = useRef<HTMLInputElement>(null);
   const [preserveMoperEnImport, setPreserveMoperEnImport] = useState(true);
   const [csvModo, setCsvModo] = useState<"completo" | "parte">("parte");
   const [csvParteNum, setCsvParteNum] = useState<number>(1);
@@ -208,6 +208,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
 
   const [correccionCsvMsg, setCorreccionCsvMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [correccionCsvBusy, setCorreccionCsvBusy] = useState(false);
+  const [renumeracionCsvMsg, setRenumeracionCsvMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [renumeracionCsvBusy, setRenumeracionCsvBusy] = useState(false);
 
   const [catalogoVacantes, setCatalogoVacantes] = useState<VacanteRegistro[]>([]);
   const [vacantesHydrated, setVacantesHydrated] = useState(false);
@@ -601,32 +603,42 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     setCorreccionCsvBusy(true);
     try {
       const text = await file.text();
-      const parsed = parseCorreccionCsvDosColumnas(text);
-      if (!parsed.ok) {
-        setCorreccionCsvMsg({ ok: false, text: parsed.errors.join(" ") });
-        return;
+      const r = await fetch("/api/colaboradores/import-correccion-dos-columnas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csvText: text }),
+      });
+      const rawBody = await r.text();
+      const contentType = r.headers.get("content-type") ?? "";
+      if (contentType.includes("text/html")) {
+        throw new Error(
+          "LA RUTA API NO RESPONDE (404 HTML). REINICIA npm run dev EN LA CARPETA web.",
+        );
       }
-      let ok = 0;
-      const rowErrs: string[] = [];
-      const campo = parsed.fieldKey;
-      for (const { noEmpleado, valor } of parsed.rows) {
-        try {
-          const existing = await findColaboradorCompletoByNo(noEmpleado);
-          if (!existing) {
-            rowErrs.push(`${noEmpleado}: SIN EXPEDIENTE`);
-            continue;
-          }
-          const next = aplicarUnSoloCampoColaborador(existing, campo, valor);
-          await upsertColaboradorCompleto({
-            ...next,
-            registeredAt: existing.registeredAt,
-          });
-          ok++;
-        } catch (err) {
-          rowErrs.push(`${noEmpleado}: ${err instanceof Error ? err.message : String(err)}`);
-        }
+      let j: {
+        error?: string;
+        ok?: boolean;
+        fieldKey?: string;
+        actualizados?: number;
+        sinExpediente?: number;
+        avisos?: string[];
+      } = {};
+      try {
+        j = JSON.parse(rawBody || "{}") as typeof j;
+      } catch {
+        j = {};
       }
-      const base = `CAMPO "${campo}": ${ok} EXPEDIENTE(S) ACTUALIZADO(S).`;
+      if (!r.ok) {
+        throw new Error(j.error ?? `Error ${r.status}`);
+      }
+      listadoColaboradoresCacheRef.current = null;
+      const campo = String(j.fieldKey ?? "");
+      const ok = Number(j.actualizados ?? 0);
+      const sinExp = Number(j.sinExpediente ?? 0);
+      const rowErrs = Array.isArray(j.avisos) ? j.avisos : [];
+      const base = `CAMPO "${campo}": ${ok} EXPEDIENTE(S) ACTUALIZADO(S).${
+        sinExp > 0 ? ` ${sinExp} SIN EXPEDIENTE (IGNORADOS).` : ""
+      }`;
       if (rowErrs.length === 0) {
         setCorreccionCsvMsg({ ok: true, text: base });
       } else {
@@ -647,6 +659,63 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     }
   }
 
+  async function handleRenumeracionCsv(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!puedeEditarAltas) {
+      setRenumeracionCsvMsg({ ok: false, text: "LA RENUMERACION SOLO LA PUEDE EJECUTAR UN ADMINISTRADOR." });
+      return;
+    }
+    setRenumeracionCsvMsg(null);
+    setRenumeracionCsvBusy(true);
+    try {
+      const text = await file.text();
+      const r = await fetch("/api/colaboradores/import-renumeracion-csv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csvText: text }),
+      });
+      const rawBody = await r.text();
+      const contentType = r.headers.get("content-type") ?? "";
+      if (contentType.includes("text/html")) {
+        throw new Error(
+          "LA RUTA API NO RESPONDE (404 HTML). REINICIA npm run dev EN LA CARPETA web.",
+        );
+      }
+      let j: { error?: string; ok?: boolean; renumerados?: number; avisos?: string[] } = {};
+      try {
+        j = JSON.parse(rawBody || "{}") as typeof j;
+      } catch {
+        j = {};
+      }
+      if (!r.ok) {
+        throw new Error(j.error ?? `Error ${r.status}`);
+      }
+      listadoColaboradoresCacheRef.current = null;
+      const n = Number(j.renumerados ?? 0);
+      const avisos = Array.isArray(j.avisos) ? j.avisos : [];
+      const base = `${n} EXPEDIENTE(S) RENUMERADO(S).`;
+      if (avisos.length === 0) {
+        setRenumeracionCsvMsg({ ok: true, text: base });
+      } else {
+        const slice = avisos.slice(0, 15);
+        const more = avisos.length > 15 ? ` …(+${avisos.length - 15} MAS)` : "";
+        setRenumeracionCsvMsg({
+          ok: n > 0,
+          text: `${base} AVISOS: ${slice.join(" | ")}${more}`,
+        });
+      }
+    } catch (err) {
+      setRenumeracionCsvMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : `ERROR AL LEER EL ARCHIVO: ${String(err)}`,
+      });
+    } finally {
+      setRenumeracionCsvBusy(false);
+    }
+  }
+
   return (
     <div className="w-full">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -656,7 +725,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
             {!puedeEditarAltas ? (
               <p className="mt-2 max-w-2xl rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold uppercase text-amber-950">
                 Esta pantalla es solo de consulta para tu perfil. Solo un <strong>administrador</strong> puede capturar, importar CSV o importar el
-                CSV de correccion (dos columnas).
+                CSV de correccion (dos columnas) o renumeracion de N° de empleado.
               </p>
             ) : null}
           </div>
@@ -710,6 +779,51 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 {correccionCsvMsg.text}
               </p>
             ) : null}
+            <div className="border-t border-slate-300 pt-4">
+              <h3 className="text-sm font-bold uppercase text-slate-900">Renumerar N° de empleado (CSV)</h3>
+              <p className="mt-1 text-sm font-medium text-slate-800">
+                Dos columnas: <code className="rounded bg-white px-1">no_actual</code> (como esta hoy en el sistema) y{" "}
+                <code className="rounded bg-white px-1">no_nuevo</code> (el numero definitivo). No uses el import de
+                correccion de arriba para esto: ese sirve para CURP, servicio, fechas, etc.
+              </p>
+              <input
+                ref={csvRenumeracionRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="sr-only"
+                onChange={handleRenumeracionCsv}
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="btn-primary uppercase"
+                  disabled={renumeracionCsvBusy}
+                  onClick={() => csvRenumeracionRef.current?.click()}
+                >
+                  {renumeracionCsvBusy ? "Procesando…" : "Elegir CSV renumeracion"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary uppercase"
+                  onClick={() =>
+                    downloadCsv("plantilla_renumeracion_no_empleado.csv", generarPlantillaRenumeracionCsv())
+                  }
+                >
+                  Descargar plantilla
+                </button>
+              </div>
+              {renumeracionCsvMsg ? (
+                <p
+                  className={`mt-3 rounded-lg px-3 py-2 text-sm font-bold uppercase ${
+                    renumeracionCsvMsg.ok
+                      ? "border border-green-200 bg-green-50 text-green-900"
+                      : "border border-red-200 bg-red-50 text-red-900"
+                  }`}
+                >
+                  {renumeracionCsvMsg.text}
+                </p>
+              ) : null}
+            </div>
           </section>
         ) : null}
 

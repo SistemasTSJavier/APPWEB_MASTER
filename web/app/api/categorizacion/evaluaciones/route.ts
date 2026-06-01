@@ -1,0 +1,69 @@
+import { NextResponse } from "next/server";
+import { requireCategorizacionApi } from "@/lib/categorizacion-api-auth";
+import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
+import { getCatEvaluacion, listCatEvaluacionesModulo, upsertCatEvaluacion } from "@/lib/categorizacion-server";
+import { isSupabaseServerConfigured, supabaseServerEnvMissing } from "@/lib/supabase/admin";
+
+const MODULOS: CatEvalModuloId[] = ["recursos_humanos", "operaciones", "enfoque_cliente"];
+
+function parseModulo(s: string | null): CatEvalModuloId | null {
+  if (s === "recursos_humanos" || s === "operaciones" || s === "enfoque_cliente") return s;
+  return null;
+}
+
+export const dynamic = "force-dynamic";
+
+export async function GET(req: Request) {
+  const gate = await requireCategorizacionApi();
+  if ("error" in gate) return gate.error;
+  if (!isSupabaseServerConfigured()) {
+    return NextResponse.json({ error: "Supabase no configurado", missingEnv: supabaseServerEnvMissing() }, { status: 503 });
+  }
+  const url = new URL(req.url);
+  const modulo = parseModulo(url.searchParams.get("modulo"));
+  const no = url.searchParams.get("no_empleado")?.trim().toUpperCase();
+
+  try {
+    if (modulo && no) {
+      const row = await getCatEvaluacion(no, modulo);
+      return NextResponse.json({ ok: true, row });
+    }
+    if (modulo) {
+      const rows = await listCatEvaluacionesModulo(modulo);
+      return NextResponse.json({ ok: true, rows });
+    }
+    return NextResponse.json({ error: "Parametro modulo requerido" }, { status: 400 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  const gate = await requireCategorizacionApi();
+  if ("error" in gate) return gate.error;
+  if (!isSupabaseServerConfigured()) {
+    return NextResponse.json({ error: "Supabase no configurado" }, { status: 503 });
+  }
+  let body: {
+    noEmpleado?: string;
+    modulo?: string;
+    scores?: Record<string, number>;
+    comentarios?: string;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "JSON invalido" }, { status: 400 });
+  }
+  const modulo = parseModulo(String(body.modulo ?? ""));
+  const no = body.noEmpleado?.trim().toUpperCase();
+  if (!modulo || !no || !MODULOS.includes(modulo)) {
+    return NextResponse.json({ error: "noEmpleado y modulo validos requeridos" }, { status: 400 });
+  }
+  try {
+    const row = await upsertCatEvaluacion(no, modulo, body.scores ?? {}, String(body.comentarios ?? ""));
+    return NextResponse.json({ ok: true, row });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 });
+  }
+}
