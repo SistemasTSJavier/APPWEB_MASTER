@@ -20,11 +20,10 @@ export type RenumeracionEjecucionOk = { ok: true; renumerados: number; avisos: s
 export type RenumeracionEjecucionResult = RenumeracionEjecucionOk;
 
 function colaboradorConNuevoNo(c: ColaboradorCompleto, noNuevo: string): ColaboradorCompleto {
-  const form = { ...c.form, noEmpleado1: noNuevo };
-  let fichaFotoUrl = form.fichaFotoUrl ?? "";
+  const form: Record<string, string> = { ...c.form, noEmpleado1: noNuevo };
+  const fichaFotoUrl = form.fichaFotoUrl ?? "";
   if (fichaFotoUrl.includes(`/${c.noEmpleado}/`)) {
-    fichaFotoUrl = fichaFotoUrl.replace(`/${c.noEmpleado}/`, `/${noNuevo}/`);
-    form.fichaFotoUrl = fichaFotoUrl;
+    form.fichaFotoUrl = fichaFotoUrl.replace(`/${c.noEmpleado}/`, `/${noNuevo}/`);
   }
   return { ...c, noEmpleado: noNuevo, form };
 }
