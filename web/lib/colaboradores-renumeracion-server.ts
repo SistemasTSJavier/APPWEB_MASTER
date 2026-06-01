@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolverExpedientePorNombreRenumeracion } from "@/lib/altas-coincidencia-nombre";
-import { parseRenumeracionCsv, type RenumeracionCsvRow } from "@/lib/altas-csv-renumeracion";
+import { parseRenumeracionCsv } from "@/lib/altas-csv-renumeracion";
 import { mapaColaboradoresPorNo } from "@/lib/colaboradores-csv-columna-import";
 import { normalizeNoEmpleado } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
@@ -8,10 +8,13 @@ import { EXPEDIENTE_LEGAL_BUCKET } from "@/lib/expediente-legal-constants";
 
 const FOTOS_BUCKET = "colaboradores-fotos";
 
+/** Par ya resuelto: N° actual en BD → N° nuevo del CSV. */
+export type RenumeracionParResuelto = { noActual: string; noNuevo: string };
+
 export type RenumeracionPlanOk = {
   ok: true;
-  /** Ultima fila gana si hay N° actual duplicado en el CSV. */
-  pairs: RenumeracionCsvRow[];
+  /** Ultima fila gana si el mismo N° actual aparece varias veces en el CSV. */
+  pairs: RenumeracionParResuelto[];
 };
 
 export type RenumeracionPlanErr = { ok: false; errors: string[] };
