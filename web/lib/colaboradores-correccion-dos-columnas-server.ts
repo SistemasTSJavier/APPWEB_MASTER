@@ -1,6 +1,7 @@
-import { aplicarUnSoloCampoColaborador } from "@/lib/altas-un-campo";
-import { parseCorreccionCsvDosColumnas } from "@/lib/altas-csv-correccion-dos-columnas";
-import { normalizeNoEmpleado } from "@/lib/colaboradores-normalize";
+import {
+  mapaColaboradoresPorNo,
+  procesarCsvActualizacionUnaColumna,
+} from "@/lib/colaboradores-csv-columna-import";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 
 export type CorreccionDosColumnasProcessOk = {
@@ -19,50 +20,32 @@ export type CorreccionDosColumnasProcessResult =
   | CorreccionDosColumnasProcessErr;
 
 /**
- * Aplica CSV de corrección (2 columnas) en memoria contra un mapa ya cargado.
- * Si el mismo N° aparece varias veces, gana la última fila.
+ * CSV de corrección (N° empleado + un campo): misma lógica que importación por columna en Colaboradores.
  */
 export function procesarCorreccionCsvDosColumnasEnMemoria(
   csvText: string,
   byNo: Map<string, ColaboradorCompleto>,
 ): CorreccionDosColumnasProcessResult {
-  const parsed = parseCorreccionCsvDosColumnas(csvText);
-  if (!parsed.ok) {
-    return { ok: false, errors: parsed.errors };
+  const result = procesarCsvActualizacionUnaColumna(csvText, byNo);
+  if (!result.ok) {
+    return { ok: false, errors: [result.message] };
   }
 
-  const toWrite = new Map<string, ColaboradorCompleto>();
-  const avisos: string[] = [];
-  let sinExpediente = 0;
-  const campo = parsed.fieldKey;
-
-  for (const { noEmpleado, valor } of parsed.rows) {
-    const no = normalizeNoEmpleado(noEmpleado);
-    const prev = toWrite.get(no) ?? byNo.get(no);
-    if (!prev) {
-      sinExpediente++;
-      if (avisos.length < 200) {
-        avisos.push(`${no}: SIN EXPEDIENTE`);
-      }
-      continue;
-    }
-    try {
-      const next = aplicarUnSoloCampoColaborador(prev, campo, valor);
-      toWrite.set(no, { ...next, registeredAt: prev.registeredAt });
-    } catch (err) {
-      if (avisos.length < 200) {
-        avisos.push(`${no}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
+  const avisos: string[] = result.errors.map((e) => `FILA ${e.row}: ${e.message}`);
+  if (result.ignoredUnknownNo > 0) {
+    avisos.unshift(
+      `${result.ignoredUnknownNo} FILA(S) CON N° SIN EXPEDIENTE (NO SE ACTUALIZARON). REVISE FORMATO DEL N° (EJ. SIN .0 DE EXCEL).`,
+    );
   }
 
-  const updated = [...toWrite.values()];
   return {
     ok: true,
-    fieldKey: campo,
-    updated,
-    actualizados: updated.length,
-    sinExpediente,
-    avisos,
+    fieldKey: result.dataFieldKey,
+    updated: result.updated,
+    actualizados: result.updated.length,
+    sinExpediente: result.ignoredUnknownNo,
+    avisos: avisos.slice(0, 200),
   };
 }
+
+export { mapaColaboradoresPorNo };

@@ -636,16 +636,23 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       const ok = Number(j.actualizados ?? 0);
       const sinExp = Number(j.sinExpediente ?? 0);
       const rowErrs = Array.isArray(j.avisos) ? j.avisos : [];
-      const base = `CAMPO "${campo}": ${ok} EXPEDIENTE(S) ACTUALIZADO(S).${
-        sinExp > 0 ? ` ${sinExp} SIN EXPEDIENTE (IGNORADOS).` : ""
-      }`;
+      const base =
+        ok > 0
+          ? `CAMPO "${campo}": ${ok} EXPEDIENTE(S) ACTUALIZADO(S).${
+              sinExp > 0 ? ` ${sinExp} FILA(S) SIN EXPEDIENTE (NO SE MODIFICARON).` : ""
+            }`
+          : `NINGUN EXPEDIENTE ACTUALIZADO PARA "${campo}".${
+              sinExp > 0
+                ? ` ${sinExp} N° NO COINCIDEN CON EXPEDIENTE (REVISE CLAVE Y QUE EXCEL NO CAMBIE EL N° A 12345.0).`
+                : " REVISE CABECERAS (NO_DE_EMPLEADO + CAMPO) Y QUE HAYA VALOR EN LA SEGUNDA COLUMNA."
+            }`;
       if (rowErrs.length === 0) {
-        setCorreccionCsvMsg({ ok: true, text: base });
+        setCorreccionCsvMsg({ ok: ok > 0, text: base });
       } else {
         const slice = rowErrs.slice(0, 15);
         const more = rowErrs.length > 15 ? ` …(+${rowErrs.length - 15} MAS)` : "";
         setCorreccionCsvMsg({
-          ok: false,
+          ok: ok > 0,
           text: `${base} AVISOS: ${slice.join(" | ")}${more}`,
         });
       }
@@ -748,7 +755,10 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
             <p className="text-sm font-medium text-slate-800">
               Columna 1: <code className="rounded bg-white px-1">no_de_empleado</code> (N° actual). Columna 2: el campo a corregir (ej.{" "}
               <code className="rounded bg-white px-1">curp</code>, <code className="rounded bg-white px-1">servicio</code>,{" "}
-              <code className="rounded bg-white px-1">planta</code>). <strong>No</strong> sirve para cambiar el numero de empleado.
+              <code className="rounded bg-white px-1">planta</code>, <code className="rounded bg-white px-1">estado_civil</code>).{" "}
+              <strong>No</strong> sirve para cambiar el numero de empleado. En Excel guarde como CSV UTF-8 (separador{" "}
+              <code className="rounded bg-white px-1">;</code> en Mexico); si el N° aparece como <code className="rounded bg-white px-1">12345.0</code>, el
+              sistema lo corrige.
             </p>
             <input
               ref={csvCorreccionDosRef}

@@ -200,7 +200,7 @@ export async function renumerarColaboradorEnSupabase(
 export async function ejecutarRenumeracionCsv(
   admin: SupabaseClient,
   csvText: string,
-  dbRows: { data: unknown }[],
+  dbRows: { no_empleado?: string; data: unknown }[],
 ): Promise<RenumeracionRunResult> {
   const byNo = mapaColaboradoresPorNo(dbRows);
   const plan = planificarRenumeracionCsv(csvText, byNo);

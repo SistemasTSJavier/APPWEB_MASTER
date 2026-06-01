@@ -7,7 +7,7 @@ import {
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores } from "@/lib/app-role";
 import { ejecutarRenumeracionCsv } from "@/lib/colaboradores-renumeracion-server";
-import { fetchAllColaboradoresData } from "@/lib/colaboradores-supabase-fetch-all";
+import { fetchAllColaboradoresDbRows } from "@/lib/colaboradores-supabase-fetch-all";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +42,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `CSV demasiado grande (maximo ${MAX_CSV_CHARS} caracteres)` }, { status: 400 });
   }
 
-  let dbRows: { data: unknown }[];
+  let dbRows: Awaited<ReturnType<typeof fetchAllColaboradoresDbRows>>;
   try {
-    const dataList = await fetchAllColaboradoresData(admin);
-    dbRows = dataList.map((data) => ({ data }));
+    dbRows = await fetchAllColaboradoresDbRows(admin);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error al leer colaboradores" },

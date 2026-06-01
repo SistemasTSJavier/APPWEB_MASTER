@@ -2,8 +2,9 @@
  * CSV con exactamente dos columnas reconocidas: N° de empleado + una columna de dato (ej. ESTADO CIVIL).
  * Filas cuyo N° no exista en expedientes se ignoran.
  */
+import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
 import { parseCsvContent } from "@/lib/csv";
-import { normalizeNoEmpleado, normalizeToCompleto } from "@/lib/colaboradores-normalize";
+import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import {
   aplicarSnapDesdePick,
@@ -126,7 +127,11 @@ export function procesarCsvActualizacionUnaColumna(
       errors.push({ row: r + 1, message: "FILA SIN NUMERO DE EMPLEADO." });
       continue;
     }
-    const no = normalizeNoEmpleado(noRaw);
+    const no = canonicalEmpNoAttendance(noRaw);
+    if (!no) {
+      errors.push({ row: r + 1, message: "NUMERO DE EMPLEADO INVALIDO." });
+      continue;
+    }
     const prev = toWrite.get(no) ?? byNo.get(no);
     if (!prev) {
       ignoredUnknownNo++;
@@ -139,9 +144,9 @@ export function procesarCsvActualizacionUnaColumna(
     }
 
     const delta = formDeltaDesdePick(picked);
-    let merged: ColaboradorCompleto = { ...prev, form: mergeFormPreserve(prev.form, delta) };
+    let merged: ColaboradorCompleto = { ...prev, noEmpleado: no, form: mergeFormPreserve(prev.form, delta) };
     merged = aplicarSnapDesdePick(merged, picked);
-    merged.form = { ...merged.form, noEmpleado1: no };
+    merged = { ...merged, noEmpleado: no, form: { ...merged.form, noEmpleado1: no } };
 
     if (dataFieldKey === "servicio" || dataFieldKey === "servicioFinal" || dataFieldKey === "ultimoServicio") {
       const valorServicio =
@@ -172,11 +177,20 @@ export function procesarCsvActualizacionUnaColumna(
   };
 }
 
-export function mapaColaboradoresPorNo(rows: { data: unknown }[]): Map<string, ColaboradorCompleto> {
+export function mapaColaboradoresPorNo(
+  rows: { no_empleado?: string; data: unknown }[],
+): Map<string, ColaboradorCompleto> {
   const m = new Map<string, ColaboradorCompleto>();
   for (const row of rows) {
     const c = normalizeToCompleto(row.data);
-    if (c) m.set(c.noEmpleado, c);
+    if (!c) continue;
+    const key = canonicalEmpNoAttendance(String(row.no_empleado ?? c.noEmpleado));
+    if (!key) continue;
+    m.set(key, {
+      ...c,
+      noEmpleado: key,
+      form: { ...c.form, noEmpleado1: key },
+    });
   }
   return m;
 }
