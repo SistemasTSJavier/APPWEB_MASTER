@@ -409,6 +409,26 @@
   gap: 0.5rem 0.75rem;
 }
 
+.persistRow__csvOmitidos {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #f9ab00;
+  background: #fef7e0;
+}
+
+.persistRow__csvOmitidosList {
+  margin: 0.5rem 0 0;
+  max-height: 9rem;
+  overflow: auto;
+  padding: 0.5rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 6px;
+}
+
 .persistRow__csvFile {
   position: absolute;
   width: 1px;

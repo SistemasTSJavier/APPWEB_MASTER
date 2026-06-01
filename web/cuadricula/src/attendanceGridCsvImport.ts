@@ -13,6 +13,7 @@ import { withComputedTotals } from './attendanceTotals'
 import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import {
   colaboradorToGridRow,
+  coincideColaboradorPlantaExpediente,
   listarPlantasDeColaboradores,
   gridRowServiceNo,
   plantaToStorageKey,
@@ -163,7 +164,7 @@ function pickDelimiter(firstLine: string): CsvDelimiter {
 }
 
 function matchesEmpleadoHeader(norm: string): boolean {
-  const c = norm.replace(/\s/g, '')
+  const c = norm.replace(/\s/g, '').replace(/_/g, '')
   return (
     norm === 'no. empleado' ||
     norm === 'no empleado' ||
@@ -171,9 +172,12 @@ function matchesEmpleadoHeader(norm: string): boolean {
     c === 'no.empleado' ||
     c === 'no.deempleado' ||
     c === 'noempleado' ||
+    c === 'nodeempleado' ||
     norm === '# empleado' ||
     norm === 'no.de empleado' ||
     norm === 'no de empleado' ||
+    norm === 'clave' ||
+    c === 'clave' ||
     norm.includes('no de emple') ||
     (norm.includes('no') && norm.includes('emple') && !norm.includes('servicio'))
   )
@@ -213,6 +217,78 @@ function findEmployeeColumnIndex(header: string[]): number {
   return -1
 }
 
+function findServicioColsInHeader(header: string[]): {
+  servicioCol?: number
+  noServicioCol?: number
+} {
+  const h = header.map(normHeaderCell)
+  let servicioCol: number | undefined
+  let noServicioCol: number | undefined
+  for (let i = 0; i < h.length; i++) {
+    const n = h[i]!
+    const compact = n.replace(/\s/g, '')
+    if (
+      !servicioCol &&
+      n.includes('servicio') &&
+      !n.includes('no') &&
+      !n.includes('planta') &&
+      !n.includes('posicion')
+    ) {
+      servicioCol = i
+    }
+    if (
+      !noServicioCol &&
+      ((n.includes('no') && n.includes('servicio')) ||
+        compact === 'noservicio' ||
+        compact === 'no_servicio' ||
+        compact === 'no.deservicio')
+    ) {
+      noServicioCol = i
+    }
+  }
+  return { servicioCol, noServicioCol }
+}
+
+/** Fusiona turnos: gana el código no vacío (útil si el CSV repite el mismo N° en varias filas). */
+export function mergeShiftsPreferNonEmpty(
+  a: GridRow['shifts'],
+  b: GridRow['shifts'],
+): GridRow['shifts'] {
+  const out: GridRow['shifts'] = []
+  for (let d = 0; d < 7; d++) {
+    const da = a[d] ?? { D: '', T: '', N: '' }
+    const db = b[d] ?? { D: '', T: '', N: '' }
+    out.push({
+      D: (db.D ?? '').trim() || (da.D ?? '').trim(),
+      T: (db.T ?? '').trim() || (da.T ?? '').trim(),
+      N: (db.N ?? '').trim() || (da.N ?? '').trim(),
+    })
+  }
+  return reassignFaltaSequence(out)
+}
+
+/** Filas del CSV que corresponden a una planta (importación de una sola planta en pantalla). */
+export function filterCsvRowsForPlantaNombre(
+  rows: ParsedAttendanceGridCsvRow[],
+  plantaNombre: string,
+): { rows: ParsedAttendanceGridCsvRow[]; omittedOtherPlanta: number } {
+  const want = normPlantaCsv(plantaNombre)
+  if (!want) return { rows, omittedOtherPlanta: 0 }
+  const hasPlantaCol = rows.some((r) => Boolean(r.plantaNombre?.trim()))
+  if (!hasPlantaCol) return { rows, omittedOtherPlanta: 0 }
+  const kept: ParsedAttendanceGridCsvRow[] = []
+  let omittedOtherPlanta = 0
+  for (const r of rows) {
+    const p = r.plantaNombre ? normPlantaCsv(r.plantaNombre) : ''
+    if (!p || p === want) {
+      kept.push(r)
+      continue
+    }
+    omittedOtherPlanta++
+  }
+  return { rows: kept, omittedOtherPlanta }
+}
+
 export interface AttendanceCsvLayout {
   /** Columna No. empleado. */
   empCol: number
@@ -227,48 +303,58 @@ export interface AttendanceCsvLayout {
 }
 
 export function detectAttendanceCsvLayout(header: string[]): AttendanceCsvLayout | null {
+  const h = header.map(normHeaderCell)
   const empCol = findEmployeeColumnIndex(header)
   if (empCol < 0) return null
-  const posCol = empCol - 3
-  if (posCol < 0) return null
-  const posNorm = normHeaderCell(header[posCol] ?? '')
-  if (!matchesPosicionHeader(posNorm)) return null
-  const afterEmp = normHeaderCell(header[empCol + 1] ?? '')
+
+  const afterEmp = h[empCol + 1] ?? ''
   const shiftStart = matchesNombresHeader(afterEmp) ? empCol + 2 : empCol + 1
   if (header.length < shiftStart + 21) return null
 
   const plantaCol = findPlantaColumnIndex(header)
+  let { servicioCol, noServicioCol } = findServicioColsInHeader(header)
 
-  let noServicioCol: number | undefined
-  let servicioCol: number | undefined
-  if (posCol >= 3) {
-    const n0 = normHeaderCell(header[0] ?? '')
-    const n1 = normHeaderCell(header[1] ?? '')
+  const posColStrict = empCol - 3
+  if (posColStrict >= 0 && matchesPosicionHeader(h[posColStrict]!)) {
+    const n0 = h[0] ?? ''
+    const n1 = h[1] ?? ''
     const looksServicio = n0.includes('servicio') && !n0.includes('no')
     const looksNoServicio =
-      (n1.includes('no') && n1.includes('servicio')) ||
-      n1.replace(/\s/g, '') === 'noservicio'
+      (n1.includes('no') && n1.includes('servicio')) || n1.replace(/\s/g, '') === 'noservicio'
     if (looksServicio && looksNoServicio) {
       noServicioCol = 1
       servicioCol = 0
     }
   }
 
-  return { empCol, shiftStart, noServicioCol, servicioCol, plantaCol }
+  return {
+    empCol,
+    shiftStart,
+    noServicioCol,
+    servicioCol,
+    plantaCol: plantaCol >= 0 ? plantaCol : undefined,
+  }
 }
 
 export function csvLayoutHasPlantaColumn(layout: AttendanceCsvLayout): boolean {
   return layout.plantaCol != null && layout.plantaCol >= 0
 }
 
+function normalizeShiftCode(raw: string): string {
+  const t = String(raw ?? '').trim()
+  if (!t) return ''
+  return t.toUpperCase()
+}
+
+/** 7 días × turnos D, T, N (columnas consecutivas en el CSV). */
 function shiftsFromCellsAt(cells: string[], shiftStart: number): GridRow['shifts'] {
   const shifts: GridRow['shifts'] = []
   for (let d = 0; d < 7; d++) {
     const o = shiftStart + d * 3
     shifts.push({
-      D: (cells[o] ?? '').trim(),
-      T: (cells[o + 1] ?? '').trim(),
-      N: (cells[o + 2] ?? '').trim(),
+      D: normalizeShiftCode(cells[o] ?? ''),
+      T: normalizeShiftCode(cells[o + 1] ?? ''),
+      N: normalizeShiftCode(cells[o + 2] ?? ''),
     })
   }
   return shifts
@@ -320,7 +406,7 @@ export function parseAttendanceGridCodesCsv(text: string):
     return {
       ok: false,
       error:
-        'No se reconoce la cabecera. Use SERVICIO, NO. SERVICIO, PLANTA, POSICION, PUESTO, FECHA DE INGRESO, NO. DE EMPLEADO, NOMBRES + 21 columnas D/T/N (Lun–Dom).',
+        'No se reconoce la cabecera. Debe incluir NO. DE EMPLEADO (o CLAVE) y 21 columnas D/T/N (7 días). Formato hoja: SERVICIO, NO. SERVICIO, PLANTA, POSICION, PUESTO, FECHA DE INGRESO, NO. DE EMPLEADO, NOMBRES + D/T/N×7.',
     }
   }
 
@@ -364,26 +450,28 @@ export function parseAttendanceGridCodesCsv(text: string):
       layout.noServicioCol != null
         ? String(cells[layout.noServicioCol] ?? '').trim()
         : undefined
-    const noSrvCanon = noSrv ? canonicalNoServicioForCsvMatch(noSrv) : ''
     const servicioCsv =
       layout.servicioCol != null
         ? String(cells[layout.servicioCol] ?? '').trim()
         : undefined
 
-    const mapKey = [
-      multiPlanta && plantaNombre ? plantaNombre : '',
-      empCanon,
-      noSrvCanon,
-    ]
-      .filter(Boolean)
-      .join('|')
-    byKey.set(mapKey, {
-      employeeNo: empRaw,
+    if (!empCanon) continue
+
+    const nextRow: ParsedAttendanceGridCsvRow = {
+      employeeNo: empCanon,
       shifts,
       numeroServicioCsv: noSrv || undefined,
       servicioNombreCsv: servicioCsv || undefined,
       plantaNombre,
-    })
+    }
+    const prev = byKey.get(empCanon)
+    if (prev) {
+      nextRow.shifts = mergeShiftsPreferNonEmpty(prev.shifts, shifts)
+      if (!nextRow.numeroServicioCsv) nextRow.numeroServicioCsv = prev.numeroServicioCsv
+      if (!nextRow.servicioNombreCsv) nextRow.servicioNombreCsv = prev.servicioNombreCsv
+      if (!nextRow.plantaNombre) nextRow.plantaNombre = prev.plantaNombre
+    }
+    byKey.set(empCanon, nextRow)
   }
 
   if (byKey.size === 0) {
@@ -432,27 +520,74 @@ function scoreCsvRowShifts(row: ParsedAttendanceGridCsvRow): number {
 }
 
 /**
- * Asistencia: si el CSV repite el mismo N.º de empleado (p. ej. otra posición/servicio),
- * se toma la fila con más códigos; no se exige coincidir NO. de servicio ni posición.
+ * Varias filas CSV del mismo N.º → una sola semana (día × turno), fusionando códigos no vacíos.
  */
+export function mergeParsedRowsForEmployee(
+  rows: ParsedAttendanceGridCsvRow[],
+): ParsedAttendanceGridCsvRow | null {
+  if (rows.length === 0) return null
+  let meta = rows[0]!
+  let mergedShifts = rows[0]!.shifts.map((d) => ({ ...d }))
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i]!
+    mergedShifts = mergeShiftsPreferNonEmpty(mergedShifts, r.shifts)
+    if (scoreCsvRowShifts(r) > scoreCsvRowShifts(meta)) meta = r
+  }
+  const canon = canonicalEmpNoForCsvMatch(meta.employeeNo) || meta.employeeNo
+  return {
+    employeeNo: canon,
+    shifts: reassignFaltaSequence(mergedShifts),
+    numeroServicioCsv: meta.numeroServicioCsv,
+    servicioNombreCsv: meta.servicioNombreCsv,
+    plantaNombre: meta.plantaNombre,
+  }
+}
+
+/** Índice N.º empleado (canónico) → asistencia semanal lista para aplicar a la cuadrícula. */
+export function buildCsvAttendanceIndexByEmpNo(
+  csvRows: ParsedAttendanceGridCsvRow[],
+): Map<string, ParsedAttendanceGridCsvRow> {
+  const grouped = indexCsvRowsByEmployee(csvRows)
+  const out = new Map<string, ParsedAttendanceGridCsvRow>()
+  for (const [canon, list] of grouped) {
+    const merged = mergeParsedRowsForEmployee(list)
+    if (merged) out.set(canon, merged)
+  }
+  return out
+}
+
+/** @deprecated La cuadrícula empareja solo por N.º; use mergeParsedRowsForEmployee. */
 export function pickCsvRowForGridRow(
   _gridRow: GridRow,
   candidates: ParsedAttendanceGridCsvRow[],
 ): { row: ParsedAttendanceGridCsvRow | null; ambiguous: boolean } {
-  if (candidates.length === 0) return { row: null, ambiguous: false }
-  if (candidates.length === 1) return { row: candidates[0]!, ambiguous: false }
+  return { row: mergeParsedRowsForEmployee(candidates), ambiguous: false }
+}
 
-  let best = candidates[0]!
-  let bestScore = scoreCsvRowShifts(best)
-  for (let i = 1; i < candidates.length; i++) {
-    const c = candidates[i]!
-    const sc = scoreCsvRowShifts(c)
-    if (sc > bestScore) {
-      bestScore = sc
-      best = c
-    }
+function applyCsvAttendanceToGridRow(
+  gridRow: GridRow,
+  imp: ParsedAttendanceGridCsvRow,
+  reconcile: MergeCsvReconcileOpts | undefined,
+): GridRow {
+  const canon = canonicalEmpNoForCsvMatch(String(gridRow.employeeNo ?? gridRow.id ?? ''))
+  const shifts = reassignFaltaSequence(imp.shifts)
+  let merged: GridRow = { ...gridRow, shifts, employeeNo: gridRow.employeeNo || imp.employeeNo }
+  if (reconcile) {
+    const col = reconcile.colaboradoresByEmp.get(canon)
+    merged.rowServiceNo = reconcileRowServiceNo(
+      {
+        rowServiceNo: imp.numeroServicioCsv?.trim() || gridRow.rowServiceNo,
+        servicioLinea: imp.servicioNombreCsv?.trim() || gridRow.servicioLinea,
+      },
+      col,
+      reconcile.catalogo,
+      reconcile.plantaNombre,
+    )
+  } else {
+    const srvCsv = imp.numeroServicioCsv?.trim()
+    if (srvCsv) merged = { ...merged, rowServiceNo: srvCsv }
   }
-  return { row: best, ambiguous: false }
+  return withComputedTotals(merged, gridRowServiceNo(merged))
 }
 
 export type MergeCsvReconcileOpts = {
@@ -490,93 +625,72 @@ export function mergeCsvShiftsIntoGridRows(
   reconcile?: MergeCsvReconcileOpts,
 ): {
   next: GridRow[]
+  /** Colaboradores distintos (N.º) con asistencia aplicada desde el CSV. */
   updatedCount: number
+  /** Filas de cuadrícula actualizadas (puede ser > updatedCount si el mismo N.º tiene varias filas). */
+  updatedRowCount: number
   /** Empleados en CSV sin fila en la cuadrícula (esta planta). */
   csvEmployeesNotInGrid: string[]
   /** Empleados en cuadrícula sin fila en el CSV (se dejan como estaban). */
   gridEmployeesNotInCsv: string[]
-  /** Mismo empleado en varios bloques del CSV y ninguno coincide con su N.º en cuadrícula. */
+  /** Reservado; emparejamiento solo por N.º (siempre vacío). */
   ambiguousEmployeeNos: string[]
   gridEmployeeCount: number
 } {
-  const csvByEmp = indexCsvRowsByEmployee(csvRows)
+  const csvByEmp = buildCsvAttendanceIndexByEmpNo(csvRows)
   const csvEmpMatched = new Set<string>()
-  let updatedCount = 0
+  const updatedEmpleados = new Set<string>()
+  let updatedRowCount = 0
   const gridCanonKeys = new Set<string>()
   const gridEmployeesNotInCsv: string[] = []
+  const gridSinCsvCanon = new Set<string>()
   const ambiguousEmployeeNos: string[] = []
 
   const next = gridRows.map((r) => {
     const kRaw = String(r.employeeNo ?? r.id ?? '').trim()
     if (!kRaw) return r
     const canon = canonicalEmpNoForCsvMatch(kRaw)
+    if (!canon) return r
     gridCanonKeys.add(canon)
-    const candidates = csvByEmp.get(canon) ?? []
-    const { row: imp, ambiguous } = pickCsvRowForGridRow(r, candidates)
+    const imp = csvByEmp.get(canon)
     if (!imp) {
-      if (candidates.length > 0 && ambiguous) ambiguousEmployeeNos.push(kRaw)
-      else gridEmployeesNotInCsv.push(kRaw)
+      if (!gridSinCsvCanon.has(canon)) {
+        gridSinCsvCanon.add(canon)
+        gridEmployeesNotInCsv.push(kRaw)
+      }
       return r
     }
     csvEmpMatched.add(canon)
-    updatedCount++
-    const shifts = reassignFaltaSequence(imp.shifts)
-    let merged: GridRow = { ...r, shifts }
-    if (reconcile) {
-      const col = reconcile.colaboradoresByEmp.get(canon)
-      merged.rowServiceNo = reconcileRowServiceNo(
-        {
-          rowServiceNo: imp.numeroServicioCsv?.trim() || r.rowServiceNo,
-          servicioLinea: imp.servicioNombreCsv?.trim() || r.servicioLinea,
-        },
-        col,
-        reconcile.catalogo,
-        reconcile.plantaNombre,
-      )
-    } else {
-      const srvCsv = imp.numeroServicioCsv?.trim()
-      if (srvCsv) merged = { ...merged, rowServiceNo: srvCsv }
-    }
-    return withComputedTotals(merged, gridRowServiceNo(merged))
+    updatedEmpleados.add(canon)
+    updatedRowCount++
+    return applyCsvAttendanceToGridRow(r, imp, reconcile)
   })
 
   const appended: GridRow[] = []
   const csvEmployeesNotInGrid: string[] = []
 
   if (reconcile?.agregarFilasCsvPorEmpNo) {
-    for (const [canon, candidates] of csvByEmp) {
+    for (const [canon, imp] of csvByEmp) {
       if (csvEmpMatched.has(canon)) continue
       const col = reconcile.colaboradoresByEmp.get(canon)
       if (!col) {
-        csvEmployeesNotInGrid.push(candidates[0]!.employeeNo)
+        csvEmployeesNotInGrid.push(imp.employeeNo)
+        continue
+      }
+      if (!coincideColaboradorPlantaExpediente(col, reconcile.plantaNombre)) {
+        csvEmployeesNotInGrid.push(imp.employeeNo)
         continue
       }
       const synthetic = colaboradorToGridRow(col, reconcile.catalogo, reconcile.plantaNombre)
-      const { row: imp, ambiguous } = pickCsvRowForGridRow(synthetic, candidates)
-      if (!imp) {
-        if (ambiguous) ambiguousEmployeeNos.push(candidates[0]!.employeeNo)
-        else csvEmployeesNotInGrid.push(candidates[0]!.employeeNo)
-        continue
-      }
       csvEmpMatched.add(canon)
-      updatedCount++
-      const shifts = reassignFaltaSequence(imp.shifts)
-      let row: GridRow = { ...synthetic, shifts }
-      row.rowServiceNo = reconcileRowServiceNo(
-        {
-          rowServiceNo: imp.numeroServicioCsv?.trim() || synthetic.rowServiceNo,
-          servicioLinea: imp.servicioNombreCsv?.trim() || synthetic.servicioLinea,
-        },
-        col,
-        reconcile.catalogo,
-        reconcile.plantaNombre,
-      )
-      appended.push(withComputedTotals(row, gridRowServiceNo(row)))
+      updatedEmpleados.add(canon)
+      updatedRowCount++
+      appended.push(applyCsvAttendanceToGridRow(synthetic, imp, reconcile))
     }
   } else {
-    for (const [canon, rows] of csvByEmp) {
+    for (const [canon, imp] of csvByEmp) {
       if (csvEmpMatched.has(canon)) continue
-      csvEmployeesNotInGrid.push(rows[0]!.employeeNo)
+      csvEmployeesNotInGrid.push(imp.employeeNo)
     }
   }
 
@@ -591,7 +705,8 @@ export function mergeCsvShiftsIntoGridRows(
 
   return {
     next: finalRows,
-    updatedCount,
+    updatedCount: updatedEmpleados.size,
+    updatedRowCount,
     csvEmployeesNotInGrid,
     gridEmployeesNotInCsv,
     ambiguousEmployeeNos,
@@ -657,6 +772,16 @@ export interface AllPlantasCsvImportResult {
   /** Plantas con cambios que no se pudieron persistir (servidor o almacenamiento local). */
   plantsSaveFailed: number
   rowsSinPlantaCsv: number
+  /** N° de empleado en CSV que no se pudieron aplicar (sin expediente o planta distinta). */
+  omitidosSinRegistro: string[]
+}
+
+/** CSV de una columna con N° omitidos (para descargar tras importar). */
+export function buildCsvListaNumerosEmpleado(numeros: string[], header = 'no_de_empleado'): string {
+  const uniq = [...new Set(numeros.map((n) => String(n).trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'es', { numeric: true }),
+  )
+  return `\uFEFF${header}\n${uniq.join('\n')}\n`
 }
 
 function groupCsvRowsByPlanta(
@@ -706,6 +831,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   )
   const plantas: PlantaCsvImportSlice[] = []
   const unknownPlantas: string[] = []
+  const omitidosSinRegistroSet = new Set<string>()
   let totalUpdated = 0
   let plantsSaved = 0
   let plantsSaveFailed = 0
@@ -785,6 +911,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
       toPersist.push(slice)
     }
     totalUpdated += slice.updatedCount
+    for (const no of slice.csvEmployeesNotInGrid) omitidosSinRegistroSet.add(no)
     plantas.push({
       plantaNombre: slice.plantaNombre,
       updatedCount: slice.updatedCount,
@@ -818,6 +945,9 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
     plantsSaved,
     plantsSaveFailed,
     rowsSinPlantaCsv,
+    omitidosSinRegistro: [...omitidosSinRegistroSet].sort((a, b) =>
+      a.localeCompare(b, 'es', { numeric: true }),
+    ),
   }
 }
 

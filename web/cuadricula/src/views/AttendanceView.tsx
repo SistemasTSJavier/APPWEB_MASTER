@@ -66,9 +66,11 @@ import {
   attendanceCodesCsvFilename,
   buildAttendanceCodesCsvAllPlantasWeek,
   buildAttendanceCodesCsvPlantaSheet,
+  buildCsvListaNumerosEmpleado,
   canonicalEmpNoForCsvMatch,
   csvDelimiterUserHint,
   csvLayoutHasPlantaColumn,
+  filterCsvRowsForPlantaNombre,
   mapaColaboradoresPorNoEmpleadoCanon,
   mergeCsvShiftsIntoGridRows,
   parseAttendanceGridCodesCsv,
@@ -168,6 +170,7 @@ export function AttendanceView() {
   )
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [csvImportOmitidos, setCsvImportOmitidos] = useState<string[] | null>(null)
   const [legacyRecoveredHint, setLegacyRecoveredHint] = useState<string | null>(null)
   const importCsvCodesRef = useRef<HTMLInputElement>(null)
   const [importRefresh, setImportRefresh] = useState(0)
@@ -572,6 +575,7 @@ export function AttendanceView() {
       setSaveMessage('No se pudo leer el archivo CSV.')
       return
     }
+    setCsvImportOmitidos(null)
     const parsed = parseAttendanceGridCodesCsv(text)
     if (parsed.ok === false) {
       setSaveMessage(`CSV: ${parsed.error}`)
@@ -630,10 +634,10 @@ export function AttendanceView() {
           `${parsed.rowsSinPlanta} fila(s) con PLANTA vacía (se intentó ubicar por NO SERVICIO en catálogo).`,
         )
       }
-      const amb = result.plantas.flatMap((p) => p.ambiguousEmployeeNos)
-      if (amb.length > 0) {
+      if (result.omitidosSinRegistro.length > 0) {
+        setCsvImportOmitidos(result.omitidosSinRegistro)
         parts.push(
-          `Sin actualizar por varios bloques de servicio en CSV (${amb.length}): ${amb.slice(0, 8).join(', ')}${amb.length > 8 ? '…' : ''} — revise que NO SERVICIO coincida con la cuadrícula.`,
+          `${result.omitidosSinRegistro.length} N° en CSV no se registraron (sin expediente o planta distinta). Descargue la lista debajo.`,
         )
       }
       setSaveMessage(parts.join(' '))
@@ -658,6 +662,11 @@ export function AttendanceView() {
       return
     }
 
+    const { rows: csvRowsPlanta, omittedOtherPlanta } = filterCsvRowsForPlantaNombre(
+      parsed.rows,
+      plantaSeleccionada,
+    )
+
     const prefetchImport = await getAttendanceWeekPrefetch(weekIso)
     const baseImport = await mergeGridRowsForPlantaWeekForCsvImport(
       colaboradores,
@@ -674,7 +683,7 @@ export function AttendanceView() {
       gridEmployeesNotInCsv,
       gridEmployeeCount,
       ambiguousEmployeeNos,
-    } = mergeCsvShiftsIntoGridRows(baseImport, parsed.rows, {
+    } = mergeCsvShiftsIntoGridRows(baseImport, csvRowsPlanta, {
       catalogo,
       plantaNombre: plantaSeleccionada,
       colaboradoresByEmp,
@@ -710,10 +719,13 @@ export function AttendanceView() {
         `En cuadrícula sin fila en CSV (${gridEmployeesNotInCsv.length}): ${gridEmployeesNotInCsv.slice(0, 10).join(', ')}${gridEmployeesNotInCsv.length > 10 ? '…' : ''} (conservan lo que tenían).`,
       )
     }
-    if (ambiguousEmployeeNos.length > 0) {
+    if (omittedOtherPlanta > 0) {
       parts.push(
-        `Sin actualizar: mismo empleado en varios bloques de servicio en CSV (${ambiguousEmployeeNos.length}) — ${ambiguousEmployeeNos.slice(0, 8).join(', ')}${ambiguousEmployeeNos.length > 8 ? '…' : ''}. El N.º de servicio del CSV debe coincidir con el de la fila en cuadrícula.`,
+        `${omittedOtherPlanta} fila(s) del CSV son de otra planta (columna PLANTA) y no se aplicaron a «${plantaSeleccionada}».`,
       )
+    }
+    if (csvEmployeesNotInGrid.length > 0) {
+      setCsvImportOmitidos(csvEmployeesNotInGrid)
     }
     setSaveMessage(parts.join(' '))
   }
@@ -1095,11 +1107,11 @@ export function AttendanceView() {
           {puedeImportarCsv && !mostrarSoloResumenMensual ? (
             <div className="persistRow__csvBlock">
               <p className="persistRow__csvLead">
-                <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Cabecera:{' '}
-                <strong>SERVICIO, NO. SERVICIO, PLANTA, POSICIÓN, PUESTO, FECHA DE INGRESO, NO. DE EMPLEADO, NOMBRES</strong> + D/T/N×7.
-                Con columna <strong>PLANTA</strong> un archivo actualiza <strong>todas las plantas</strong>. Empareja por <strong>NO. DE EMPLEADO</strong> (también colaboradores en{' '}
-                <strong>baja</strong>, solo al importar, para conservar historial). Si hay varios servicios en la misma planta, usa{' '}
-                <strong>NO SERVICIO</strong>. Si PLANTA viene vacía, se infiere del catálogo. Sin columna PLANTA, elija la planta arriba.
+                <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Se detecta la columna{' '}
+                <strong>NO. DE EMPLEADO</strong> (o CLAVE) y se cargan los códigos <strong>día por día</strong> (Lun–Dom) y{' '}
+                <strong>turno por turno</strong> (D, T, N). Mismo formato de hoja (8 columnas + D/T/N×7) u otras columnas extra; el emparejamiento es{' '}
+                <strong>solo por N.º de empleado</strong> (no por posición ni servicio). Con columna <strong>PLANTA</strong> un archivo actualiza todas las plantas.
+                Incluye colaboradores en <strong>baja</strong> al importar. Sin PLANTA, elija la planta arriba.
               </p>
               <div className="persistRow__csvActions">
                 <button
@@ -1142,6 +1154,32 @@ export function AttendanceView() {
                   Importar CSV…
                 </button>
               </div>
+              {csvImportOmitidos && csvImportOmitidos.length > 0 ? (
+                <div className="persistRow__csvOmitidos">
+                  <p className="persistRow__meta">
+                    <strong>{csvImportOmitidos.length}</strong> N° de empleado omitidos (no registrados en esta
+                    importación).
+                  </p>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() =>
+                      downloadTextFile(
+                        `asistencia-omitidos-${weekIso}.csv`,
+                        buildCsvListaNumerosEmpleado(csvImportOmitidos),
+                      )
+                    }
+                  >
+                    Descargar N° omitidos
+                  </button>
+                  <pre className="persistRow__csvOmitidosList" aria-label="Números omitidos">
+                    {csvImportOmitidos.slice(0, 40).join('\n')}
+                    {csvImportOmitidos.length > 40
+                      ? `\n… (+${csvImportOmitidos.length - 40} más; use Descargar)`
+                      : ''}
+                  </pre>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="persistRow__meta muted">La importación CSV requiere permiso de edición.</p>
@@ -1271,7 +1309,8 @@ export function AttendanceView() {
           <strong>Exportar (.csv)</strong> con periodo <strong>Semana</strong> descarga la misma cuadrícula que en pantalla (identificación + códigos + totales). Mes/año exporta resumen de totales.{' '}
           {puedeImportarCsv ? (
             <>
-              Para capturar <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. El archivo puede ser como su
+              Para capturar <strong>códigos en celdas</strong> use <strong>Descargar CSV / Importar CSV</strong> arriba. La importación ubica cada fila por{' '}
+              <strong>N.º de empleado</strong> y aplica la semana completa (7 días × D/T/N). El archivo puede ser como su
               hoja de planta (SERVICIO… NOMBRE + D/T/N×7) o el formato compacto de 5 columnas + códigos; separador coma o punto y
               coma; <strong>NO DE EMPLEADO</strong> como texto en Excel. Al importar también aplica a colaboradores en <strong>baja</strong> (historial).{' '}
             </>
