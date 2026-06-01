@@ -145,29 +145,96 @@ function saveAttendanceGridLocal(
   }
 }
 
+function buildAttendanceGridPayload(
+  rows: GridRow[],
+  serviceNo: string,
+  savedAt: string,
+): StoredAttendanceGrid {
+  const sn = serviceNo.trim()
+  return {
+    version: 2,
+    savedAt,
+    rows: rows.map((r) => {
+      const no = gridRowServiceNo(r) || sn
+      return withComputedTotals(r, no)
+    }),
+    serviceNo: sn,
+  }
+}
+
 export async function saveAttendanceGrid(
   weekStartIso: string,
   serviceCatalogId: string,
   rows: GridRow[],
   serviceNo: string,
+  opts?: { savedAt?: string },
 ): Promise<boolean> {
   const id = serviceCatalogId.trim()
   if (!id) return false
-  const payload: StoredAttendanceGrid = {
-    version: 2,
-    savedAt: new Date().toISOString(),
-    rows: rows.map((r) => {
-      const no = gridRowServiceNo(r) || serviceNo.trim()
-      return withComputedTotals(r, no)
-    }),
-    serviceNo: serviceNo.trim(),
-  }
+  const payload = buildAttendanceGridPayload(rows, serviceNo, opts?.savedAt ?? new Date().toISOString())
   const localOk = saveAttendanceGridLocal(weekStartIso, id, payload)
   invalidateAttendanceStorageWeekCache(weekStartIso)
   const { invalidateAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
   invalidateAttendanceWeekPrefetch(weekStartIso)
-  await pushAttendanceGridRemote(weekStartIso, id, payload, serviceNo)
-  return localOk
+  const remoteOk = await pushAttendanceGridRemote(weekStartIso, id, payload, serviceNo)
+  return remoteOk || localOk
+}
+
+const SYNC_BATCH_SIZE = 6
+
+/**
+ * Guarda varias plantas de la misma semana: local primero, luego subida al servidor por lotes
+ * (evita saturar el navegador con decenas de POST en paralelo).
+ */
+export async function saveManyAttendanceGrids(
+  weekStartIso: string,
+  items: { scopeKey: string; rows: GridRow[]; serviceNo?: string }[],
+): Promise<{ saved: number; failed: number }> {
+  if (items.length === 0) return { saved: 0, failed: 0 }
+
+  const { syncAllLocalAttendanceToRemote } = await import('./attendanceRemote')
+  const baseMs = Date.now()
+  const syncPayload: {
+    weekStartIso: string
+    scopeKey: string
+    grid: StoredAttendanceGrid
+    serviceNo?: string
+  }[] = []
+
+  for (let i = 0; i < items.length; i++) {
+    const { scopeKey, rows, serviceNo = '' } = items[i]!
+    const id = scopeKey.trim()
+    if (!id || rows.length === 0) continue
+    const savedAt = new Date(baseMs + i).toISOString()
+    const payload = buildAttendanceGridPayload(rows, serviceNo, savedAt)
+    if (saveAttendanceGridLocal(weekStartIso, id, payload)) {
+      syncPayload.push({ weekStartIso, scopeKey: id, grid: payload, serviceNo })
+    }
+  }
+
+  invalidateAttendanceStorageWeekCache(weekStartIso)
+  const { invalidateAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
+  invalidateAttendanceWeekPrefetch(weekStartIso)
+
+  if (syncPayload.length === 0) {
+    return { saved: 0, failed: items.length }
+  }
+
+  let saved = 0
+  let failed = 0
+
+  for (let i = 0; i < syncPayload.length; i += SYNC_BATCH_SIZE) {
+    const chunk = syncPayload.slice(i, i + SYNC_BATCH_SIZE)
+    const res = await syncAllLocalAttendanceToRemote(chunk)
+    if (!res) {
+      failed += chunk.length
+      continue
+    }
+    saved += (res.uploaded ?? 0) + (res.skipped ?? 0)
+    failed += res.failed ?? 0
+  }
+
+  return { saved, failed }
 }
 
 export function loadAttendanceGridLocal(

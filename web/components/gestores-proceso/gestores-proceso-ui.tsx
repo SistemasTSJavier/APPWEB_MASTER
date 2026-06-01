@@ -11,15 +11,14 @@ export function GestoresHero() {
         aria-hidden
       />
       <p className="relative text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-300 sm:text-xs">
-        Recursos humanos · Solo Admin y Gerente RH
+        Recursos humanos · Altas y reclutamiento
       </p>
       <h1 className="relative mt-2 text-xl font-extrabold uppercase tracking-wide text-white sm:text-2xl md:text-3xl">
         Gestores del proceso
       </h1>
       <p className="relative mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">
-        Cuántos colaboradores ingresaron en el periodo elegido y quién figura como su{" "}
-        <strong className="text-white">gestor del proceso</strong> (campo de alta o expediente). Compare
-        gestores entre sí y revise el detalle de cada uno.
+        Solo se listan colaboradores con <strong className="text-white">fecha de ingreso en el año en curso</strong>{" "}
+        (México). Compare gestores del mes o semana elegidos sin mezclar años anteriores.
       </p>
     </header>
   );
@@ -47,7 +46,7 @@ export function GuiaRapidaGestores({ open, onToggle }: { open: boolean; onToggle
           <GuiaPaso
             n={1}
             titulo="Elija el periodo"
-            texto="Por mes cuenta altas cuya fecha de ingreso cae en ese mes. Por semana usa de lunes a domingo (hora México)."
+            texto="Solo se incluyen altas del año en curso. Por mes o por semana (lunes a domingo, hora México) dentro de ese año."
           />
           <GuiaPaso
             n={2}
@@ -181,13 +180,11 @@ export function PeriodoResumenBar({
   totalEnPeriodo,
   gestoresCount,
   sinGestorEnPeriodo,
-  loading,
 }: {
   periodoLabel: string;
   totalEnPeriodo: number;
   gestoresCount: number;
   sinGestorEnPeriodo: number;
-  loading: boolean;
 }) {
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2.5">
@@ -208,9 +205,6 @@ export function PeriodoResumenBar({
           </>
         ) : null}
       </span>
-      {loading ? (
-        <span className="ml-auto text-xs font-semibold text-indigo-600 animate-pulse">Actualizando…</span>
-      ) : null}
     </div>
   );
 }

@@ -22,6 +22,7 @@ import {
   loadLatestPointer,
   parseIsoToLocalDate,
   saveAttendanceGrid,
+  saveManyAttendanceGrids,
   weekStartToIso,
 } from '../attendanceStorage'
 import { getAttendanceWeekPrefetch } from '../attendanceWeekPrefetch'
@@ -601,8 +602,13 @@ export function AttendanceView() {
         return
       }
       const parts: string[] = [
-        `Importación multi-planta: ${result.totalUpdated} empleado(s), semana ${weekRangeLabel}. Ya guardado en ${result.plantsSaved} planta(s) (no necesita pulsar «Guardar todas las plantas» salvo que edite celdas después). Separador: ${delimHint}.`,
+        `Importación multi-planta: ${result.totalUpdated} empleado(s), semana ${weekRangeLabel}. Guardado en servidor/local: ${result.plantsSaved} planta(s). Separador: ${delimHint}.`,
       ]
+      if (result.plantsSaveFailed > 0) {
+        parts.push(
+          `${result.plantsSaveFailed} planta(s) con cambios NO se pudieron guardar (reintente «Guardar todas las plantas» o importe de nuevo).`,
+        )
+      }
       for (const p of result.plantas) {
         if (p.updatedCount > 0) {
           parts.push(
@@ -615,7 +621,11 @@ export function AttendanceView() {
           `PLANTA en CSV sin coincidir en expediente: ${result.unknownPlantas.join(', ')}.`,
         )
       }
-      if ((parsed.rowsSinPlanta ?? 0) > 0) {
+      if (result.rowsSinPlantaCsv > 0) {
+        parts.push(
+          `${result.rowsSinPlantaCsv} fila(s) del CSV no se asignaron a ninguna planta (revise columna PLANTA o NO. SERVICIO).`,
+        )
+      } else if ((parsed.rowsSinPlanta ?? 0) > 0) {
         parts.push(
           `${parsed.rowsSinPlanta} fila(s) con PLANTA vacía (se intentó ubicar por NO SERVICIO en catálogo).`,
         )
@@ -742,6 +752,7 @@ export function AttendanceView() {
     const plantaActualNorm = esVistaTodasPlantas
       ? ''
       : plantaSeleccionada.trim().toUpperCase()
+    const batchItems: { scopeKey: string; rows: GridRow[] }[] = []
     for (const planta of plantas) {
       const scopeKey = plantaToStorageKey(planta)
       if (!scopeKey) continue
@@ -758,9 +769,14 @@ export function AttendanceView() {
           ? rows
           : await mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso)
       }
-      const ok = await saveAttendanceGrid(weekIso, scopeKey, filas, '')
-      if (ok) guardadas++
-      else fallidas++
+      if (filas.length > 0) {
+        batchItems.push({ scopeKey, rows: filas })
+      }
+    }
+    if (batchItems.length > 0) {
+      const batch = await saveManyAttendanceGrids(weekIso, batchItems)
+      guardadas = batch.saved
+      fallidas = Math.max(0, batchItems.length - batch.saved) + batch.failed
     }
     return { guardadas, fallidas }
   }

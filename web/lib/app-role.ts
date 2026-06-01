@@ -117,7 +117,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/servicios": ["admin", "rh", "aux_rh"],
   "/sgc": ["admin", "mejora_continua"],
-  "/gestores-proceso": ["admin", "gerente_rh"],
+  "/gestores-proceso": ["admin", "rh", "aux_rh", "gerente_rh"],
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
 };
 
@@ -311,7 +311,7 @@ export function sgcDepartamentoFijoPorRol(_role: AppRole): SgcDepartamentoId | n
 
 /** Comparativa de gestores del proceso (altas / expediente). */
 export function roleMayAccessGestoresProceso(role: AppRole): boolean {
-  return role === "admin" || role === "gerente_rh";
+  return role === "admin" || role === "rh" || role === "aux_rh" || role === "gerente_rh";
 }
 
 /** Enlaces del panel lateral en la página de inicio (según rol). */
@@ -349,7 +349,7 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     {
       href: "/gestores-proceso",
       label: "Gestores proceso",
-      roles: ["admin", "gerente_rh"],
+      roles: ["admin", "rh", "aux_rh", "gerente_rh"],
     },
     {
       href: "/categorizacion",

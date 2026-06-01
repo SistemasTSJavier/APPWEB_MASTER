@@ -52,10 +52,15 @@ export type GestoresProcesoReport = {
   periodoLabel: string;
   desdeIso: string;
   hastaIso: string;
+  /** Solo se consideran altas con fecha de ingreso en este año (calendario México). */
+  anioFiltro: number;
+  totalIngresosAnio: number;
   totalEnPeriodo: number;
   sinGestorEnPeriodo: number;
   gestores: GestorProcesoBucket[];
+  /** Gestores distintos entre todos los ingresos del año filtro. */
   gestoresDistintosHistorico: number;
+  /** Ingresos del año sin gestor asignado. */
   colaboradoresSinGestorHistorico: number;
 };
 
@@ -68,6 +73,31 @@ function fechaIngresoEfectiva(c: ColaboradorCompleto): string {
   const enForm = String(c.form?.fechaIngreso ?? "").trim();
   const raw = snap || enForm;
   return normalizarFechaParaInputDate(raw) || raw;
+}
+
+/** Año calendario actual en zona México. */
+export function anioActualGestoresMx(fecha = new Date()): number {
+  return Number(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: TZ,
+      year: "numeric",
+    }).format(fecha),
+  );
+}
+
+export function anioDesdeFechaIngresoYmd(ingYmd: string): number | null {
+  const n = normalizarFechaParaInputDate(ingYmd);
+  if (!n || n.length < 4) return null;
+  const y = Number(n.slice(0, 4));
+  return Number.isFinite(y) ? y : null;
+}
+
+/** Colaboradores cuya fecha de ingreso cae en el año indicado. */
+export function filtrarColaboradoresIngresoEnAnio(
+  list: ColaboradorCompleto[],
+  anio: number,
+): ColaboradorCompleto[] {
+  return list.filter((c) => anioDesdeFechaIngresoYmd(fechaIngresoEfectiva(c)) === anio);
 }
 
 function gestorTextoColaborador(c: ColaboradorCompleto): string {
@@ -251,6 +281,10 @@ export function buildGestoresProcesoReport(
   const rango = rangoPeriodoGestor(periodo, anchorYmd);
   if (!rango) return null;
 
+  const anioFiltro = anioActualGestoresMx();
+  const delAnio = filtrarColaboradoresIngresoEnAnio(colaboradores, anioFiltro);
+  const totalIngresosAnio = delAnio.length;
+
   const index = buildColaboradorIndex(colaboradores);
   const buckets = new Map<string, GestorProcesoBucket>();
   let totalEnPeriodo = 0;
@@ -259,9 +293,20 @@ export function buildGestoresProcesoReport(
   const historicosGestor = new Set<string>();
   let sinGestorHistorico = 0;
 
-  for (const c of colaboradores) {
+  type ResGestor = ReturnType<typeof resolverGestorProceso>;
+  const resolucionCache = new Map<string, ResGestor>();
+  const resolverCached = (gestorTxt: string): ResGestor => {
+    const cacheKey = gestorTxt.trim() || "__sin_gestor__";
+    const hit = resolucionCache.get(cacheKey);
+    if (hit) return hit;
+    const res = resolverGestorProceso(gestorTxt, index, colaboradores);
+    resolucionCache.set(cacheKey, res);
+    return res;
+  };
+
+  for (const c of delAnio) {
     const gestorTxt = gestorTextoColaborador(c);
-    const resHist = resolverGestorProceso(gestorTxt, index, colaboradores);
+    const resHist = resolverCached(gestorTxt);
     if (resHist.matchTipo === "sin_gestor") sinGestorHistorico++;
     else historicosGestor.add(resHist.key);
 
@@ -269,7 +314,7 @@ export function buildGestoresProcesoReport(
     if (!enRangoInclusivo(ing, rango.desdeIso, rango.hastaIso)) continue;
 
     totalEnPeriodo++;
-    const res = resolverGestorProceso(gestorTxt, index, colaboradores);
+    const res = resolverCached(gestorTxt);
     if (res.matchTipo === "sin_gestor") sinGestorEnPeriodo++;
 
     let bucket = buckets.get(res.key);
@@ -305,6 +350,8 @@ export function buildGestoresProcesoReport(
     periodoLabel: rango.label,
     desdeIso: rango.desdeIso,
     hastaIso: rango.hastaIso,
+    anioFiltro,
+    totalIngresosAnio,
     totalEnPeriodo,
     sinGestorEnPeriodo,
     gestores,

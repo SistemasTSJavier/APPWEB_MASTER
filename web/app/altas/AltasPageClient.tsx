@@ -733,11 +733,17 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         </div>
 
         {puedeEditarAltas ? (
-          <section className="card mb-4 border-2 border-blue-900/25 bg-gradient-to-br from-blue-50 to-slate-50 space-y-4">
-            <h2 className="text-base font-bold uppercase text-slate-900">Administrador: importaciones CSV rapidas</h2>
-            <p className="text-sm font-medium text-slate-800">
-              Son <strong>dos procesos distintos</strong> (cada uno con su boton y plantilla). No mezcles formatos en el mismo archivo.
-            </p>
+          <details className="card mb-4 border-2 border-blue-900/25 bg-gradient-to-br from-blue-50 to-slate-50 open:pb-4">
+            <summary className="cursor-pointer list-none px-4 py-4 sm:px-5 [&::-webkit-details-marker]:hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-bold uppercase text-slate-900">Administrador: importaciones CSV rapidas</h2>
+                <span className="text-xs font-bold uppercase text-blue-900">Mostrar / ocultar</span>
+              </div>
+              <p className="mt-2 text-sm font-medium text-slate-800">
+                Correccion de un campo o renumeracion por nombre — cada una con su plantilla.
+              </p>
+            </summary>
+            <div className="space-y-4 border-t border-blue-200/80 px-4 pt-4 sm:px-5">
             <h3 className="text-sm font-bold uppercase text-slate-900">1 · Corregir un dato (2 columnas)</h3>
             <p className="text-sm font-medium text-slate-800">
               Columna 1: <code className="rounded bg-white px-1">no_de_empleado</code> (N° actual). Columna 2: el campo a corregir (ej.{" "}
@@ -826,11 +832,21 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 </p>
               ) : null}
             </div>
-          </section>
+            </div>
+          </details>
         ) : null}
 
-        <section className={`card mb-4 space-y-3 ${!puedeEditarAltas ? "pointer-events-none opacity-50" : ""}`}>
-          <h2 className="text-sm font-bold uppercase text-slate-800">Importacion masiva CSV</h2>
+        <details
+          className={`card mb-4 space-y-3 ${!puedeEditarAltas ? "pointer-events-none opacity-50" : ""}`}
+          open={puedeEditarAltas}
+        >
+          <summary className="cursor-pointer list-none px-4 py-3 sm:px-5 [&::-webkit-details-marker]:hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-bold uppercase text-slate-800">Importacion masiva CSV</h2>
+              <span className="text-xs font-bold uppercase text-slate-500">Mostrar / ocultar</span>
+            </div>
+          </summary>
+          <div className="space-y-3 border-t border-slate-200 px-4 pb-4 pt-3 sm:px-5">
           <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-950">
             En <strong>Parte 1</strong>, servicio/planta/posición salen del catálogo <strong>Cuadrícula → Vacantes</strong>.
             En CSV masivo esas columnas se ignoran (manual después).
@@ -961,7 +977,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
               ) : null}
             </div>
           ) : null}
-        </section>
+          </div>
+        </details>
 
         <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-5">
           {PARTS.map((label, i) => (

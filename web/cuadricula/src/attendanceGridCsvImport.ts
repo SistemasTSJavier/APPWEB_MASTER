@@ -8,7 +8,7 @@ import {
 } from '@/lib/colaboradores-catalogo-display'
 import type { CatalogoServicioItem } from '@/lib/servicios-catalogo-client'
 import { reassignFaltaSequence } from './attendanceFaltaSequence'
-import { saveAttendanceGrid } from './attendanceStorage'
+import { saveManyAttendanceGrids } from './attendanceStorage'
 import { withComputedTotals } from './attendanceTotals'
 import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import {
@@ -654,6 +654,8 @@ export interface AllPlantasCsvImportResult {
   unknownPlantas: string[]
   totalUpdated: number
   plantsSaved: number
+  /** Plantas con cambios que no se pudieron persistir (servidor o almacenamiento local). */
+  plantsSaveFailed: number
   rowsSinPlantaCsv: number
 }
 
@@ -662,20 +664,24 @@ function groupCsvRowsByPlanta(
   catalogo: CatalogoServicioItem[],
   expedienteNorm: Map<string, string>,
   fallbackPlanta?: string,
-): Map<string, ParsedAttendanceGridCsvRow[]> {
+): { groups: Map<string, ParsedAttendanceGridCsvRow[]>; rowsSinPlanta: number } {
   const groups = new Map<string, ParsedAttendanceGridCsvRow[]>()
   const fallback = fallbackPlanta ? normPlantaCsv(fallbackPlanta) : ''
+  let rowsSinPlanta = 0
 
   for (const row of rows) {
     let p =
       resolvePlantaNormForCsvRow(row, catalogo, expedienteNorm) ??
       (fallback && expedienteNorm.has(fallback) ? fallback : '')
-    if (!p) continue
+    if (!p) {
+      rowsSinPlanta++
+      continue
+    }
     const list = groups.get(p) ?? []
     list.push(row)
     groups.set(p, list)
   }
-  return groups
+  return { groups, rowsSinPlanta }
 }
 
 /**
@@ -692,7 +698,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   const plantasExpediente = listarPlantasDeColaboradores(opts.colaboradores)
   const expedienteNorm = new Map(plantasExpediente.map((p) => [normPlantaCsv(p), p]))
 
-  const grouped = groupCsvRowsByPlanta(
+  const { groups: grouped, rowsSinPlanta: rowsSinPlantaCsv } = groupCsvRowsByPlanta(
     opts.parsedRows,
     opts.catalogo,
     expedienteNorm,
@@ -702,12 +708,29 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   const unknownPlantas: string[] = []
   let totalUpdated = 0
   let plantsSaved = 0
+  let plantsSaveFailed = 0
 
   const { getAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
   const prefetch = await getAttendanceWeekPrefetch(opts.weekIso)
   const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(opts.colaboradores)
 
-  const slices = await Promise.all(
+  type MergeOk = {
+    kind: 'ok'
+    plantaNombre: string
+    scopeKey: string
+    next: GridRow[]
+    updatedCount: number
+    gridEmployeeCount: number
+    csvRowsTotal: number
+    csvEmployeesNotInGrid: string[]
+    ambiguousEmployeeNos: string[]
+  }
+
+  const merged: Array<
+    | { kind: 'unknown'; plantaNorm: string }
+    | MergeOk
+    | null
+  > = await Promise.all(
     [...grouped.entries()].map(async ([plantaNorm, csvRows]) => {
       const plantaNombre = expedienteNorm.get(plantaNorm)
       if (!plantaNombre) {
@@ -737,28 +760,30 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
         todosColaboradores: opts.colaboradores,
       })
 
-      const saved = updatedCount > 0 && (await saveAttendanceGrid(opts.weekIso, scopeKey, next, ''))
-
       return {
         kind: 'ok' as const,
         plantaNombre,
+        scopeKey,
+        next,
         updatedCount,
         gridEmployeeCount,
         csvRowsTotal: csvRows.length,
         csvEmployeesNotInGrid,
         ambiguousEmployeeNos,
-        saved,
       }
     }),
   )
 
-  for (const slice of slices) {
+  const toPersist: MergeOk[] = []
+  for (const slice of merged) {
     if (!slice) continue
     if (slice.kind === 'unknown') {
       unknownPlantas.push(slice.plantaNorm)
       continue
     }
-    if (slice.saved) plantsSaved++
+    if (slice.updatedCount > 0) {
+      toPersist.push(slice)
+    }
     totalUpdated += slice.updatedCount
     plantas.push({
       plantaNombre: slice.plantaNombre,
@@ -767,8 +792,21 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
       csvRowsTotal: slice.csvRowsTotal,
       csvEmployeesNotInGrid: slice.csvEmployeesNotInGrid,
       ambiguousEmployeeNos: slice.ambiguousEmployeeNos,
-      saved: slice.saved,
+      saved: false,
     })
+  }
+
+  if (toPersist.length > 0) {
+    const batch = await saveManyAttendanceGrids(
+      opts.weekIso,
+      toPersist.map((s) => ({ scopeKey: s.scopeKey, rows: s.next, serviceNo: '' })),
+    )
+    const allOk = batch.failed === 0 && batch.saved >= toPersist.length
+    plantsSaved = allOk ? toPersist.length : Math.min(batch.saved, toPersist.length)
+    plantsSaveFailed = Math.max(0, toPersist.length - plantsSaved)
+    for (const p of plantas) {
+      if (p.updatedCount > 0) p.saved = allOk
+    }
   }
 
   plantas.sort((a, b) => a.plantaNombre.localeCompare(b.plantaNombre, 'es'))
@@ -778,7 +816,8 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
     unknownPlantas,
     totalUpdated,
     plantsSaved,
-    rowsSinPlantaCsv: 0,
+    plantsSaveFailed,
+    rowsSinPlantaCsv,
   }
 }
 
