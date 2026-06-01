@@ -1,4 +1,5 @@
 import { canonicalEmpNoAttendance } from '@/lib/attendance-emp-no'
+import { normalizarCeldaCsvNumerica } from '@/lib/csv'
 import type { ColaboradorCompleto } from '@/lib/colaboradores-types'
 import {
   canonicalNoServicioCatalogo,
@@ -13,7 +14,6 @@ import { withComputedTotals } from './attendanceTotals'
 import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import {
   colaboradorToGridRow,
-  coincideColaboradorPlantaExpediente,
   listarPlantasDeColaboradores,
   gridRowServiceNo,
   plantaToStorageKey,
@@ -267,26 +267,15 @@ export function mergeShiftsPreferNonEmpty(
   return reassignFaltaSequence(out)
 }
 
-/** Filas del CSV que corresponden a una planta (importación de una sola planta en pantalla). */
+/**
+ * Importación en una sola planta en pantalla: no filtra por columna PLANTA del CSV.
+ * La asistencia se aplica solo por N.º de empleado (evita omitir filas como 7803 cuando el CSV trae otra planta en celdas).
+ */
 export function filterCsvRowsForPlantaNombre(
   rows: ParsedAttendanceGridCsvRow[],
-  plantaNombre: string,
+  _plantaNombre: string,
 ): { rows: ParsedAttendanceGridCsvRow[]; omittedOtherPlanta: number } {
-  const want = normPlantaCsv(plantaNombre)
-  if (!want) return { rows, omittedOtherPlanta: 0 }
-  const hasPlantaCol = rows.some((r) => Boolean(r.plantaNombre?.trim()))
-  if (!hasPlantaCol) return { rows, omittedOtherPlanta: 0 }
-  const kept: ParsedAttendanceGridCsvRow[] = []
-  let omittedOtherPlanta = 0
-  for (const r of rows) {
-    const p = r.plantaNombre ? normPlantaCsv(r.plantaNombre) : ''
-    if (!p || p === want) {
-      kept.push(r)
-      continue
-    }
-    omittedOtherPlanta++
-  }
-  return { rows: kept, omittedOtherPlanta }
+  return { rows, omittedOtherPlanta: 0 }
 }
 
 export interface AttendanceCsvLayout {
@@ -302,18 +291,122 @@ export interface AttendanceCsvLayout {
   plantaCol?: number
 }
 
-export function detectAttendanceCsvLayout(header: string[]): AttendanceCsvLayout | null {
+function normalizeShiftCode(raw: string): string {
+  const t = String(raw ?? '').trim()
+  if (!t) return ''
+  return t.toUpperCase()
+}
+
+const ATTENDANCE_CODE_CELL = /^[A-Z]{1,6}(\d{0,2})?$/
+
+function cellLooksLikeAttendanceCode(raw: string): boolean {
+  const v = normalizeShiftCode(raw)
+  if (!v) return false
+  return ATTENDANCE_CODE_CELL.test(v)
+}
+
+function headerRowLooksLikeAttendance(header: string[]): boolean {
+  return findEmployeeColumnIndex(header) >= 0
+}
+
+function findNombresColumnIndex(header: string[]): number {
   const h = header.map(normHeaderCell)
-  const empCol = findEmployeeColumnIndex(header)
-  if (empCol < 0) return null
+  for (let i = 0; i < h.length; i++) {
+    if (matchesNombresHeader(h[i]!)) return i
+  }
+  return -1
+}
 
+/** Columna con N.º de empleado (no N.º de servicio repetido en todas las filas, p. ej. 944). */
+function inferEmpColFromDataRows(table: string[][], fromRow: number): number {
+  const end = Math.min(fromRow + 60, table.length)
+  const rowCount = end - fromRow
+  if (rowCount < 1) return -1
+
+  const colStats = new Map<number, { hits: number; unique: Set<string> }>()
+  for (let r = fromRow; r < end; r++) {
+    const cells = table[r] ?? []
+    for (let c = 0; c < cells.length; c++) {
+      const raw = normalizarCeldaCsvNumerica(String(cells[c] ?? ''))
+      const canon = canonicalEmpNoForCsvMatch(raw)
+      if (!canon || !/^\d{3,10}$/.test(canon)) continue
+      let st = colStats.get(c)
+      if (!st) {
+        st = { hits: 0, unique: new Set() }
+        colStats.set(c, st)
+      }
+      st.hits++
+      st.unique.add(canon)
+    }
+  }
+
+  let bestCol = -1
+  let bestScore = -1
+  for (const [col, st] of colStats) {
+    if (st.hits < Math.max(2, Math.floor(rowCount * 0.4))) continue
+    const uniqRatio = st.unique.size / st.hits
+    let score = st.unique.size * 20 + st.hits
+    if (uniqRatio >= 0.75) score += 80
+    if (uniqRatio < 0.35) score = Math.floor(score * 0.15)
+    if (score > bestScore) {
+      bestScore = score
+      bestCol = col
+    }
+  }
+  return bestCol
+}
+
+function inferNombreColFromData(table: string[][], empCol: number, fromRow: number): number {
+  const end = Math.min(fromRow + 15, table.length)
+  for (const tryCol of [empCol + 1, empCol - 1]) {
+    if (tryCol < 0 || tryCol === empCol) continue
+    let nameLike = 0
+    for (let r = fromRow; r < end; r++) {
+      const v = String(table[r]?.[tryCol] ?? '').trim()
+      if (!v) continue
+      if (cellLooksLikeAttendanceCode(v)) continue
+      if (/[A-ZÁÉÍÓÚÑ]/i.test(v) && v.length >= 4) nameLike++
+    }
+    if (nameLike >= 2) return tryCol
+  }
+  return -1
+}
+
+function inferShiftStartFromData(table: string[][], empCol: number, fromRow: number): number {
+  const maxCol = Math.max(...table.map((r) => r.length), 0)
+  let bestStart = -1
+  let bestScore = 0
+  for (let start = empCol + 1; start <= maxCol - 21; start++) {
+    let score = 0
+    const end = Math.min(fromRow + 20, table.length)
+    for (let r = fromRow; r < end; r++) {
+      for (let d = 0; d < 7; d++) {
+        for (let t = 0; t < 3; t++) {
+          const v = table[r]?.[start + d * 3 + t] ?? ''
+          if (cellLooksLikeAttendanceCode(v)) score++
+        }
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score
+      bestStart = start
+    }
+  }
+  if (bestScore >= 5 && bestStart >= 0) return bestStart
+  const h = table[0]?.map(normHeaderCell) ?? []
   const afterEmp = h[empCol + 1] ?? ''
-  const shiftStart = matchesNombresHeader(afterEmp) ? empCol + 2 : empCol + 1
-  if (header.length < shiftStart + 21) return null
+  if (matchesNombresHeader(afterEmp)) return empCol + 2
+  return empCol + 1
+}
 
+function buildLayoutFromEmpAndShift(
+  header: string[],
+  empCol: number,
+  shiftStart: number,
+): AttendanceCsvLayout {
+  const h = header.map(normHeaderCell)
   const plantaCol = findPlantaColumnIndex(header)
   let { servicioCol, noServicioCol } = findServicioColsInHeader(header)
-
   const posColStrict = empCol - 3
   if (posColStrict >= 0 && matchesPosicionHeader(h[posColStrict]!)) {
     const n0 = h[0] ?? ''
@@ -326,7 +419,6 @@ export function detectAttendanceCsvLayout(header: string[]): AttendanceCsvLayout
       servicioCol = 0
     }
   }
-
   return {
     empCol,
     shiftStart,
@@ -336,14 +428,65 @@ export function detectAttendanceCsvLayout(header: string[]): AttendanceCsvLayout
   }
 }
 
-export function csvLayoutHasPlantaColumn(layout: AttendanceCsvLayout): boolean {
-  return layout.plantaCol != null && layout.plantaCol >= 0
+export function detectAttendanceCsvLayout(
+  header: string[],
+  table?: string[][],
+): AttendanceCsvLayout | null {
+  const h = header.map(normHeaderCell)
+  let empCol = findEmployeeColumnIndex(header)
+  let dataStartRow = 1
+
+  const nomHeaderCol = findNombresColumnIndex(header)
+  if (nomHeaderCol > 0 && empCol < 0) {
+    empCol = nomHeaderCol - 1
+  }
+  if (empCol >= 0 && nomHeaderCol === empCol + 1) {
+    /* cabecera estándar: … NO. EMPLEADO, NOMBRES, códigos */
+  }
+
+  if (empCol < 0 && table && table.length >= 1) {
+    for (const start of [0, 1]) {
+      if (start >= table.length) continue
+      const inferred = inferEmpColFromDataRows(table, start)
+      if (inferred >= 0) {
+        empCol = inferred
+        dataStartRow = start
+        break
+      }
+    }
+  }
+  if (empCol < 0) return null
+
+  let shiftStart: number
+  if (table && table.length > dataStartRow) {
+    shiftStart = inferShiftStartFromData(table, empCol, dataStartRow)
+    const nomDataCol = inferNombreColFromData(table, empCol, dataStartRow)
+    if (nomDataCol === empCol + 1 && shiftStart <= nomDataCol) {
+      shiftStart = nomDataCol + 1
+    }
+  } else {
+    const afterEmp = h[empCol + 1] ?? ''
+    shiftStart = matchesNombresHeader(afterEmp) ? empCol + 2 : empCol + 1
+  }
+
+  const maxCols = Math.max(header.length, ...(table ?? []).map((r) => r.length))
+  if (maxCols < shiftStart + 21) return null
+
+  return buildLayoutFromEmpAndShift(header, empCol, shiftStart)
 }
 
-function normalizeShiftCode(raw: string): string {
-  const t = String(raw ?? '').trim()
-  if (!t) return ''
-  return t.toUpperCase()
+/** Primera fila de datos (0 si no hay fila de encabezados reconocible). */
+export function attendanceCsvDataStartRow(layout: AttendanceCsvLayout, table: string[][]): number {
+  if (table.length < 2) return 1
+  const header = table[0]!.map((c) => String(c ?? '').trim())
+  if (headerRowLooksLikeAttendance(header)) return 1
+  const inferred = inferEmpColFromDataRows(table, 0)
+  if (inferred >= 0 && inferred === layout.empCol) return 0
+  return 1
+}
+
+export function csvLayoutHasPlantaColumn(layout: AttendanceCsvLayout): boolean {
+  return layout.plantaCol != null && layout.plantaCol >= 0
 }
 
 /** 7 días × turnos D, T, N (columnas consecutivas en el CSV). */
@@ -401,29 +544,33 @@ export function parseAttendanceGridCodesCsv(text: string):
   const table = contentLines.map((ln) => splitCsvDelimitedLine(ln, delim))
 
   const header = table[0]!.map((c) => c.trim())
-  const layout = detectAttendanceCsvLayout(header)
+  const layout = detectAttendanceCsvLayout(header, table)
   if (!layout) {
     return {
       ok: false,
       error:
-        'No se reconoce la cabecera. Debe incluir NO. DE EMPLEADO (o CLAVE) y 21 columnas D/T/N (7 días). Formato hoja: SERVICIO, NO. SERVICIO, PLANTA, POSICION, PUESTO, FECHA DE INGRESO, NO. DE EMPLEADO, NOMBRES + D/T/N×7.',
+        'No se detectó la columna NO. DE EMPLEADO (o CLAVE) ni 21 códigos D/T/N. Puede exportar desde la cuadrícula o usar cabecera con NO. DE EMPLEADO + 7 días × D/T/N. Servicio y planta pueden ir vacíos.',
     }
   }
 
+  const dataStartRow = attendanceCsvDataStartRow(layout, table)
   const minCols = layout.shiftStart + 21
-  if (header.length < minCols) {
+  const maxCols = Math.max(...table.map((r) => r.length), header.length)
+  if (maxCols < minCols) {
     return {
       ok: false,
-      error: `Faltan columnas: se necesitan al menos ${minCols} (empleado en columna ${layout.empCol + 1} y 21 códigos a la derecha de NOMBRES).`,
+      error: `Faltan columnas de asistencia: se necesitan al menos ${minCols} (N° empleado en columna ${layout.empCol + 1} y 21 códigos D/T/N).`,
     }
   }
 
-  const sh0 = normHeaderCell(header[layout.shiftStart] ?? '')
-  if (firstShiftHeaderLooksWrong(sh0)) {
-    return {
-      ok: false,
-      error:
-        'La columna de códigos parece incorrecta (se encontró «Asist.»). Este archivo es el CSV de totales, no el de códigos por turno.',
+  if (dataStartRow === 1) {
+    const sh0 = normHeaderCell(header[layout.shiftStart] ?? '')
+    if (firstShiftHeaderLooksWrong(sh0)) {
+      return {
+        ok: false,
+        error:
+          'La columna de códigos parece incorrecta (se encontró «Asist.»). Este archivo es el CSV de totales, no el de códigos por turno.',
+      }
     }
   }
 
@@ -431,17 +578,17 @@ export function parseAttendanceGridCodesCsv(text: string):
   const byKey = new Map<string, ParsedAttendanceGridCsvRow>()
   let rowsSinPlanta = 0
 
-  for (let r = 1; r < table.length; r++) {
+  for (let r = dataStartRow; r < table.length; r++) {
     let cells = table[r]!.map((c) => c.trim())
     while (cells.length < minCols) cells.push('')
-    const empRaw = (cells[layout.empCol] ?? '').trim()
+    const empRaw = normalizarCeldaCsvNumerica(cells[layout.empCol] ?? '')
     if (!empRaw) continue
 
     let plantaNombre: string | undefined
-    if (multiPlanta && layout.plantaCol != null) {
+    if (layout.plantaCol != null) {
       const p = normPlantaCsv(cells[layout.plantaCol] ?? '')
       if (p) plantaNombre = p
-      else rowsSinPlanta++
+      else if (multiPlanta) rowsSinPlanta++
     }
 
     const shifts = reassignFaltaSequence(shiftsFromCellsAt(cells, layout.shiftStart))
@@ -602,19 +749,28 @@ export type MergeCsvReconcileOpts = {
 }
 
 /** Mapa N.º empleado → colaborador; duplicados: prioriza activo sobre baja. */
+function clavesNoEmpleadoExpediente(c: ColaboradorCompleto): string[] {
+  const keys = new Set<string>()
+  for (const raw of [c.noEmpleado, String(c.form?.noEmpleado1 ?? "")]) {
+    const k = canonicalEmpNoForCsvMatch(raw)
+    if (k) keys.add(k)
+  }
+  return [...keys]
+}
+
 export function mapaColaboradoresPorNoEmpleadoCanon(
   lista: ColaboradorCompleto[],
 ): Map<string, ColaboradorCompleto> {
   const map = new Map<string, ColaboradorCompleto>()
   for (const c of lista) {
-    const k = canonicalEmpNoForCsvMatch(c.noEmpleado)
-    if (!k) continue
-    const prev = map.get(k)
-    if (!prev) {
-      map.set(k, c)
-      continue
+    for (const k of clavesNoEmpleadoExpediente(c)) {
+      const prev = map.get(k)
+      if (!prev) {
+        map.set(k, c)
+        continue
+      }
+      if (colaboradorTieneBaja(prev) && !colaboradorTieneBaja(c)) map.set(k, c)
     }
-    if (colaboradorTieneBaja(prev) && !colaboradorTieneBaja(c)) map.set(k, c)
   }
   return map
 }
@@ -674,10 +830,6 @@ export function mergeCsvShiftsIntoGridRows(
       if (csvEmpMatched.has(canon)) continue
       const col = reconcile.colaboradoresByEmp.get(canon)
       if (!col) {
-        csvEmployeesNotInGrid.push(imp.employeeNo)
-        continue
-      }
-      if (!coincideColaboradorPlantaExpediente(col, reconcile.plantaNombre)) {
         csvEmployeesNotInGrid.push(imp.employeeNo)
         continue
       }
@@ -795,9 +947,9 @@ function groupCsvRowsByPlanta(
   let rowsSinPlanta = 0
 
   for (const row of rows) {
-    let p =
-      resolvePlantaNormForCsvRow(row, catalogo, expedienteNorm) ??
-      (fallback && expedienteNorm.has(fallback) ? fallback : '')
+    let p = resolvePlantaNormForCsvRow(row, catalogo, expedienteNorm)
+    if (!p && fallback && expedienteNorm.has(fallback)) p = fallback
+    if (!p && fallback) p = fallback
     if (!p) {
       rowsSinPlanta++
       continue

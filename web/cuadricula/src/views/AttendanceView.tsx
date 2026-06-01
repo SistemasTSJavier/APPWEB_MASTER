@@ -662,9 +662,12 @@ export function AttendanceView() {
       return
     }
 
-    const { rows: csvRowsPlanta, omittedOtherPlanta } = filterCsvRowsForPlantaNombre(
-      parsed.rows,
-      plantaSeleccionada,
+    const { rows: csvRowsPlanta } = filterCsvRowsForPlantaNombre(parsed.rows, plantaSeleccionada)
+
+    const numerosEmpleadoEnCsv = new Set(
+      csvRowsPlanta
+        .map((row) => canonicalEmpNoForCsvMatch(row.employeeNo))
+        .filter(Boolean),
     )
 
     const prefetchImport = await getAttendanceWeekPrefetch(weekIso)
@@ -674,6 +677,7 @@ export function AttendanceView() {
       catalogo,
       weekIso,
       prefetchImport,
+      { numerosEmpleadoEnCsv },
     )
     const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(colaboradores)
     const {
@@ -717,11 +721,6 @@ export function AttendanceView() {
     if (gridEmployeesNotInCsv.length > 0) {
       parts.push(
         `En cuadrícula sin fila en CSV (${gridEmployeesNotInCsv.length}): ${gridEmployeesNotInCsv.slice(0, 10).join(', ')}${gridEmployeesNotInCsv.length > 10 ? '…' : ''} (conservan lo que tenían).`,
-      )
-    }
-    if (omittedOtherPlanta > 0) {
-      parts.push(
-        `${omittedOtherPlanta} fila(s) del CSV son de otra planta (columna PLANTA) y no se aplicaron a «${plantaSeleccionada}».`,
       )
     }
     if (csvEmployeesNotInGrid.length > 0) {
@@ -1110,8 +1109,8 @@ export function AttendanceView() {
                 <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Se detecta la columna{' '}
                 <strong>NO. DE EMPLEADO</strong> (o CLAVE) y se cargan los códigos <strong>día por día</strong> (Lun–Dom) y{' '}
                 <strong>turno por turno</strong> (D, T, N). Mismo formato de hoja (8 columnas + D/T/N×7) u otras columnas extra; el emparejamiento es{' '}
-                <strong>solo por N.º de empleado</strong> (no por posición ni servicio). Con columna <strong>PLANTA</strong> un archivo actualiza todas las plantas.
-                Incluye colaboradores en <strong>baja</strong> al importar. Sin PLANTA, elija la planta arriba.
+                <strong>solo por N.º de empleado</strong> (no por posición, servicio ni planta en expediente). Quienes aún no tienen planta o servicio en Altas se incluyen en la planta que tenga seleccionada arriba.
+                Con columna <strong>PLANTA</strong> en el CSV un archivo puede actualizar todas las plantas. Incluye colaboradores en <strong>baja</strong> al importar.
               </p>
               <div className="persistRow__csvActions">
                 <button

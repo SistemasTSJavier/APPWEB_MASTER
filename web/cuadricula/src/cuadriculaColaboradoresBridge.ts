@@ -110,6 +110,37 @@ export function mapaColaboradoresParaAsistenciaPorPlanta(
   return map;
 }
 
+/** Sin planta capturada en expediente (pendiente de asignar). */
+export function colaboradorSinPlantaEnExpediente(c: ColaboradorCompleto): boolean {
+  return !normTxt(plantaExpedienteColaborador(c));
+}
+
+/**
+ * Para importar/guardar asistencia en la planta en pantalla:
+ * coincide planta en expediente O aún no tiene planta (servicio/planta pendientes).
+ */
+export function colaboradorPertenecePlantaAsistencia(
+  c: ColaboradorCompleto,
+  planta: string,
+): boolean {
+  const p = normTxt(planta);
+  if (!p) return true;
+  const exp = normTxt(plantaExpedienteColaborador(c));
+  if (!exp) return true;
+  return exp === p;
+}
+
+/** Activos y bajas visibles al importar CSV en una planta (incluye quienes aún no tienen planta en expediente). */
+export function colaboradoresParaAsistenciaCsvImport(
+  lista: ColaboradorCompleto[],
+  planta: string,
+): ColaboradorCompleto[] {
+  const p = normTxt(planta);
+  return lista
+    .filter((c) => colaboradorPertenecePlantaAsistencia(c, p))
+    .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+}
+
 /** Servicios distintos (línea vigente) entre colaboradores activos, para filtro en vista global. */
 export function listarServiciosLineaActivos(lista: ColaboradorCompleto[]): string[] {
   const set = new Set<string>();

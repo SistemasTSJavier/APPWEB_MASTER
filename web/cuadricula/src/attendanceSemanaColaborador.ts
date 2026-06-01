@@ -15,11 +15,11 @@ import {
   colaboradorToGridRow,
   colaboradoresActivosPorPlanta,
   mapaColaboradoresActivosPorPlanta,
-  mapaColaboradoresParaAsistenciaPorPlanta,
+  colaboradoresParaAsistenciaCsvImport,
   gridRowServiceNo,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
-import { empNoClaveGridRow } from "@/lib/attendance-emp-no";
+import { canonicalEmpNoAttendance, empNoClaveGridRow } from "@/lib/attendance-emp-no";
 import { appendFilasGuardadasFueraDeBase } from "./attendancePlantaMerge";
 import type { GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
@@ -180,10 +180,21 @@ export async function mergeGridRowsForPlantaWeekForCsvImport(
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
   prefetchedWeek?: AttendanceWeekPrefetch | null,
+  opts?: { numerosEmpleadoEnCsv?: Set<string> },
 ): Promise<GridRow[]> {
-  const mapa = mapaColaboradoresParaAsistenciaPorPlanta(colaboradores);
-  const enPlanta = mapa.get(plantaNombre.trim().toUpperCase()) ?? [];
-  enPlanta.sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+  const enPlanta = colaboradoresParaAsistenciaCsvImport(colaboradores, plantaNombre);
+  if (opts?.numerosEmpleadoEnCsv?.size) {
+    const ya = new Set(
+      enPlanta.map((c) => canonicalEmpNoAttendance(c.noEmpleado)).filter(Boolean),
+    );
+    for (const c of colaboradores) {
+      const k = canonicalEmpNoAttendance(c.noEmpleado);
+      if (!k || !opts.numerosEmpleadoEnCsv.has(k) || ya.has(k)) continue;
+      enPlanta.push(c);
+      ya.add(k);
+    }
+    enPlanta.sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+  }
   const { rows } = await mergePlantaWeekBlockForCsvImport(
     enPlanta,
     colaboradores,
