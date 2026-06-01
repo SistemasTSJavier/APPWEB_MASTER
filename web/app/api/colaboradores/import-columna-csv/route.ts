@@ -111,6 +111,7 @@ export async function POST(req: Request) {
     dataHeaderLabel: result.dataHeaderLabel,
     actualizados: items.length,
     ignoradosNoExiste: result.ignoredUnknownNo,
+    omitidosSinExpediente: result.omitidosSinExpediente,
     filasVaciasOsinDato: result.skippedEmptyRow,
     errores: result.errors,
   });

@@ -114,6 +114,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
     dataHeaderLabel: string;
     actualizados: number;
     ignoradosNoExiste: number;
+    omitidosSinExpediente: string[];
     filasVaciasOsinDato: number;
     errores: Array<{ row: number; message: string }>;
   } | null>(null);
@@ -190,6 +191,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         dataHeaderLabel?: string;
         actualizados?: number;
         ignoradosNoExiste?: number;
+        omitidosSinExpediente?: string[];
         filasVaciasOsinDato?: number;
         errores?: Array<{ row: number; message: string }>;
       } = {};
@@ -206,6 +208,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         dataHeaderLabel: String(j.dataHeaderLabel ?? ""),
         actualizados: Number(j.actualizados ?? 0),
         ignoradosNoExiste: Number(j.ignoradosNoExiste ?? 0),
+        omitidosSinExpediente: Array.isArray(j.omitidosSinExpediente)
+          ? j.omitidosSinExpediente.map((n) => String(n).trim()).filter(Boolean)
+          : [],
         filasVaciasOsinDato: Number(j.filasVaciasOsinDato ?? 0),
         errores: Array.isArray(j.errores) ? j.errores : [],
       });
@@ -454,6 +459,33 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                   <li>Filas ignoradas (N° sin expediente en sistema): {columnaCsvDetalle.ignoradosNoExiste}</li>
                   <li>Filas sin dato o vacias: {columnaCsvDetalle.filasVaciasOsinDato}</li>
                 </ul>
+                {columnaCsvDetalle.omitidosSinExpediente.length > 0 ? (
+                  <div className="mt-2 border-t border-slate-100 pt-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-bold uppercase text-amber-900">
+                        N° omitidos ({columnaCsvDetalle.omitidosSinExpediente.length})
+                      </p>
+                      <button
+                        type="button"
+                        className="rounded border border-amber-600 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-950 hover:bg-amber-100"
+                        onClick={() =>
+                          downloadCsv(
+                            "omitidos_sin_expediente.csv",
+                            `\uFEFFno_de_empleado\n${columnaCsvDetalle.omitidosSinExpediente.join("\n")}\n`,
+                          )
+                        }
+                      >
+                        Descargar CSV
+                      </button>
+                    </div>
+                    <pre className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] font-medium normal-case text-amber-950">
+                      {columnaCsvDetalle.omitidosSinExpediente.slice(0, 80).join("\n")}
+                      {columnaCsvDetalle.omitidosSinExpediente.length > 80
+                        ? `\n… (+${columnaCsvDetalle.omitidosSinExpediente.length - 80} más)`
+                        : ""}
+                    </pre>
+                  </div>
+                ) : null}
                 {columnaCsvDetalle.errores.length > 0 ? (
                   <div className="mt-2 border-t border-slate-100 pt-2">
                     <p className="font-bold uppercase text-amber-900">Advertencias por fila</p>

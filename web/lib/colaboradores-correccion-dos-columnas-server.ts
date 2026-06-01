@@ -10,6 +10,7 @@ export type CorreccionDosColumnasProcessOk = {
   updated: ColaboradorCompleto[];
   actualizados: number;
   sinExpediente: number;
+  omitidosSinExpediente: string[];
   avisos: string[];
 };
 
@@ -32,11 +33,6 @@ export function procesarCorreccionCsvDosColumnasEnMemoria(
   }
 
   const avisos: string[] = result.errors.map((e) => `FILA ${e.row}: ${e.message}`);
-  if (result.ignoredUnknownNo > 0) {
-    avisos.unshift(
-      `${result.ignoredUnknownNo} FILA(S) CON N° SIN EXPEDIENTE (NO SE ACTUALIZARON). REVISE FORMATO DEL N° (EJ. SIN .0 DE EXCEL).`,
-    );
-  }
 
   return {
     ok: true,
@@ -44,6 +40,7 @@ export function procesarCorreccionCsvDosColumnasEnMemoria(
     updated: result.updated,
     actualizados: result.updated.length,
     sinExpediente: result.ignoredUnknownNo,
+    omitidosSinExpediente: result.omitidosSinExpediente,
     avisos: avisos.slice(0, 200),
   };
 }

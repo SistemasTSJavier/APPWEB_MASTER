@@ -95,6 +95,7 @@ export async function POST(req: Request) {
       fieldKey: result.fieldKey,
       actualizados: 0,
       sinExpediente: result.sinExpediente,
+      omitidosSinExpediente: result.omitidosSinExpediente,
       avisos: result.avisos,
     });
   }
@@ -120,6 +121,7 @@ export async function POST(req: Request) {
     fieldKey: result.fieldKey,
     actualizados: result.actualizados,
     sinExpediente: result.sinExpediente,
+    omitidosSinExpediente: result.omitidosSinExpediente,
     avisos: result.avisos,
   });
 }

@@ -82,6 +82,8 @@ export type ColumnarCsvImportOk = {
   /** Expedientes a persistir (ultima fila del CSV gana si hay N° duplicado). */
   updated: ColaboradorCompleto[];
   ignoredUnknownNo: number;
+  /** N° de empleado del CSV sin expediente en el sistema (unicos, ordenados). */
+  omitidosSinExpediente: string[];
   skippedEmptyRow: number;
   errors: Array<{ row: number; message: string }>;
 };
@@ -112,6 +114,7 @@ export function procesarCsvActualizacionUnaColumna(
   const { fieldIndex, dataFieldKey, dataHeaderLabel } = head;
   const toWrite = new Map<string, ColaboradorCompleto>();
   let ignoredUnknownNo = 0;
+  const omitidosSinExpedienteSet = new Set<string>();
   let skippedEmptyRow = 0;
   const errors: Array<{ row: number; message: string }> = [];
 
@@ -135,6 +138,7 @@ export function procesarCsvActualizacionUnaColumna(
     const prev = toWrite.get(no) ?? byNo.get(no);
     if (!prev) {
       ignoredUnknownNo++;
+      omitidosSinExpedienteSet.add(no);
       continue;
     }
 
@@ -172,6 +176,9 @@ export function procesarCsvActualizacionUnaColumna(
     dataHeaderLabel,
     updated: [...toWrite.values()],
     ignoredUnknownNo,
+    omitidosSinExpediente: [...omitidosSinExpedienteSet].sort((a, b) =>
+      a.localeCompare(b, "es", { numeric: true }),
+    ),
     skippedEmptyRow,
     errors,
   };

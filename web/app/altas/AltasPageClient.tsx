@@ -207,6 +207,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   );
 
   const [correccionCsvMsg, setCorreccionCsvMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [correccionCsvOmitidos, setCorreccionCsvOmitidos] = useState<string[] | null>(null);
   const [correccionCsvBusy, setCorreccionCsvBusy] = useState(false);
   const [renumeracionCsvMsg, setRenumeracionCsvMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [renumeracionCsvBusy, setRenumeracionCsvBusy] = useState(false);
@@ -600,6 +601,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       return;
     }
     setCorreccionCsvMsg(null);
+    setCorreccionCsvOmitidos(null);
     setCorreccionCsvBusy(true);
     try {
       const text = await file.text();
@@ -621,6 +623,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         fieldKey?: string;
         actualizados?: number;
         sinExpediente?: number;
+        omitidosSinExpediente?: string[];
         avisos?: string[];
       } = {};
       try {
@@ -635,6 +638,10 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       const campo = String(j.fieldKey ?? "");
       const ok = Number(j.actualizados ?? 0);
       const sinExp = Number(j.sinExpediente ?? 0);
+      const omitidos = Array.isArray(j.omitidosSinExpediente)
+        ? j.omitidosSinExpediente.map((n) => String(n).trim()).filter(Boolean)
+        : [];
+      setCorreccionCsvOmitidos(omitidos.length > 0 ? omitidos : null);
       const rowErrs = Array.isArray(j.avisos) ? j.avisos : [];
       const base =
         ok > 0
@@ -796,6 +803,33 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
               >
                 {correccionCsvMsg.text}
               </p>
+            ) : null}
+            {correccionCsvOmitidos && correccionCsvOmitidos.length > 0 ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-bold uppercase">
+                    N° omitidos (sin expediente): {correccionCsvOmitidos.length}
+                  </p>
+                  <button
+                    type="button"
+                    className="rounded border border-amber-600 bg-white px-2 py-1 text-xs font-bold uppercase text-amber-900 hover:bg-amber-100"
+                    onClick={() =>
+                      downloadCsv(
+                        "omitidos_sin_expediente.csv",
+                        `\uFEFFno_de_empleado\n${correccionCsvOmitidos.join("\n")}\n`,
+                      )
+                    }
+                  >
+                    Descargar lista CSV
+                  </button>
+                </div>
+                <pre className="mt-2 max-h-48 overflow-auto rounded border border-amber-200 bg-white p-2 font-mono text-xs leading-relaxed text-slate-800">
+                  {correccionCsvOmitidos.slice(0, 150).join("\n")}
+                  {correccionCsvOmitidos.length > 150
+                    ? `\n… (+${correccionCsvOmitidos.length - 150} más; use Descargar lista CSV)`
+                    : ""}
+                </pre>
+              </div>
             ) : null}
             <div className="border-t border-slate-300 pt-4">
               <h3 className="text-sm font-bold uppercase text-slate-900">2 · Renumerar N° de empleado</h3>
