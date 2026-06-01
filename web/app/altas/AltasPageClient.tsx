@@ -725,7 +725,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
             {!puedeEditarAltas ? (
               <p className="mt-2 max-w-2xl rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold uppercase text-amber-950">
                 Esta pantalla es solo de consulta para tu perfil. Solo un <strong>administrador</strong> puede capturar, importar CSV o importar el
-                CSV de correccion (dos columnas) o renumeracion de N° de empleado.
+                CSV de correccion (2 columnas) y, aparte, renumeracion por nombre (otro boton).
               </p>
             ) : null}
           </div>
@@ -734,13 +734,15 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
 
         {puedeEditarAltas ? (
           <section className="card mb-4 border-2 border-blue-900/25 bg-gradient-to-br from-blue-50 to-slate-50 space-y-4">
-            <h2 className="text-base font-bold uppercase text-slate-900">Administrador: CSV de correccion (dos columnas)</h2>
+            <h2 className="text-base font-bold uppercase text-slate-900">Administrador: importaciones CSV rapidas</h2>
             <p className="text-sm font-medium text-slate-800">
-              Archivo con solo dos columnas: una es el numero de empleado (ej.{" "}
-              <code className="rounded bg-white px-1">no_de_empleado</code>) y la otra el campo a corregir (ej.{" "}
-              <code className="rounded bg-white px-1">planta</code>, <code className="rounded bg-white px-1">curp</code>,{" "}
-              <code className="rounded bg-white px-1">servicio</code>, <code className="rounded bg-white px-1">fecha_de_ingreso</code>). Los encabezados
-              usan el mismo criterio que el CSV masivo de colaboradores. Cada fila actualiza solo ese campo; el resto del expediente no cambia.
+              Son <strong>dos procesos distintos</strong> (cada uno con su boton y plantilla). No mezcles formatos en el mismo archivo.
+            </p>
+            <h3 className="text-sm font-bold uppercase text-slate-900">1 · Corregir un dato (2 columnas)</h3>
+            <p className="text-sm font-medium text-slate-800">
+              Columna 1: <code className="rounded bg-white px-1">no_de_empleado</code> (N° actual). Columna 2: el campo a corregir (ej.{" "}
+              <code className="rounded bg-white px-1">curp</code>, <code className="rounded bg-white px-1">servicio</code>,{" "}
+              <code className="rounded bg-white px-1">planta</code>). <strong>No</strong> sirve para cambiar el numero de empleado.
             </p>
             <input
               ref={csvCorreccionDosRef}
@@ -756,7 +758,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 disabled={correccionCsvBusy}
                 onClick={() => csvCorreccionDosRef.current?.click()}
               >
-                {correccionCsvBusy ? "Procesando…" : "Elegir CSV (2 columnas)"}
+                {correccionCsvBusy ? "Procesando…" : "Importar correccion (N° + 1 campo)"}
               </button>
               <button
                 type="button"
@@ -780,11 +782,11 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
               </p>
             ) : null}
             <div className="border-t border-slate-300 pt-4">
-              <h3 className="text-sm font-bold uppercase text-slate-900">Renumerar N° de empleado (CSV)</h3>
+              <h3 className="text-sm font-bold uppercase text-slate-900">2 · Renumerar N° de empleado</h3>
               <p className="mt-1 text-sm font-medium text-slate-800">
-                Dos columnas: <code className="rounded bg-white px-1">no_actual</code> (como esta hoy en el sistema) y{" "}
-                <code className="rounded bg-white px-1">no_nuevo</code> (el numero definitivo). No uses el import de
-                correccion de arriba para esto: ese sirve para CURP, servicio, fechas, etc.
+                Columna 1: <code className="rounded bg-white px-1">nombre_completo</code> (el sistema busca al colaborador por
+                nombre). Columna 2: <code className="rounded bg-white px-1">no_nuevo</code> (numero definitivo). Usa el boton de
+                abajo, <strong>no</strong> el de correccion de arriba.
               </p>
               <input
                 ref={csvRenumeracionRef}
@@ -800,7 +802,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                   disabled={renumeracionCsvBusy}
                   onClick={() => csvRenumeracionRef.current?.click()}
                 >
-                  {renumeracionCsvBusy ? "Procesando…" : "Elegir CSV renumeracion"}
+                  {renumeracionCsvBusy ? "Procesando…" : "Importar renumeracion (nombre + N° nuevo)"}
                 </button>
                 <button
                   type="button"

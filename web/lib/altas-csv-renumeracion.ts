@@ -1,19 +1,11 @@
 import { parseCsvContent, canonCsvHeader } from "@/lib/csv";
+import { resolveFieldKeyFromCanonHeader } from "@/lib/empleado-csv-map";
 
-export type RenumeracionCsvRow = { noActual: string; noNuevo: string };
+export type RenumeracionCsvRow = { nombre: string; noNuevo: string };
 
 export type ParseRenumeracionCsvOk = { ok: true; rows: RenumeracionCsvRow[] };
 export type ParseRenumeracionCsvErr = { ok: false; errors: string[] };
 export type ParseRenumeracionCsvResult = ParseRenumeracionCsvOk | ParseRenumeracionCsvErr;
-
-const HEADER_ACTUAL = new Set([
-  "no_actual",
-  "no_empleado_actual",
-  "numero_empleado_actual",
-  "empleado_actual",
-  "no_de_empleado_actual",
-  "clave_actual",
-]);
 
 const HEADER_NUEVO = new Set([
   "no_nuevo",
@@ -24,16 +16,25 @@ const HEADER_NUEVO = new Set([
   "clave_nueva",
   "nuevo_no_empleado",
   "nuevo_numero_empleado",
+  "no_de_empleado",
+  "no_empleado",
+  "numero_de_empleado",
+  "clave",
 ]);
 
-function resolveHeaderKind(canon: string): "actual" | "nuevo" | null {
-  if (HEADER_ACTUAL.has(canon)) return "actual";
-  if (HEADER_NUEVO.has(canon)) return "nuevo";
-  return null;
+function esCabeceraNoNuevo(canon: string): boolean {
+  return HEADER_NUEVO.has(canon);
+}
+
+function esCabeceraNombre(canon: string): boolean {
+  if (esCabeceraNoNuevo(canon)) return false;
+  const field = resolveFieldKeyFromCanonHeader(canon);
+  return field === "nombreCompleto" || field === "nombres" || field === "apellidoPaterno" || field === "apellidoMaterno";
 }
 
 /**
- * CSV de renumeracion: exactamente dos columnas — N° actual (en el sistema) y N° nuevo.
+ * CSV de renumeracion: nombre del colaborador + N° de empleado nuevo.
+ * El sistema localiza el expediente por coincidencia exacta de nombre (normalizado).
  */
 export function parseRenumeracionCsv(text: string): ParseRenumeracionCsvResult {
   const stripped = text.replace(/^\uFEFF/, "").trim();
@@ -50,66 +51,65 @@ export function parseRenumeracionCsv(text: string): ParseRenumeracionCsvResult {
   }
 
   const headerCells = rows[0]!.map((c) => String(c ?? "").trim());
-  let colActual = -1;
+  let colNombre = -1;
   let colNuevo = -1;
   const unknown: string[] = [];
 
   headerCells.forEach((raw, colIndex) => {
     if (!raw) return;
     const canon = canonCsvHeader(raw);
-    const kind = resolveHeaderKind(canon);
-    if (!kind) {
-      unknown.push(`COLUMNA ${colIndex + 1}: "${raw}"`);
-      return;
-    }
-    if (kind === "actual") {
-      if (colActual >= 0) unknown.push(`COLUMNA ${colIndex + 1}: DUPLICA NO ACTUAL`);
-      else colActual = colIndex;
-    } else {
+    if (esCabeceraNoNuevo(canon)) {
       if (colNuevo >= 0) unknown.push(`COLUMNA ${colIndex + 1}: DUPLICA NO NUEVO`);
       else colNuevo = colIndex;
+      return;
     }
+    if (esCabeceraNombre(canon)) {
+      if (colNombre >= 0) unknown.push(`COLUMNA ${colIndex + 1}: DUPLICA NOMBRE`);
+      else colNombre = colIndex;
+      return;
+    }
+    unknown.push(`COLUMNA ${colIndex + 1}: "${raw}"`);
   });
 
   if (unknown.length) {
     return {
       ok: false,
       errors: [
-        `ENCABEZADO(S) NO VALIDO(S): ${unknown.join("; ")}. USE no_actual Y no_nuevo (O no_empleado_actual / no_empleado_nuevo).`,
+        `ENCABEZADO(S) NO VALIDO(S): ${unknown.join("; ")}. USE nombre_completo (O nombre) Y no_nuevo.`,
       ],
     };
   }
 
-  if (colActual < 0 || colNuevo < 0) {
+  if (colNombre < 0 || colNuevo < 0) {
     return {
       ok: false,
       errors: [
-        colActual < 0 && colNuevo < 0
-          ? "FALTAN COLUMNAS no_actual Y no_nuevo."
-          : colActual < 0
-            ? "FALTA COLUMNA no_actual (NUMERO ACTUAL EN EL SISTEMA)."
+        colNombre < 0 && colNuevo < 0
+          ? "FALTAN COLUMNAS DE NOMBRE Y no_nuevo."
+          : colNombre < 0
+            ? "FALTA COLUMNA DE NOMBRE (EJ. nombre_completo O nombre)."
             : "FALTA COLUMNA no_nuevo (NUMERO NUEVO A ASIGNAR).",
       ],
     };
   }
 
-  if (colActual === colNuevo) {
+  if (colNombre === colNuevo) {
     return { ok: false, errors: ["LAS DOS COLUMNAS NO PUEDEN SER LA MISMA."] };
   }
 
   const outRows: RenumeracionCsvRow[] = [];
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
-    const noActual = String(cells[colActual] ?? "").trim().toUpperCase();
+    const nombre = String(cells[colNombre] ?? "").trim();
     const noNuevo = String(cells[colNuevo] ?? "").trim().toUpperCase();
-    if (!noActual && !noNuevo) continue;
-    if (!noActual) {
-      return { ok: false, errors: [`FILA ${r + 1}: FALTA NO ACTUAL.`] };
+    if (!nombre && !noNuevo) continue;
+    if (!nombre) {
+      return { ok: false, errors: [`FILA ${r + 1}: FALTA NOMBRE DEL COLABORADOR.`] };
     }
     if (!noNuevo) {
       return { ok: false, errors: [`FILA ${r + 1}: FALTA NO NUEVO.`] };
     }
-    outRows.push({ noActual, noNuevo });
+    outRows.push({ nombre, noNuevo });
   }
 
   if (outRows.length === 0) {
@@ -120,5 +120,5 @@ export function parseRenumeracionCsv(text: string): ParseRenumeracionCsvResult {
 }
 
 export function generarPlantillaRenumeracionCsv(): string {
-  return "\uFEFFno_actual,no_nuevo\r\n12345,12346\r\n67890,67891\r\n";
+  return "\uFEFFnombre_completo,no_nuevo\r\nJUAN PEREZ LOPEZ,12346\r\nMARIA GARCIA SOTO,67891\r\n";
 }

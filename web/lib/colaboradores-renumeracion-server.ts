@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolverExpedientePorNombreRenumeracion } from "@/lib/altas-coincidencia-nombre";
 import { parseRenumeracionCsv, type RenumeracionCsvRow } from "@/lib/altas-csv-renumeracion";
 import { mapaColaboradoresPorNo } from "@/lib/colaboradores-csv-columna-import";
 import { normalizeNoEmpleado } from "@/lib/colaboradores-normalize";
@@ -36,31 +37,34 @@ export function planificarRenumeracionCsv(
   const parsed = parseRenumeracionCsv(csvText);
   if (!parsed.ok) return { ok: false, errors: parsed.errors };
 
+  const list = [...byNo.values()];
   const pairsMap = new Map<string, string>();
   const errors: string[] = [];
   const nuevosEnCsv = new Map<string, string>();
 
-  for (const { noActual, noNuevo } of parsed.rows) {
-    if (noActual === noNuevo) {
-      errors.push(`${noActual}: ACTUAL Y NUEVO SON IGUALES`);
+  for (const { nombre, noNuevo } of parsed.rows) {
+    const resolved = resolverExpedientePorNombreRenumeracion(list, nombre);
+    if (!resolved.ok) {
+      errors.push(resolved.message);
       continue;
     }
-    if (!byNo.has(noActual)) {
-      errors.push(`${noActual}: SIN EXPEDIENTE`);
+    const noActual = normalizeNoEmpleado(resolved.colaborador.noEmpleado);
+    if (noActual === noNuevo) {
+      errors.push(`«${nombre}» (N° ${noActual}): EL NUEVO ES IGUAL AL ACTUAL`);
       continue;
     }
     if (byNo.has(noNuevo) && noNuevo !== noActual) {
-      errors.push(`${noNuevo}: YA EXISTE OTRO EXPEDIENTE CON ESE NUMERO`);
+      errors.push(`«${nombre}» → ${noNuevo}: YA EXISTE OTRO EXPEDIENTE CON ESE NUMERO`);
       continue;
     }
     const prevDestino = nuevosEnCsv.get(noNuevo);
     if (prevDestino && prevDestino !== noActual) {
-      errors.push(`${noNuevo}: DUPLICADO COMO DESTINO (FILAS ${prevDestino} Y ${noActual})`);
+      errors.push(`${noNuevo}: DUPLICADO COMO DESTINO (N° ${prevDestino} Y ${noActual})`);
       continue;
     }
     nuevosEnCsv.set(noNuevo, noActual);
     if (pairsMap.has(noActual) && pairsMap.get(noActual) !== noNuevo) {
-      errors.push(`${noActual}: VARIOS NUEVOS EN EL CSV; SE USARA EL ULTIMO`);
+      errors.push(`N° ${noActual}: VARIOS NUEVOS EN EL CSV; SE USARA EL ULTIMO`);
     }
     pairsMap.set(noActual, noNuevo);
   }

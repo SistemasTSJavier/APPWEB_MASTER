@@ -1,5 +1,6 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
+import { nombreCompletoDesdePartes } from "@/lib/altas-form-catalogo";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 
 /** Compara nombres ignorando mayúsculas, espacios múltiples y acentos. */
@@ -63,6 +64,77 @@ export function findColaboradoresPorNombreExacto(
     if (cn === norm) out.push(c);
   }
   return out;
+}
+
+/** Nombre visible del expediente (linea, form o partes del alta). */
+export function nombreCompletoExpediente(c: ColaboradorCompleto): string {
+  const linea = String(c.nombreCompleto ?? "").trim();
+  if (linea) return linea;
+  const form = String(c.form?.nombreCompleto ?? "").trim();
+  if (form) return form;
+  return nombreCompletoDesdePartes(
+    String(c.form?.apellidoPaterno ?? ""),
+    String(c.form?.apellidoMaterno ?? ""),
+    String(c.form?.nombres ?? ""),
+  );
+}
+
+/** Coincidencia exacta de nombre normalizado contra todos los expedientes. */
+export function findColaboradoresPorNombreExpediente(
+  list: ColaboradorCompleto[],
+  nombreCsv: string,
+  options?: { minNormalizedLength?: number },
+): ColaboradorCompleto[] {
+  const norm = normalizarNombreParaCoincidencia(nombreCsv);
+  const minL = options?.minNormalizedLength ?? 5;
+  if (norm.length < minL) return [];
+  const out: ColaboradorCompleto[] = [];
+  const seen = new Set<string>();
+  for (const c of list) {
+    const cn = normalizarNombreParaCoincidencia(nombreCompletoExpediente(c));
+    if (cn !== norm) continue;
+    const key = c.noEmpleado.trim().toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+export type ResolverExpedienteRenumeracionResult =
+  | { ok: true; colaborador: ColaboradorCompleto }
+  | { ok: false; message: string };
+
+/**
+ * Localiza un expediente por nombre para renumeracion.
+ * Prioriza activos (sin baja); si hay varios con el mismo nombre, devuelve error.
+ */
+export function resolverExpedientePorNombreRenumeracion(
+  list: ColaboradorCompleto[],
+  nombreCsv: string,
+): ResolverExpedienteRenumeracionResult {
+  const nombre = nombreCsv.trim();
+  if (!nombre) {
+    return { ok: false, message: "NOMBRE VACIO" };
+  }
+
+  const matches = findColaboradoresPorNombreExpediente(list, nombre);
+  if (matches.length === 0) {
+    return { ok: false, message: `«${nombre}»: SIN EXPEDIENTE CON ESE NOMBRE` };
+  }
+
+  const activos = matches.filter((c) => !colaboradorTieneBaja(c));
+  const pool = activos.length > 0 ? activos : matches;
+
+  if (pool.length === 1) {
+    return { ok: true, colaborador: pool[0]! };
+  }
+
+  const nums = pool.map((c) => c.noEmpleado.trim()).join(", ");
+  return {
+    ok: false,
+    message: `«${nombre}»: HAY ${pool.length} EXPEDIENTES (${nums}). ACOTA EL NOMBRE O CORRIGE DUPLICADOS.`,
+  };
 }
 
 /** Elige un expediente cuando hay varios con el mismo nombre. */
