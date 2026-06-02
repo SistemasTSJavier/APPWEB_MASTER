@@ -3,7 +3,11 @@
 import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import {
-  findColaboradorCompletoByNo,
+  buildColaboradoresPorNoMap,
+  findColaboradorEnLista,
+  mergeColaboradorEnLista,
+} from "@/lib/colaboradores-list-helpers";
+import {
   listColaboradoresCompletos,
   upsertColaboradorCompleto,
 } from "@/lib/colaboradores-store";
@@ -41,6 +45,7 @@ const EMPTY_FORM: BajasFormState = {
 };
 
 const MAX_SUGERENCIAS = 60;
+const BUSQUEDA_DEBOUNCE_MS = 150;
 
 function coincideBusqueda(c: ColaboradorCompleto, q: string): boolean {
   const n = q.trim().toLowerCase();
@@ -73,8 +78,10 @@ export function BajasPageClient({
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [sel, setSel] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  const [busquedaFiltrada, setBusquedaFiltrada] = useState("");
   const [listaAbierta, setListaAbierta] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const catalogoServiciosRef = useRef<Awaited<ReturnType<typeof fetchServiciosCatalogo>> | null>(null);
 
   const [form, setForm] = useState<BajasFormState>(EMPTY_FORM);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
@@ -107,6 +114,27 @@ export function BajasPageClient({
     };
   }, []);
 
+  useEffect(() => {
+    let cancel = false;
+    void fetchServiciosCatalogo()
+      .then((items) => {
+        if (!cancel) catalogoServiciosRef.current = items;
+      })
+      .catch(() => {
+        if (!cancel) catalogoServiciosRef.current = [];
+      });
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => setBusquedaFiltrada(busqueda), BUSQUEDA_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [busqueda]);
+
+  const porNo = useMemo(() => buildColaboradoresPorNoMap(rows), [rows]);
+
   const opciones = useMemo(
     () =>
       [...rows].sort((a, b) =>
@@ -116,9 +144,9 @@ export function BajasPageClient({
   );
 
   const sugerencias = useMemo(() => {
-    const filtradas = opciones.filter((c) => coincideBusqueda(c, busqueda));
+    const filtradas = opciones.filter((c) => coincideBusqueda(c, busquedaFiltrada));
     return filtradas.slice(0, MAX_SUGERENCIAS);
-  }, [opciones, busqueda]);
+  }, [opciones, busquedaFiltrada]);
 
   const serviciosOpcionesBajas = useMemo(() => serviciosUnicosColaboradoresDadosDeBaja(rows), [rows]);
 
@@ -192,24 +220,16 @@ export function BajasPageClient({
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  async function cargarExpedienteYBaja(noEmpleadoKey: string) {
+  function cargarExpedienteYBaja(noEmpleadoKey: string) {
     setStatusMsg(null);
     const key = noEmpleadoKey.trim().toUpperCase();
     if (!key) {
       setSearchMsg("INDIQUE UN COLABORADOR DESDE LA LISTA.");
       return;
     }
-    let completo;
-    try {
-      completo = await findColaboradorCompletoByNo(key);
-    } catch (err) {
-      setSearchMsg(err instanceof Error ? err.message : "ERROR AL CONSULTAR SUPABASE.");
-      setSel("");
-      setForm(EMPTY_FORM);
-      return;
-    }
+    const completo = porNo.get(key) ?? findColaboradorEnLista(rows, key);
     if (!completo) {
-      setSearchMsg("NO SE ENCONTRO COLABORADOR. REVISE EL TEXTO O REGISTRELO EN ALTAS.");
+      setSearchMsg("NO SE ENCONTRO COLABORADOR. ESPERE LA CARGA INICIAL O REGISTRELO EN ALTAS.");
       setSel("");
       setForm(EMPTY_FORM);
       return;
@@ -226,7 +246,7 @@ export function BajasPageClient({
       blurTimer.current = null;
     }
     setListaAbierta(false);
-    void cargarExpedienteYBaja(c.noEmpleado);
+    cargarExpedienteYBaja(c.noEmpleado);
   }
 
   function limpiarSeleccionYBuscador() {
@@ -252,22 +272,16 @@ export function BajasPageClient({
     }
     setGuardando(true);
     try {
-      const existing = await findColaboradorCompletoByNo(no);
+      const existing = porNo.get(no) ?? findColaboradorEnLista(rows, no);
       if (!existing) {
         setStatusMsg({ ok: false, text: "NO HAY EXPEDIENTE. REGISTRE EL COLABORADOR EN ALTAS PRIMERO." });
         return;
       }
       const next = aplicarBajaEnExpediente(existing, form);
       await upsertColaboradorCompleto(next);
-      let catalogo: Awaited<ReturnType<typeof fetchServiciosCatalogo>> = [];
-      try {
-        catalogo = await fetchServiciosCatalogo();
-      } catch {
-        catalogo = [];
-      }
+      setRows((prev) => mergeColaboradorEnLista(prev, next));
+      const catalogo = catalogoServiciosRef.current ?? [];
       const vacante = await registrarVacanteTrasBaja(next, catalogo);
-      const list = await listColaboradoresCompletos();
-      setRows(list);
       const partes = ["BAJA GUARDADA. EXPEDIENTE ACTUALIZADO EN SUPABASE."];
       if (vacante.creada && vacante.registro) {
         partes.push(
@@ -369,7 +383,11 @@ export function BajasPageClient({
                         e.preventDefault();
                         if (sugerencias.length === 1) {
                           elegirColaborador(sugerencias[0]!);
+                          return;
                         }
+                        const soloNo = busqueda.trim().toUpperCase().split(/\s/)[0] ?? "";
+                        const hit = soloNo ? porNo.get(soloNo) : undefined;
+                        if (hit) cargarExpedienteYBaja(hit.noEmpleado);
                       }
                     }}
                     aria-autocomplete="list"
@@ -623,7 +641,7 @@ export function BajasPageClient({
                   : " Si usas Desde/Hasta, el ultimo dia laborado debe estar en el periodo."}
               </p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+              <div className="max-h-[min(70vh,36rem)] overflow-auto rounded-lg border border-slate-200 bg-white">
                 <table className="min-w-[880px] w-full text-left">
                   <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-600">
                     <tr>

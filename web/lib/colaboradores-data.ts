@@ -60,12 +60,47 @@ async function remoteBatch(items: ColaboradorCompleto[]): Promise<void> {
   if (!r.ok) throw new SupabaseDataError(await readErrorBody(r));
 }
 
-export async function listColaboradoresCompletos(): Promise<ColaboradorCompleto[]> {
-  return remoteList();
+/** Caché en memoria del listado (evita GET completo repetido en la misma sesión). */
+let colaboradoresListCache: ColaboradorCompleto[] | null = null;
+let colaboradoresListInflight: Promise<ColaboradorCompleto[]> | null = null;
+
+export function invalidateColaboradoresListCache(): void {
+  colaboradoresListCache = null;
+  colaboradoresListInflight = null;
+}
+
+function patchColaboradoresListCache(data: ColaboradorCompleto): void {
+  if (!colaboradoresListCache) return;
+  const key = data.noEmpleado.trim().toUpperCase();
+  const idx = colaboradoresListCache.findIndex((c) => c.noEmpleado === key);
+  if (idx >= 0) colaboradoresListCache[idx] = data;
+  else colaboradoresListCache.push(data);
+}
+
+async function fetchColaboradoresListCached(): Promise<ColaboradorCompleto[]> {
+  if (colaboradoresListCache) return colaboradoresListCache;
+  if (!colaboradoresListInflight) {
+    colaboradoresListInflight = remoteList()
+      .then((list) => {
+        colaboradoresListCache = list;
+        return list;
+      })
+      .finally(() => {
+        colaboradoresListInflight = null;
+      });
+  }
+  return colaboradoresListInflight;
+}
+
+export async function listColaboradoresCompletos(options?: {
+  forceRefresh?: boolean;
+}): Promise<ColaboradorCompleto[]> {
+  if (options?.forceRefresh) invalidateColaboradoresListCache();
+  return fetchColaboradoresListCached();
 }
 
 export async function findColaboradorCompletoByNo(noEmpleado: string): Promise<ColaboradorCompleto | null> {
-  const list = await listColaboradoresCompletos();
+  const list = await fetchColaboradoresListCached();
   const key = noEmpleado.trim().toUpperCase();
   return list.find((c) => c.noEmpleado === key) ?? null;
 }
@@ -87,10 +122,12 @@ export async function findColaboradorByNo(noEmpleado: string): Promise<Colaborad
 
 export async function upsertColaboradorCompleto(data: ColaboradorCompleto): Promise<void> {
   await remoteUpsert(data);
+  patchColaboradoresListCache(data);
 }
 
 export async function upsertColaboradoresBatch(items: ColaboradorCompleto[]): Promise<void> {
   await remoteBatch(items);
+  invalidateColaboradoresListCache();
 }
 
 /** Alinea snapshot, Parte 1 del expediente (`form`) y `moperActual` con un destino MOPER (mismo criterio que al guardar un movimiento). */
