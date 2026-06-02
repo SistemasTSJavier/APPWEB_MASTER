@@ -3,7 +3,15 @@ import { mergeMoperEnImportColaboradorCsv } from "@/lib/colaboradores-import-mop
 import { parseCsvContent } from "@/lib/csv";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
 import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-types";
-import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-data";
+import {
+  createAltasCsvBatchWriter,
+  finalizeColaboradorImport,
+  findEnCacheImport,
+  flushColaboradorImportIfFull,
+  loadAltasCsvImportCache,
+  normalizeNoEmpleadoImport,
+  queueColaboradorImport,
+} from "@/lib/altas-csv-import-runtime";
 import {
   ALTAS_IMPORT_OMITE_SERVICIO_POSICION,
   filtrarKeysPlantillaImport,
@@ -12,7 +20,7 @@ import {
 } from "@/lib/altas-import-omision-servicio";
 
 function normalizeNo(no: string): string {
-  return no.trim().toUpperCase();
+  return normalizeNoEmpleadoImport(no);
 }
 
 function g(m: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
@@ -218,6 +226,9 @@ export async function importColaboradoresDesdeCsv(
   let skippedEmpty = 0;
   const errors: Array<{ row: number; message: string }> = [];
 
+  const cache = await loadAltasCsvImportCache();
+  const writer = createAltasCsvBatchWriter(cache, apply);
+
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
     if (!cells.some((c) => String(c ?? "").trim() !== "")) {
@@ -242,7 +253,7 @@ export async function importColaboradoresDesdeCsv(
       continue;
     }
 
-    const existing = await findColaboradorCompletoByNo(no);
+    const existing = findEnCacheImport(cache, no);
     let formPartial = mergeAltasForm(fieldMap, formExtras);
     formPartial = mergeFormPreserve(existing?.form ?? {}, formPartial);
     formPartial.noEmpleado1 = no;
@@ -311,11 +322,12 @@ export async function importColaboradoresDesdeCsv(
       familiares,
     };
 
-    if (apply) {
-      await upsertColaboradorCompleto(payload);
-    }
+    queueColaboradorImport(writer, payload);
+    await flushColaboradorImportIfFull(writer);
     imported++;
   }
+
+  await finalizeColaboradorImport(writer);
 
   return { imported, skippedEmpty, errors };
 }

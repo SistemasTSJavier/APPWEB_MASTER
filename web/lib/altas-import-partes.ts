@@ -9,8 +9,16 @@ import {
 import { CSV_TABLE_KEYS, pickFieldsForTable, type CsvMysqlTable } from "@/lib/csv-mysql-modules";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
 import type { ColaboradorCompleto, FamiliarGuardado } from "@/lib/colaboradores-types";
-import { findColaboradorCompletoByNo, upsertColaboradorCompleto } from "@/lib/colaboradores-data";
 import type { AltasCsvImportResult, AltasCsvImportOptions } from "@/lib/altas-csv-import";
+import {
+  createAltasCsvBatchWriter,
+  finalizeColaboradorImport,
+  findEnCacheImport,
+  flushColaboradorImportIfFull,
+  loadAltasCsvImportCache,
+  normalizeNoEmpleadoImport,
+  queueColaboradorImport,
+} from "@/lib/altas-csv-import-runtime";
 import {
   ALTAS_IMPORT_OMITE_SERVICIO_POSICION,
   filtrarKeysPlantillaImport,
@@ -38,7 +46,7 @@ export const ALTAS_ETIQUETA_PARTE_IMPORT: Record<number, string> = {
 };
 
 function normalizeNo(no: string | undefined | null): string {
-  return String(no ?? "").trim().toUpperCase();
+  return normalizeNoEmpleadoImport(String(no ?? ""));
 }
 
 function g(p: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
@@ -266,6 +274,9 @@ export async function importColaboradoresDesdeCsvPorParte(
   let skippedEmpty = 0;
   const errors: Array<{ row: number; message: string }> = [];
 
+  const cache = await loadAltasCsvImportCache();
+  const writer = createAltasCsvBatchWriter(cache, apply);
+
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
     if (!cells.some((c) => String(c ?? "").trim() !== "")) {
@@ -285,7 +296,7 @@ export async function importColaboradoresDesdeCsvPorParte(
         });
         continue;
       }
-      const prevF = await findColaboradorCompletoByNo(noWide);
+      const prevF = findEnCacheImport(cache, noWide);
       if (!prevF) {
         errors.push({
           row: rowLabel,
@@ -306,7 +317,8 @@ export async function importColaboradoresDesdeCsvPorParte(
         form: { ...prevF.form, noEmpleado1: noWide },
         familiares: famAnchos,
       };
-      if (apply) await upsertColaboradorCompleto(mergedAnchos);
+      queueColaboradorImport(writer, mergedAnchos);
+      await flushColaboradorImportIfFull(writer);
       imported++;
       continue;
     }
@@ -328,7 +340,7 @@ export async function importColaboradoresDesdeCsvPorParte(
     }
 
     const no = normalizeNo(noRaw);
-    const prev = await findColaboradorCompletoByNo(no);
+    const prev = findEnCacheImport(cache, no);
 
     if (tabla === "familiar") {
       if (!prev) {
@@ -345,7 +357,8 @@ export async function importColaboradoresDesdeCsvPorParte(
         form: { ...prev.form, noEmpleado1: no },
         familiares: [...prev.familiares, ...fam],
       };
-      if (apply) await upsertColaboradorCompleto(merged);
+      queueColaboradorImport(writer, merged);
+      await flushColaboradorImportIfFull(writer);
       imported++;
       continue;
     }
@@ -436,11 +449,12 @@ export async function importColaboradoresDesdeCsvPorParte(
     merged.ultimoServicio = ultimoServicio;
     merged.moperActual = moperActual;
 
-    if (apply) {
-      await upsertColaboradorCompleto(merged);
-    }
+    queueColaboradorImport(writer, merged);
+    await flushColaboradorImportIfFull(writer);
     imported++;
   }
+
+  await finalizeColaboradorImport(writer);
 
   return { imported, skippedEmpty, errors, tabla };
 }

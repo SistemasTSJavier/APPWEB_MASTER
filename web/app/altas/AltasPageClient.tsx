@@ -11,7 +11,7 @@ import {
 import { colaboradorTieneBaja, fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
-import { importColaboradoresDesdeCsv, generarCsvPlantillaAltas } from "@/lib/altas-csv-import";
+import { generarCsvPlantillaAltas } from "@/lib/altas-csv-import";
 import {
   ALTAS_ETIQUETA_PARTE_IMPORT,
   generarCsvPlantillaAltasPorParte,
@@ -83,10 +83,16 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   const [preserveMoperEnImport, setPreserveMoperEnImport] = useState(true);
   const [csvModo, setCsvModo] = useState<"completo" | "parte">("parte");
   const [csvParteNum, setCsvParteNum] = useState<number>(1);
+  const [importCsvBusy, setImportCsvBusy] = useState(false);
   const [importResultado, setImportResultado] = useState<{
     imported: number;
     skippedEmpty: number;
     errors: Array<{ row: number; message: string }>;
+    avisos?: Array<{ row: number; message: string }>;
+    lotes?: number;
+    filasCsvValidas?: number;
+    duplicateNosMerged?: number;
+    resolvedByNombre?: number;
     origen?: string;
   } | null>(null);
   const [step, setStep] = useState(0);
@@ -559,36 +565,96 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       setImportResultado({
         imported: 0,
         skippedEmpty: 0,
-        errors: [{ row: 0, message: "LA IMPORTACION CSV SOLO LA PUEDE EJECUTAR UN ADMINISTRADOR." }],
+        errors: [{ row: 0, message: "LA IMPORTACION CSV SOLO LA PUEDE EJECUTAR UN ADMINISTRADOR O AUX RH." }],
       });
       return;
     }
     setImportResultado(null);
+    setImportCsvBusy(true);
     try {
       const text = await file.text();
       if (csvModo === "completo") {
-        const res = await importColaboradoresDesdeCsv(text, { preserveMoper: preserveMoperEnImport });
-        setImportResultado({
-          ...res,
-          origen: "IMPORTACION TODO-EN-UNO (COLUMNAS MIXTAS)",
+        const r = await fetch("/api/colaboradores/import-csv-masivo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            csvText: text,
+            preserveMoper: preserveMoperEnImport,
+            mergeExisting: true,
+          }),
         });
+        const rawBody = await r.text();
+        const contentType = r.headers.get("content-type") ?? "";
+        if (contentType.includes("text/html")) {
+          throw new Error(
+            "LA RUTA API NO RESPONDE (404 HTML). REINICIA npm run dev EN LA CARPETA web.",
+          );
+        }
+        let j: {
+          error?: string;
+          imported?: number;
+          skippedEmpty?: number;
+          lotes?: number;
+          filasCsvValidas?: number;
+          duplicateNosMerged?: number;
+          resolvedByNombre?: number;
+          avisos?: Array<{ row: number; message: string }>;
+          errors?: Array<{ row: number; message: string }>;
+        } = {};
+        try {
+          j = JSON.parse(rawBody || "{}") as typeof j;
+        } catch {
+          j = {};
+        }
+        if (!r.ok) {
+          throw new Error(j.error ?? `Error ${r.status}`);
+        }
+        listadoColaboradoresCacheRef.current = null;
+        setImportResultado({
+          imported: Number(j.imported ?? 0),
+          skippedEmpty: Number(j.skippedEmpty ?? 0),
+          errors: Array.isArray(j.errors) ? j.errors : [],
+          avisos: Array.isArray(j.avisos) ? j.avisos : [],
+          lotes: Number(j.lotes ?? 0),
+          filasCsvValidas: Number(j.filasCsvValidas ?? 0),
+          duplicateNosMerged: Number(j.duplicateNosMerged ?? 0),
+          resolvedByNombre: Number(j.resolvedByNombre ?? 0),
+          origen: "IMPORTACION TODO-EN-UNO (SERVIDOR, POR LOTES)",
+        });
+        try {
+          const list = await listColaboradoresCompletos();
+          listadoColaboradoresCacheRef.current = list;
+          setSiguienteNoSugerido(calcularSiguienteNoEmpleado(list));
+        } catch {
+          /* listado opcional tras import */
+        }
       } else {
         const res = await importColaboradoresDesdeCsvPorParte(text, csvParteNum, {
           preserveMoper: preserveMoperEnImport,
         });
+        listadoColaboradoresCacheRef.current = null;
         setImportResultado({
           imported: res.imported,
           skippedEmpty: res.skippedEmpty,
           errors: res.errors,
           origen: ALTAS_ETIQUETA_PARTE_IMPORT[csvParteNum] ?? `PARTE ${csvParteNum}`,
         });
+        try {
+          const list = await listColaboradoresCompletos();
+          listadoColaboradoresCacheRef.current = list;
+          setSiguienteNoSugerido(calcularSiguienteNoEmpleado(list));
+        } catch {
+          /* listado opcional */
+        }
       }
     } catch (err) {
       setImportResultado({
         imported: 0,
         skippedEmpty: 0,
-        errors: [{ row: 0, message: `ERROR AL LEER EL ARCHIVO: ${err instanceof Error ? err.message : String(err)}` }],
+        errors: [{ row: 0, message: `ERROR AL IMPORTAR: ${err instanceof Error ? err.message : String(err)}` }],
       });
+    } finally {
+      setImportCsvBusy(false);
     }
   }
 
@@ -944,10 +1010,10 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
             </div>
           ) : (
             <p className="text-xs text-slate-600">
-              Un CSV con muchas columnas a la vez. Minimo por fila: <strong className="text-slate-800">NO_EMPLEADO</strong> y nombre.
-              Tambien puede incluir columnas <strong className="text-slate-800">FORM_*</strong> como en el export de COLABORADORES. Si usa columnas{" "}
-              <strong className="text-slate-800">PADRE, MADRE, PAREJA, HIJO1…</strong> junto con N° empleado, los familiares se toman de ese formato
-              ancho cuando la fila trae algun nombre en esas celdas.
+              Un CSV con muchas columnas a la vez (hasta <strong className="text-slate-800">2000 filas</strong>). Se procesa en el{" "}
+              <strong className="text-slate-800">servidor por lotes</strong> (no fila por fila en el navegador). Minimo por fila:{" "}
+              <strong className="text-slate-800">NO_EMPLEADO</strong> y nombre. Tambien columnas <strong className="text-slate-800">FORM_*</strong> como en
+              COLABORADORES. Familiares en formato <strong className="text-slate-800">PADRE, MADRE, PAREJA, HIJO1…</strong> cuando la fila trae datos en esas celdas.
             </p>
           )}
           <div className="flex flex-wrap items-center gap-3">
@@ -985,12 +1051,24 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
               className="sr-only"
               onChange={handleCsvFileChange}
             />
-            <button type="button" className="btn-primary uppercase" onClick={() => csvInputRef.current?.click()}>
-              {csvModo === "parte"
-                ? `Importar archivo PARTE ${csvParteNum}`
-                : "Importar colaboradores desde CSV"}
+            <button
+              type="button"
+              className="btn-primary uppercase disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={importCsvBusy}
+              onClick={() => csvInputRef.current?.click()}
+            >
+              {importCsvBusy
+                ? "Importando… (no cierres esta pestaña)"
+                : csvModo === "parte"
+                  ? `Importar archivo PARTE ${csvParteNum}`
+                  : "Importar colaboradores desde CSV"}
             </button>
           </div>
+          {importCsvBusy ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold uppercase text-amber-950">
+              Procesando archivo… {csvModo === "completo" ? "puede tardar 1–3 min con cientos de filas." : "guardando por lotes."}
+            </p>
+          ) : null}
           {importResultado ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
               <p className="text-[11px] font-medium uppercase tracking-wide text-slate-600">
@@ -998,10 +1076,34 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
               </p>
               <p className="font-semibold uppercase text-slate-800">
                 Resultado: <span className="text-green-800">{importResultado.imported} importado(s)</span>
+                {importResultado.filasCsvValidas != null && importResultado.filasCsvValidas > 0 ? (
+                  <span className="text-slate-600"> — {importResultado.filasCsvValidas} fila(s) validas en CSV</span>
+                ) : null}
                 {importResultado.skippedEmpty > 0 ? (
                   <span className="text-slate-600"> — {importResultado.skippedEmpty} fila(s) vacia(s)</span>
                 ) : null}
+                {importResultado.lotes != null && importResultado.lotes > 0 ? (
+                  <span className="text-slate-600"> — {importResultado.lotes} lote(s) en servidor</span>
+                ) : null}
+                {importResultado.duplicateNosMerged != null && importResultado.duplicateNosMerged > 0 ? (
+                  <span className="text-slate-600"> — {importResultado.duplicateNosMerged} duplicado(s) unificados</span>
+                ) : null}
               </p>
+              {importResultado.avisos && importResultado.avisos.length > 0 ? (
+                <div className="mt-2 max-h-32 overflow-auto border-t border-slate-200 pt-2">
+                  <p className="text-xs font-bold uppercase text-sky-900">{importResultado.avisos.length} aviso(s):</p>
+                  <ul className="mt-1 list-inside list-disc text-xs text-sky-950">
+                    {importResultado.avisos.slice(0, 15).map((av, i) => (
+                      <li key={i}>
+                        Fila {av.row}: {av.message}
+                      </li>
+                    ))}
+                    {importResultado.avisos.length > 15 ? (
+                      <li className="font-semibold">…y {importResultado.avisos.length - 15} mas.</li>
+                    ) : null}
+                  </ul>
+                </div>
+              ) : null}
               {importResultado.errors.length > 0 ? (
                 <div className="mt-2 max-h-48 overflow-auto border-t border-slate-200 pt-2">
                   <p className="text-xs font-bold uppercase text-amber-900">
