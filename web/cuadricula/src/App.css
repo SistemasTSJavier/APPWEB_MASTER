@@ -123,6 +123,68 @@
   min-height: 0;
 }
 
+/* Vacantes: formulario arriba + tabla con scroll vertical */
+.vacantesView {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.vacantesView__topbar {
+  flex-shrink: 0;
+  max-height: min(58vh, 32rem);
+  overflow-y: auto;
+}
+
+.vacantesView__sheetWrap {
+  flex: 1;
+  min-height: 12rem;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.vacantesView__count {
+  flex-shrink: 0;
+  margin: 0 0 0.5rem;
+  padding: 0 0.15rem;
+}
+
+.vacantesView__sheet {
+  width: 100%;
+  min-width: 52rem;
+}
+
+.vacantesView__thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f3f4f6;
+  box-shadow: 0 1px 0 #c4c7cc;
+}
+
+.vacantesView__badge {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.vacantesView__badge--libre {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.vacantesView__badge--ocupada {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .placeholder {
   flex: 1;
   display: flex;

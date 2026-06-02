@@ -104,6 +104,16 @@ export function listarPlantasParaVacantes(
   return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
 }
 
+/** Colaborador vigente en operación (sin baja ni estatus inactivo en expediente). */
+export function colaboradorCuentaComoActivoEnCuadricula(c: ColaboradorCompleto): boolean {
+  if (colaboradorTieneBaja(c)) return false;
+  const estatus = String(c.form?.estatusEmpleado ?? "ACTIVO")
+    .trim()
+    .toUpperCase();
+  if (estatus === "INACTIVO" || estatus === "BAJA") return false;
+  return true;
+}
+
 export function colaboradorCoincideSlot(
   c: ColaboradorCompleto,
   slot: SlotVacante,
@@ -138,6 +148,27 @@ export function colaboradorCoincideSlot(
     );
   }
   return Boolean(col.rowServiceNo && slotNorm.rowServiceNo);
+}
+
+/** Solo colaboradores activos ocupan la posición (baja / inactivo liberan el slot). */
+export function colaboradorActivoOcupaSlot(
+  c: ColaboradorCompleto,
+  slot: SlotVacante,
+  catalogo: CatalogoServicioItem[],
+): boolean {
+  if (!colaboradorCuentaComoActivoEnCuadricula(c)) return false;
+  return colaboradorCoincideSlot(c, slot, catalogo);
+}
+
+export function hayColaboradorActivoEnSlot(
+  slot: SlotVacante,
+  colaboradores: ColaboradorCompleto[],
+  catalogo: CatalogoServicioItem[],
+): ColaboradorCompleto | null {
+  for (const c of colaboradores) {
+    if (colaboradorActivoOcupaSlot(c, slot, catalogo)) return c;
+  }
+  return null;
 }
 
 function slotDesdeColaborador(
@@ -287,7 +318,7 @@ export function listarPosicionesLibresParaVacante(
 
   const ocupadasActivas = new Set<string>();
   for (const c of colaboradores) {
-    if (colaboradorTieneBaja(c)) continue;
+    if (!colaboradorCuentaComoActivoEnCuadricula(c)) continue;
     const slot = slotDesdeColaborador(c, p, catalogo);
     if (slot) ocupadasActivas.add(slotVacanteKey(slot));
   }

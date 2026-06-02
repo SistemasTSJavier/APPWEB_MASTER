@@ -8,7 +8,7 @@ import {
   saveVacantesCatalogoDirect,
   type VacanteRegistro,
 } from "@/lib/vacantes-catalog";
-import { colaboradorCoincideSlot } from "./vacantesPosicionSlots";
+import { hayColaboradorActivoEnSlot } from "./vacantesPosicionSlots";
 import { splitCsvDelimitedLine, type CsvDelimiter } from "./attendanceGridCsvImport";
 
 export const VACANTES_CSV_HEADERS = [
@@ -262,10 +262,16 @@ export type VacantesCsvImportResult = {
   errores: string[];
 };
 
+export type VacantesCsvImportOptions = {
+  /** Si true, el CSV define el catálogo entero (no mezcla con filas previas). */
+  reemplazarCatalogo?: boolean;
+};
+
 export function importVacantesCsvToCatalog(
   text: string,
   colaboradores: ColaboradorCompleto[],
   catalogo: CatalogoServicioItem[],
+  options?: VacantesCsvImportOptions,
 ): VacantesCsvImportResult {
   const parsed = parseVacantesCsv(text);
   const errores = [...parsed.errores];
@@ -273,10 +279,12 @@ export function importVacantesCsvToCatalog(
     errores.push("No hay filas válidas para importar.");
   }
 
-  const all = loadVacantesCatalogo();
+  const reemplazar = options?.reemplazarCatalogo === true;
   const byKey = new Map<string, VacanteRegistro>();
-  for (const v of all) {
-    byKey.set(slotVacanteKey(slotFromVacanteRegistro(v)), v);
+  if (!reemplazar) {
+    for (const v of loadVacantesCatalogo()) {
+      byKey.set(slotVacanteKey(slotFromVacanteRegistro(v)), v);
+    }
   }
 
   let agregadas = 0;
@@ -293,17 +301,11 @@ export function importVacantesCsvToCatalog(
       rowServiceNo: fila.rowServiceNo,
     };
 
-    let ocupada = false;
-    for (const c of colaboradores) {
-      if (colaboradorCoincideSlot(c, slot, catalogo)) {
-        ocupada = true;
-        break;
-      }
-    }
-    if (ocupada) {
+    const activoEnSlot = hayColaboradorActivoEnSlot(slot, colaboradores, catalogo);
+    if (activoEnSlot) {
       bloqueadas++;
       errores.push(
-        `Línea ${fila.lineNo}: colaborador activo en ${fila.posicion} (${fila.servicioLinea}, N.º ${fila.rowServiceNo || "—"}).`,
+        `Línea ${fila.lineNo}: colaborador ACTIVO ${activoEnSlot.noEmpleado} en posición ${fila.posicion} (${fila.servicioLinea}, N.º ${fila.rowServiceNo || "—"}). Con baja no bloquea.`,
       );
       continue;
     }

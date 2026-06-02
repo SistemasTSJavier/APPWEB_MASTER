@@ -3,7 +3,7 @@ import { downloadTextFile } from '../attendanceExportSummary'
 import { ATTENDANCE_GRID_ID_HEADERS } from '../attendanceGridColumns'
 import { useCuadriculaData } from '../CuadriculaDataContext'
 import {
-  colaboradorCoincideSlot,
+  colaboradorActivoOcupaSlot,
   decodeSlotKey,
   encodeSlotKey,
   listarPlantasParaVacantes,
@@ -12,6 +12,7 @@ import {
   resolverDatosSlot,
   slotFromVacanteRegistro,
 } from '../vacantesPosicionSlots'
+import { persistirVacantesCatalogoEnServidor } from '@/lib/vacantes-catalog-flujo'
 import {
   VACANTES_CATALOG_UPDATED_EVENT,
   addVacanteToCatalog,
@@ -21,7 +22,6 @@ import {
   updateVacanteInCatalog,
   type VacanteRegistro,
 } from '../vacantesStorage'
-import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import {
   VACANTES_CSV_HEADERS,
   buildVacantesCsvExport,
@@ -73,6 +73,7 @@ export function VacantesView() {
   const [filtroPlantaLista, setFiltroPlantaLista] = useState('')
   const [filtroServicioLista, setFiltroServicioLista] = useState('')
   const [syncBusy, setSyncBusy] = useState(false)
+  const [csvReemplazarCatalogo, setCsvReemplazarCatalogo] = useState(false)
   const importCsvRef = useRef<HTMLInputElement>(null)
 
   const recargarCatalogo = useCallback(() => {
@@ -276,8 +277,7 @@ export function VacantesView() {
   function slotOcupadoPorActivo(v: VacanteRegistro): boolean {
     const slot = slotFromVacanteRegistro(v)
     for (const c of colaboradores) {
-      if (colaboradorTieneBaja(c)) continue
-      if (colaboradorCoincideSlot(c, slot, catalogo)) return true
+      if (colaboradorActivoOcupaSlot(c, slot, catalogo)) return true
     }
     return false
   }
@@ -358,21 +358,28 @@ export function VacantesView() {
     setMensaje(null)
     try {
       const text = await file.text()
-      const r = importVacantesCsvToCatalog(text, colaboradores, catalogo)
+      const r = importVacantesCsvToCatalog(text, colaboradores, catalogo, {
+        reemplazarCatalogo: csvReemplazarCatalogo,
+      })
       recargarCatalogo()
+      let syncAviso = ''
+      if (r.agregadas > 0 || r.actualizadas > 0) {
+        const sync = await persistirVacantesCatalogoEnServidor()
+        if (!sync.ok) syncAviso = ` ${sync.aviso ?? 'No sincronizado a producción.'}`
+      }
       const partes = [
         r.agregadas > 0 ? `${r.agregadas} nueva(s)` : null,
         r.actualizadas > 0 ? `${r.actualizadas} actualizada(s)` : null,
         r.omitidas > 0 ? `${r.omitidas} sin cambio` : null,
-        r.bloqueadas > 0 ? `${r.bloqueadas} bloqueada(s) (ocupadas)` : null,
+        r.bloqueadas > 0 ? `${r.bloqueadas} no importada(s) (colaborador ACTIVO en posición)` : null,
       ].filter(Boolean)
       const resumen = partes.length ? partes.join(', ') : 'Sin filas importadas'
       if (r.errores.length > 0) {
         setMensaje(
-          `${resumen}. Avisos:\n${r.errores.slice(0, 8).join('\n')}${r.errores.length > 8 ? `\n… y ${r.errores.length - 8} más` : ''}`,
+          `${resumen}.${syncAviso} Avisos:\n${r.errores.slice(0, 12).join('\n')}${r.errores.length > 12 ? `\n… y ${r.errores.length - 12} más` : ''}`,
         )
       } else {
-        setMensaje(`Importación CSV: ${resumen}.`)
+        setMensaje(`Importación CSV: ${resumen}.${syncAviso}`)
       }
     } catch {
       setMensaje('No se pudo leer el archivo CSV.')
@@ -421,15 +428,14 @@ export function VacantesView() {
   }
 
   return (
-    <div className="attendance">
-      <header className="topbar">
+    <div className="attendanceView vacantesView">
+      <header className="topbar vacantesView__topbar">
         <div className="topbar__titleRow">
           <h1 className="topbar__title">Vacantes</h1>
           <p className="topbar__subtitle">
             Registre una a una o <strong>importe un CSV</strong> con{' '}
-            {VACANTES_CSV_HEADERS.join(', ')}. Cada fila distingue <strong>SERVICIO</strong>,{' '}
-            <strong>NO. SERVICIO</strong>, <strong>PLANTA</strong>, <strong>POSICION</strong> y{' '}
-            <strong>PUESTO</strong> (Administración y Comercial no se mezclan).
+            {VACANTES_CSV_HEADERS.join(', ')}. Solo se bloquea una fila si hay un colaborador{' '}
+            <strong>activo</strong> (sin fecha de baja) en esa posición. Quien ya tiene baja no impide importar la vacante.
           </p>
         </div>
 
@@ -538,6 +544,18 @@ export function VacantesView() {
                       Importar CSV…
                     </button>
                   </div>
+                  <label className="mt-2 flex max-w-xl cursor-pointer items-start gap-2 text-[11px] font-medium leading-snug text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={csvReemplazarCatalogo}
+                      onChange={(e) => setCsvReemplazarCatalogo(e.target.checked)}
+                    />
+                    <span>
+                      <strong>Reemplazar catálogo completo</strong> con este CSV (borra vacantes anteriores en este
+                      navegador). Si no marca, solo agrega o actualiza filas del archivo.
+                    </span>
+                  </label>
                 </div>
               ) : null}
             </div>
@@ -761,7 +779,14 @@ export function VacantesView() {
         </p>
       </header>
 
-      <div className="sheetWrap">
+      <div className="sheetWrap vacantesView__sheetWrap">
+        <p className="vacantesView__count hint">
+          Mostrando <strong>{filasLista.length}</strong> vacante(s)
+          {catalogoVacantes.length !== filasLista.length
+            ? ` de ${catalogoVacantes.length} en catálogo (filtros activos)`
+            : ''}
+          . Desplácese en la tabla para ver todas.
+        </p>
         {filasLista.length === 0 ? (
           <p className="hint" style={{ padding: '1rem' }}>
             {filtroPlantaLista || filtroServicioLista
@@ -769,16 +794,17 @@ export function VacantesView() {
               : 'No hay vacantes en el catálogo.'}
           </p>
         ) : (
-          <table className="sheet" aria-label="Catálogo de vacantes">
-            <thead>
+          <table className="sheet vacantesView__sheet" aria-label="Catálogo de vacantes">
+            <thead className="vacantesView__thead">
               <tr>
-                <th className="th th--sticky">SERVICIO</th>
-                <th className="th th--sticky mono">NO. SERVICIO</th>
-                <th className="th th--sticky">PLANTA</th>
-                <th className="th th--sticky">POSICION</th>
-                <th className="th th--sticky">PUESTO</th>
-                <th className="th th--sticky">NOTAS</th>
-                {puedeEditar ? <th className="th th--sticky">Acciones</th> : null}
+                <th className="th">SERVICIO</th>
+                <th className="th mono">NO. SERVICIO</th>
+                <th className="th">PLANTA</th>
+                <th className="th">POSICION</th>
+                <th className="th">PUESTO</th>
+                <th className="th">NOTAS</th>
+                <th className="th">ESTADO</th>
+                {puedeEditar ? <th className="th">Acciones</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -786,14 +812,21 @@ export function VacantesView() {
                 const ocupada = slotOcupadoPorActivo(v)
                 return (
                   <tr key={v.id} className="tr" data-vacant="true">
-                    <td className="td td--sticky">{v.servicioLinea ?? '—'}</td>
-                    <td className="td td--sticky mono">{v.rowServiceNo ?? '—'}</td>
-                    <td className="td td--sticky">{v.planta}</td>
-                    <td className="td td--sticky mono font-semibold">{v.posicion}</td>
-                    <td className="td td--sticky">{v.puesto ?? '—'}</td>
-                    <td className="td td--sticky text-xs">{v.notas ?? '—'}</td>
+                    <td className="td">{v.servicioLinea ?? '—'}</td>
+                    <td className="td mono">{v.rowServiceNo ?? '—'}</td>
+                    <td className="td">{v.planta}</td>
+                    <td className="td mono font-semibold">{v.posicion}</td>
+                    <td className="td">{v.puesto ?? '—'}</td>
+                    <td className="td text-xs">{v.notas ?? '—'}</td>
+                    <td className="td text-xs">
+                      {ocupada ? (
+                        <span className="vacantesView__badge vacantesView__badge--ocupada">Activo en posición</span>
+                      ) : (
+                        <span className="vacantesView__badge vacantesView__badge--libre">Libre</span>
+                      )}
+                    </td>
                     {puedeEditar ? (
-                      <td className="td td--sticky">
+                      <td className="td">
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
@@ -807,9 +840,6 @@ export function VacantesView() {
                             Eliminar
                           </button>
                         </div>
-                        {ocupada ? (
-                          <span className="muted block text-[0.7rem]">Colaborador activo en posición</span>
-                        ) : null}
                       </td>
                     ) : null}
                   </tr>

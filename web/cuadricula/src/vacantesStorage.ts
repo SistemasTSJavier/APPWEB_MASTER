@@ -4,7 +4,7 @@ import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import { coincideColaboradorPlantaExpediente } from './cuadriculaColaboradoresBridge'
 import { normPosicionKey } from '@/lib/vacantes-slot'
 import {
-  colaboradorCoincideSlot,
+  colaboradorActivoOcupaSlot,
   slotFromVacanteRegistro,
   slotVacanteKey,
   type SlotVacante,
@@ -92,8 +92,7 @@ export function posicionBloqueadaEnPlanta(
   }
   const key = slotVacanteKey(slot)
   for (const c of colaboradores) {
-    if (colaboradorTieneBaja(c)) continue
-    if (colaboradorCoincideSlot(c, slot, catalogoServicios)) {
+    if (colaboradorActivoOcupaSlot(c, slot, catalogoServicios)) {
       return {
         bloqueada: true,
         motivo: `Ya hay colaborador activo (${c.noEmpleado}) en esa posición y servicio.`,
