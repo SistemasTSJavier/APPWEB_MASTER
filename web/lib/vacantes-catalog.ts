@@ -130,3 +130,59 @@ export function addVacanteRegistro(
   if (!saveVacantesCatalogoDirect([...all, registro])) return null;
   return registro;
 }
+
+export type VacanteRegistroPatch = {
+  planta: string;
+  posicion: string;
+  puesto?: string;
+  servicioLinea?: string;
+  rowServiceNo?: string;
+  notas?: string;
+};
+
+/** Actualiza una vacante existente (planta, servicio, posición, puesto, notas). */
+export function updateVacanteRegistro(
+  id: string,
+  entry: VacanteRegistroPatch,
+  catalogo: CatalogoServicioItem[] = [],
+): VacanteRegistro | null {
+  const key = id.trim();
+  if (!key) return null;
+
+  const all = loadVacantesCatalogo();
+  const idx = all.findIndex((v) => v.id === key);
+  if (idx < 0) return null;
+
+  const planta = entry.planta.trim().toUpperCase();
+  const posicion = entry.posicion.trim().toUpperCase();
+  if (!planta || !posicion) return null;
+
+  const draft = normalizarVacanteRegistro(
+    {
+      ...all[idx]!,
+      planta,
+      posicion,
+      puesto: entry.puesto,
+      servicioLinea: entry.servicioLinea,
+      rowServiceNo: entry.rowServiceNo,
+      notas: entry.notas,
+      updatedAt: new Date().toISOString(),
+    },
+    catalogo,
+  );
+  if (!draft.servicioLinea && !draft.rowServiceNo) return null;
+
+  const sk = slotVacanteKey(slotFromVacanteRegistro(draft));
+  const dup = all.find((v, i) => i !== idx && slotVacanteKey(slotFromVacanteRegistro(v)) === sk);
+  if (dup) return null;
+
+  const updated: VacanteRegistro = {
+    ...draft,
+    id: all[idx]!.id,
+    updatedAt: new Date().toISOString(),
+  };
+  const next = [...all];
+  next[idx] = updated;
+  if (!saveVacantesCatalogoDirect(next)) return null;
+  return updated;
+}

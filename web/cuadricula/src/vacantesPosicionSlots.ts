@@ -61,6 +61,36 @@ export function decodeSlotKey(raw: string): SlotVacante | null {
   };
 }
 
+export type ServicioCatalogoPlanta = {
+  servicioLinea: string;
+  rowServiceNo: string;
+  label: string;
+};
+
+/** Servicios del catálogo en una planta (para alta/edición manual de vacantes). */
+export function listarServiciosCatalogoPorPlanta(
+  catalogo: CatalogoServicioItem[],
+  planta: string,
+): ServicioCatalogoPlanta[] {
+  const p = normPlantaCatalogo(planta);
+  if (!p) return [];
+  const byKey = new Map<string, ServicioCatalogoPlanta>();
+  for (const item of catalogo) {
+    if (normPlantaCatalogo(item.planta ?? "") !== p) continue;
+    const rowServiceNo = canonicalNoServicioCatalogo(item.numero_servicio ?? "");
+    const servicioLinea = normServicioLinea(item.nombre ?? "");
+    if (!rowServiceNo && !servicioLinea) continue;
+    const label = rowServiceNo
+      ? `${servicioLinea || "—"} (N.º ${rowServiceNo})`
+      : servicioLinea || "—";
+    const key = `${rowServiceNo}\u001f${servicioLinea}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, { servicioLinea, rowServiceNo, label });
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, "es", { numeric: true }));
+}
+
 export function listarPlantasParaVacantes(
   colaboradores: ColaboradorCompleto[],
   catalogo: CatalogoServicioItem[],

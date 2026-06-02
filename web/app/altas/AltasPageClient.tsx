@@ -36,7 +36,6 @@ import {
   resolverExpedientePlantillaReingreso,
 } from "@/lib/altas-prefill-reingreso";
 import {
-  consumirVacantePorId,
   datosAltaDesdeVacante,
   listarPlantasVacantesPorServicio,
   listarServiciosDesdeVacantes,
@@ -44,9 +43,12 @@ import {
 } from "@/lib/altas-vacantes";
 import {
   loadVacantesCatalogo,
+  saveVacantesCatalogoDirect,
   VACANTES_CATALOG_UPDATED_EVENT,
   type VacanteRegistro,
 } from "@/lib/vacantes-catalog";
+import { consumirVacanteTrasAlta } from "@/lib/vacantes-catalog-flujo";
+import { fetchVacantesCatalogRemote } from "@/lib/vacantes-catalog-remote";
 import {
   ALTAS_ESTADO_CIVIL_OPCIONES,
   ALTAS_ESTADO_TRAMITE_OPCIONES,
@@ -242,10 +244,29 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
 
   useEffect(() => {
     const recargar = () => setCatalogoVacantes(loadVacantesCatalogo());
-    recargar();
-    setVacantesHydrated(true);
     window.addEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
-    return () => window.removeEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
+    let cancelled = false;
+    void (async () => {
+      const local = loadVacantesCatalogo();
+      if (local.length > 0) {
+        if (!cancelled) {
+          recargar();
+          setVacantesHydrated(true);
+        }
+        return;
+      }
+      const remote = await fetchVacantesCatalogRemote();
+      if (cancelled) return;
+      if (remote.meta.status === "ok" && remote.items.length > 0) {
+        saveVacantesCatalogoDirect(remote.items);
+        recargar();
+      }
+      setVacantesHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+      window.removeEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
+    };
   }, []);
 
   useEffect(() => {
@@ -521,7 +542,16 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           beneficiarioBancario: f.beneficiarioBancario,
         })),
       });
-      const consumida = vacanteAsignadaId ? consumirVacantePorId(vacanteAsignadaId) : false;
+      const vacanteIdAlGuardar = vacanteAsignadaId;
+      const { consumida, sync: syncVacante } = await consumirVacanteTrasAlta({
+        vacanteId: vacanteIdAlGuardar || undefined,
+        alta: {
+          planta: flatForm.planta.trim(),
+          servicioLinea: flatForm.servicio.trim(),
+          rowServiceNo: flatForm.noServicio.trim(),
+        },
+        posicion: flatForm.posicion.trim(),
+      });
       if (consumida) {
         setCatalogoVacantes(loadVacantesCatalogo());
         setVacanteAsignadaId("");
@@ -547,7 +577,16 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           return Number.isFinite(n) ? String(n + 1) : prev;
         });
       }
-      const extraVacante = consumida ? " VACANTE LIBERADA EN CATALOGO CUADRICULA." : "";
+      const partesVacante: string[] = [];
+      if (consumida) {
+        partesVacante.push("VACANTE OCUPADA: RETIRADA DEL CATALOGO DE CUADRICULA");
+        if (!syncVacante.ok) {
+          partesVacante.push(`(${syncVacante.aviso ?? "SIN SINCRONIZAR A PRODUCCION"})`);
+        }
+      } else if (hayVacantesEnCatalogo && vacanteIdAlGuardar) {
+        partesVacante.push("AVISO: NO SE PUDO QUITAR LA VACANTE DEL CATALOGO (REVISE CUADRICULA → VACANTES)");
+      }
+      const extraVacante = partesVacante.length ? ` ${partesVacante.join(". ")}.` : "";
       setAltaMsg({ ok: true, text: `EXPEDIENTE GUARDADO EN SUPABASE.${extraVacante}` });
     } catch (err) {
       setAltaMsg({
@@ -1361,8 +1400,9 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 <div className="md:col-span-2 lg:col-span-3 space-y-3 rounded-lg border-2 border-blue-200 bg-blue-50/50 p-4">
                   <h3 className="text-sm font-bold uppercase text-blue-950">Asignación desde vacantes (Cuadrícula)</h3>
                   <p className="text-[11px] font-medium text-blue-900">
-                    Servicio, planta y posición del catálogo local de vacantes. Al guardar el alta, la posición se quita del
-                    catálogo.
+                    Elija servicio, planta y posición del catálogo de vacantes (Cuadrícula). Al guardar el alta, esa vacante se
+                    elimina del catálogo y se sincroniza con producción. Si alguien se da de baja, el módulo{" "}
+                    <strong>Bajas</strong> vuelve a registrar la posición como vacante nueva.
                   </p>
 
                   {!vacantesHydrated ? (

@@ -8,6 +8,7 @@ import {
   encodeSlotKey,
   listarPlantasParaVacantes,
   listarPosicionesLibresParaVacante,
+  listarServiciosCatalogoPorPlanta,
   resolverDatosSlot,
   slotFromVacanteRegistro,
 } from '../vacantesPosicionSlots'
@@ -15,7 +16,9 @@ import {
   VACANTES_CATALOG_UPDATED_EVENT,
   addVacanteToCatalog,
   loadVacantesCatalogo,
+  posicionBloqueadaEnPlanta,
   removeVacanteFromCatalog,
+  updateVacanteInCatalog,
   type VacanteRegistro,
 } from '../vacantesStorage'
 import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
@@ -36,11 +39,34 @@ import {
   normalizarVacantesCatalogo,
 } from '@/lib/vacantes-servicio'
 
+const SERVICIO_MANUAL_KEY = '__manual__'
+const SERVICIO_SEP = '\u001e'
+
+function encodeServicioCatalogKey(servicioLinea: string, rowServiceNo: string): string {
+  return `${rowServiceNo}${SERVICIO_SEP}${servicioLinea}`
+}
+
+function decodeServicioCatalogKey(raw: string): { servicioLinea: string; rowServiceNo: string } | null {
+  if (!raw || raw === SERVICIO_MANUAL_KEY) return null
+  const i = raw.indexOf(SERVICIO_SEP)
+  if (i < 0) return null
+  return {
+    rowServiceNo: raw.slice(0, i).trim(),
+    servicioLinea: raw.slice(i + 1).trim(),
+  }
+}
+
 export function VacantesView() {
   const { colaboradores, catalogo, loading, error, reload, puedeEditar } = useCuadriculaData()
   const [catalogoVacantes, setCatalogoVacantes] = useState<VacanteRegistro[]>([])
+  const [modoAlta, setModoAlta] = useState<'slot' | 'manual'>('slot')
+  const [editandoId, setEditandoId] = useState<string | null>(null)
   const [plantaForm, setPlantaForm] = useState('')
   const [slotFormKey, setSlotFormKey] = useState('')
+  const [servicioFormKey, setServicioFormKey] = useState('')
+  const [servicioLineaManual, setServicioLineaManual] = useState('')
+  const [rowServiceNoManual, setRowServiceNoManual] = useState('')
+  const [posicionManual, setPosicionManual] = useState('')
   const [puesto, setPuesto] = useState('')
   const [notas, setNotas] = useState('')
   const [mensaje, setMensaje] = useState<string | null>(null)
@@ -95,6 +121,16 @@ export function VacantesView() {
     [plantaForm, colaboradores, catalogo, catalogoVacantes],
   )
 
+  const serviciosPlantaForm = useMemo(
+    () => listarServiciosCatalogoPorPlanta(catalogo, plantaForm),
+    [catalogo, plantaForm],
+  )
+
+  const editandoVacante = useMemo(
+    () => (editandoId ? catalogoVacantes.find((v) => v.id === editandoId) ?? null : null),
+    [editandoId, catalogoVacantes],
+  )
+
   const slotSeleccionado = useMemo(() => decodeSlotKey(slotFormKey), [slotFormKey])
 
   const datosAuto = useMemo(() => {
@@ -111,10 +147,108 @@ export function VacantesView() {
   }, [slotFormKey, posicionesLibres, puesto])
 
   useEffect(() => {
+    if (editandoId) return
     setSlotFormKey('')
+    setServicioFormKey('')
+    setServicioLineaManual('')
+    setRowServiceNoManual('')
+    setPosicionManual('')
     setPuesto('')
     setNotas('')
-  }, [plantaForm])
+  }, [plantaForm, editandoId])
+
+  function limpiarFormulario() {
+    setEditandoId(null)
+    setSlotFormKey('')
+    setServicioFormKey('')
+    setServicioLineaManual('')
+    setRowServiceNoManual('')
+    setPosicionManual('')
+    setPuesto('')
+    setNotas('')
+  }
+
+  function resolverServicioFormulario(): { servicioLinea: string; rowServiceNo: string } | null {
+    if (servicioFormKey === SERVICIO_MANUAL_KEY) {
+      const servicioLinea = servicioLineaManual.trim()
+      const rowServiceNo = rowServiceNoManual.trim()
+      if (!servicioLinea && !rowServiceNo) return null
+      return { servicioLinea, rowServiceNo }
+    }
+    const dec = decodeServicioCatalogKey(servicioFormKey)
+    if (dec) return dec
+    const hit = serviciosPlantaForm.find(
+      (s) => encodeServicioCatalogKey(s.servicioLinea, s.rowServiceNo) === servicioFormKey,
+    )
+    if (hit) return { servicioLinea: hit.servicioLinea, rowServiceNo: hit.rowServiceNo }
+    return null
+  }
+
+  function payloadDesdeFormulario(): {
+    planta: string
+    posicion: string
+    puesto?: string
+    servicioLinea?: string
+    rowServiceNo?: string
+    notas?: string
+  } | null {
+    if (!plantaForm.trim()) return null
+    if (modoAlta === 'slot' && !editandoId) {
+      const slot = decodeSlotKey(slotFormKey)
+      if (!slot) return null
+      const datos = resolverDatosSlot(slot, colaboradores, catalogo)
+      return {
+        planta: datos.planta,
+        posicion: datos.posicion,
+        puesto: puesto.trim() || datos.puestoSugerido || undefined,
+        servicioLinea: datos.servicioLinea,
+        rowServiceNo: datos.rowServiceNo,
+        notas: notas.trim() || undefined,
+      }
+    }
+    const posicion = posicionManual.trim()
+    if (!posicion) return null
+    const svc = resolverServicioFormulario()
+    if (!svc) return null
+    return {
+      planta: plantaForm.trim(),
+      posicion,
+      puesto: puesto.trim() || undefined,
+      servicioLinea: svc.servicioLinea,
+      rowServiceNo: svc.rowServiceNo,
+      notas: notas.trim() || undefined,
+    }
+  }
+
+  function iniciarEdicion(v: VacanteRegistro) {
+    setEditandoId(v.id)
+    setModoAlta('manual')
+    setPlantaForm(v.planta)
+    setPosicionManual(v.posicion)
+    setPuesto(v.puesto ?? '')
+    setNotas(v.notas ?? '')
+    setSlotFormKey('')
+    const linea = (v.servicioLinea ?? '').trim()
+    const no = (v.rowServiceNo ?? '').trim()
+    const serviciosPlanta = listarServiciosCatalogoPorPlanta(catalogo, v.planta)
+    const catalogHit = serviciosPlanta.find(
+      (s) => s.servicioLinea === linea && s.rowServiceNo === no,
+    )
+    if (catalogHit) {
+      setServicioFormKey(encodeServicioCatalogKey(catalogHit.servicioLinea, catalogHit.rowServiceNo))
+      setServicioLineaManual('')
+      setRowServiceNoManual('')
+    } else if (linea || no) {
+      setServicioFormKey(SERVICIO_MANUAL_KEY)
+      setServicioLineaManual(linea)
+      setRowServiceNoManual(no)
+    } else {
+      setServicioFormKey('')
+      setServicioLineaManual('')
+      setRowServiceNoManual('')
+    }
+    setMensaje(null)
+  }
 
   const serviciosEnCatalogo = useMemo(() => {
     const map = new Map<string, string>()
@@ -148,38 +282,61 @@ export function VacantesView() {
     return false
   }
 
-  function onAgregar(e: FormEvent) {
+  function onGuardarFormulario(e: FormEvent) {
     e.preventDefault()
     setMensaje(null)
     if (!puedeEditar) return
-    if (!plantaForm.trim()) {
-      setMensaje('Seleccione una planta.')
+
+    const payload = payloadDesdeFormulario()
+    if (!payload) {
+      setMensaje(
+        editandoId
+          ? 'Complete planta, posición y servicio (nombre y/o N.º de servicio).'
+          : modoAlta === 'slot'
+            ? 'Seleccione planta y una posición libre del listado.'
+            : 'Complete planta, posición y servicio.',
+      )
       return
     }
-    const slot = decodeSlotKey(slotFormKey)
-    if (!slot) {
-      setMensaje('Seleccione posición y servicio (cada servicio tiene su propia secuencia).')
+
+    if (editandoId) {
+      const v = updateVacanteInCatalog(editandoId, payload, catalogo)
+      if (!v) {
+        setMensaje(
+          'No se pudo actualizar (vacante duplicada en ese servicio/posición o datos inválidos).',
+        )
+        return
+      }
+      limpiarFormulario()
+      setMensaje(
+        `Vacante actualizada: «${v.posicion}» — ${v.servicioLinea ?? '—'} (N.º ${v.rowServiceNo || '—'}) en «${v.planta}».`,
+      )
+      recargarCatalogo()
       return
     }
-    const datos = resolverDatosSlot(slot, colaboradores, catalogo)
-    const v = addVacanteToCatalog(
-      {
-        planta: datos.planta,
-        posicion: datos.posicion,
-        puesto: puesto.trim() || datos.puestoSugerido || undefined,
-        servicioLinea: datos.servicioLinea,
-        rowServiceNo: datos.rowServiceNo,
-        notas,
-      },
+
+    const bloqueo = posicionBloqueadaEnPlanta(
+      payload.planta,
+      payload.posicion,
+      colaboradores,
       catalogo,
+      catalogoVacantes,
+      {
+        servicioLinea: payload.servicioLinea,
+        rowServiceNo: payload.rowServiceNo,
+      },
     )
+    if (bloqueo.bloqueada) {
+      setMensaje(bloqueo.motivo ?? 'Esa posición no está disponible.')
+      return
+    }
+
+    const v = addVacanteToCatalog(payload, catalogo)
     if (!v) {
       setMensaje('No se pudo guardar (vacante duplicada en ese servicio o almacenamiento bloqueado).')
       return
     }
-    setSlotFormKey('')
-    setPuesto('')
-    setNotas('')
+    limpiarFormulario()
     setMensaje(
       `Vacante «${v.posicion}» — ${v.servicioLinea} (N.º ${v.rowServiceNo || '—'}) en «${v.planta}».`,
     )
@@ -248,9 +405,14 @@ export function VacantesView() {
     }
   }
 
-  function onQuitar(id: string) {
+  function onQuitar(v: VacanteRegistro) {
     if (!puedeEditar) return
-    if (!removeVacanteFromCatalog(id)) {
+    const ok = window.confirm(
+      `¿Eliminar vacante?\n\nPLANTA: ${v.planta}\nPOSICIÓN: ${v.posicion}\nSERVICIO: ${v.servicioLinea ?? '—'} (N.º ${v.rowServiceNo ?? '—'})`,
+    )
+    if (!ok) return
+    if (editandoId === v.id) limpiarFormulario()
+    if (!removeVacanteFromCatalog(v.id)) {
       setMensaje('No se pudo quitar la vacante.')
       return
     }
@@ -383,8 +545,42 @@ export function VacantesView() {
         </div>
 
         {puedeEditar ? (
-          <form className="card mb-4 space-y-3" onSubmit={onAgregar}>
-            <h2 className="text-sm font-bold uppercase text-slate-900">Registrar vacante</h2>
+          <form className="card mb-4 space-y-3" onSubmit={onGuardarFormulario}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-bold uppercase text-slate-900">
+                {editandoId ? 'Editar vacante' : 'Agregar vacante'}
+              </h2>
+              {editandoId ? (
+                <button type="button" className="btn btn--linkish" onClick={limpiarFormulario}>
+                  Cancelar edición
+                </button>
+              ) : null}
+            </div>
+
+            {!editandoId ? (
+              <fieldset className="flex flex-wrap gap-4 border-0 p-0">
+                <legend className="sr-only">Modo de alta</legend>
+                <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase text-slate-700">
+                  <input
+                    type="radio"
+                    name="modo-alta-vacante"
+                    checked={modoAlta === 'slot'}
+                    onChange={() => setModoAlta('slot')}
+                  />
+                  Desde posición libre (expedientes)
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase text-slate-700">
+                  <input
+                    type="radio"
+                    name="modo-alta-vacante"
+                    checked={modoAlta === 'manual'}
+                    onChange={() => setModoAlta('manual')}
+                  />
+                  Captura manual (servicio + posición)
+                </label>
+              </fieldset>
+            ) : null}
+
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <label className="field">
                 <span className="field__label">Planta *</span>
@@ -403,30 +599,93 @@ export function VacantesView() {
                   ))}
                 </select>
               </label>
-              <label className="field sm:col-span-2">
-                <span className="field__label">Posición libre (servicio + posición) *</span>
-                <select
-                  className="select"
-                  required
-                  value={slotFormKey}
-                  onChange={(e) => setSlotFormKey(e.target.value)}
-                  disabled={loading || !plantaForm || posicionesLibres.length === 0}
-                >
-                  <option value="">
-                    {!plantaForm
-                      ? 'Primero planta…'
-                      : posicionesLibres.length === 0
-                        ? 'Sin posiciones libres'
-                        : 'Seleccione…'}
-                  </option>
-                  {posicionesLibres.map((s) => (
-                    <option key={encodeSlotKey(s)} value={encodeSlotKey(s)}>
-                      {s.posicion} — {s.servicioLinea}
-                      {s.rowServiceNo ? ` (N.º ${s.rowServiceNo})` : ''}
+
+              {modoAlta === 'slot' && !editandoId ? (
+                <label className="field sm:col-span-2">
+                  <span className="field__label">Posición libre (servicio + posición) *</span>
+                  <select
+                    className="select"
+                    required
+                    value={slotFormKey}
+                    onChange={(e) => setSlotFormKey(e.target.value)}
+                    disabled={loading || !plantaForm || posicionesLibres.length === 0}
+                  >
+                    <option value="">
+                      {!plantaForm
+                        ? 'Primero planta…'
+                        : posicionesLibres.length === 0
+                          ? 'Sin posiciones libres — use captura manual'
+                          : 'Seleccione…'}
                     </option>
-                  ))}
-                </select>
-              </label>
+                    {posicionesLibres.map((s) => (
+                      <option key={encodeSlotKey(s)} value={encodeSlotKey(s)}>
+                        {s.posicion} — {s.servicioLinea}
+                        {s.rowServiceNo ? ` (N.º ${s.rowServiceNo})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <>
+                  <label className="field sm:col-span-2">
+                    <span className="field__label">Servicio (catálogo) *</span>
+                    <select
+                      className="select"
+                      required
+                      value={servicioFormKey}
+                      onChange={(e) => setServicioFormKey(e.target.value)}
+                      disabled={loading || !plantaForm}
+                    >
+                      <option value="">
+                        {!plantaForm ? 'Primero planta…' : 'Seleccione servicio…'}
+                      </option>
+                      {serviciosPlantaForm.map((s) => {
+                        const key = encodeServicioCatalogKey(s.servicioLinea, s.rowServiceNo)
+                        return (
+                          <option key={key} value={key}>
+                            {s.label}
+                          </option>
+                        )
+                      })}
+                      <option value={SERVICIO_MANUAL_KEY}>Otro — capturar nombre y N.º</option>
+                    </select>
+                  </label>
+                  {servicioFormKey === SERVICIO_MANUAL_KEY ? (
+                    <>
+                      <label className="field">
+                        <span className="field__label">Nombre servicio</span>
+                        <input
+                          className="input"
+                          value={servicioLineaManual}
+                          onChange={(e) => setServicioLineaManual(e.target.value)}
+                          placeholder="Ej. ADMINISTRACIÓN"
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="field__label">N.º servicio</span>
+                        <input
+                          className="input"
+                          value={rowServiceNoManual}
+                          onChange={(e) => setRowServiceNoManual(e.target.value)}
+                          placeholder="Ej. 12"
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  <label className="field">
+                    <span className="field__label">Posición *</span>
+                    <input
+                      className="input mono"
+                      required
+                      value={posicionManual}
+                      onChange={(e) => setPosicionManual(e.target.value)}
+                      placeholder="Ej. 3"
+                      disabled={loading || !plantaForm}
+                    />
+                  </label>
+                </>
+              )}
+
               <label className="field">
                 <span className="field__label">Puesto</span>
                 <input
@@ -447,7 +706,7 @@ export function VacantesView() {
               </label>
             </div>
 
-            {datosAuto ? (
+            {modoAlta === 'slot' && !editandoId && datosAuto ? (
               <div
                 className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800"
                 aria-live="polite"
@@ -458,20 +717,34 @@ export function VacantesView() {
               </div>
             ) : null}
 
-            {plantaForm && posicionesLibres.length === 0 ? (
+            {modoAlta === 'slot' && !editandoId && plantaForm && posicionesLibres.length === 0 ? (
               <p className="text-xs font-medium text-amber-900">
-                No hay posiciones libres en esta planta para ningún servicio (ocupadas o ya en vacantes). Revise
-                expedientes con <strong>POSICION</strong> y servicio asignado.
+                No hay posiciones libres detectadas en expedientes. Use <strong>captura manual</strong> o importe CSV.
               </p>
             ) : null}
 
-            <button
-              type="submit"
-              className="btn btn--primary"
-              disabled={loading || !plantaForm || !slotFormKey}
-            >
-              Agregar vacante
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={
+                  loading ||
+                  !plantaForm ||
+                  (editandoId
+                    ? !posicionManual.trim()
+                    : modoAlta === 'slot'
+                      ? !slotFormKey
+                      : !posicionManual.trim() || !servicioFormKey)
+                }
+              >
+                {editandoId ? 'Guardar cambios' : 'Agregar vacante'}
+              </button>
+              {editandoVacante ? (
+                <span className="self-center text-xs text-slate-600">
+                  Editando: {editandoVacante.posicion} · {editandoVacante.servicioLinea ?? '—'}
+                </span>
+              ) : null}
+            </div>
           </form>
         ) : (
           <p className="topbar__readonlyBanner" role="status">
@@ -505,7 +778,7 @@ export function VacantesView() {
                 <th className="th th--sticky">POSICION</th>
                 <th className="th th--sticky">PUESTO</th>
                 <th className="th th--sticky">NOTAS</th>
-                {puedeEditar ? <th className="th th--sticky"> </th> : null}
+                {puedeEditar ? <th className="th th--sticky">Acciones</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -521,13 +794,21 @@ export function VacantesView() {
                     <td className="td td--sticky text-xs">{v.notas ?? '—'}</td>
                     {puedeEditar ? (
                       <td className="td td--sticky">
-                        <button type="button" className="btn btn--linkish" onClick={() => onQuitar(v.id)}>
-                          Quitar
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="btn btn--linkish"
+                            onClick={() => iniciarEdicion(v)}
+                            disabled={editandoId === v.id}
+                          >
+                            {editandoId === v.id ? 'Editando…' : 'Editar'}
+                          </button>
+                          <button type="button" className="btn btn--linkish text-red-800" onClick={() => onQuitar(v)}>
+                            Eliminar
+                          </button>
+                        </div>
                         {ocupada ? (
-                          <span className="muted" style={{ marginLeft: '0.5rem', fontSize: '0.7rem' }}>
-                            (colaborador en posición)
-                          </span>
+                          <span className="muted block text-[0.7rem]">Colaborador activo en posición</span>
                         ) : null}
                       </td>
                     ) : null}

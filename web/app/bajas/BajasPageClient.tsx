@@ -22,7 +22,7 @@ import { roleMayFilterBajasPorFechaBaja } from "@/lib/app-role";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { servicioAgrupadoUsaZona } from "@/lib/servicio-agrupacion";
 import { fetchServiciosCatalogo } from "@/lib/servicios-catalogo-client";
-import { registrarVacantePorBajaColaborador } from "@/lib/vacantes-desde-baja";
+import { registrarVacanteTrasBaja } from "@/lib/vacantes-catalog-flujo";
 
 const EMPTY_FORM: BajasFormState = {
   noEmpleado: "",
@@ -265,14 +265,17 @@ export function BajasPageClient({
       } catch {
         catalogo = [];
       }
-      const vacante = registrarVacantePorBajaColaborador(next, catalogo);
+      const vacante = await registrarVacanteTrasBaja(next, catalogo);
       const list = await listColaboradoresCompletos();
       setRows(list);
       const partes = ["BAJA GUARDADA. EXPEDIENTE ACTUALIZADO EN SUPABASE."];
       if (vacante.creada && vacante.registro) {
         partes.push(
-          `POSICIÓN REGISTRADA COMO VACANTE (${vacante.registro.planta} · ${vacante.registro.posicion}) — DISPONIBLE EN ALTAS Y CUADRÍCULA → VACANTES.`,
+          `NUEVA VACANTE EN CATALOGO (${vacante.registro.planta} · POS. ${vacante.registro.posicion} · ${vacante.registro.servicioLinea ?? "—"}) — DISPONIBLE EN ALTAS Y CUADRICULA → VACANTES.`,
         );
+        if (!vacante.sync.ok) {
+          partes.push(vacante.sync.aviso?.toUpperCase() ?? "VACANTE LOCAL; NO SINCRONIZADA A PRODUCCION.");
+        }
       } else if (vacante.ok && vacante.motivo) {
         partes.push(vacante.motivo.toUpperCase());
       } else if (!vacante.ok && vacante.motivo) {

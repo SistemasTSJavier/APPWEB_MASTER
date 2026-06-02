@@ -15,8 +15,7 @@ import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-na
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
 import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
-import { registrarVacantePorBajaColaborador } from "@/lib/vacantes-desde-baja";
-import { consumirVacantePorId } from "@/lib/altas-vacantes";
+import { consumirVacanteTrasAlta, persistirVacantesCatalogoEnServidor, registrarVacanteTrasBaja } from "@/lib/vacantes-catalog-flujo";
 import { addVacanteRegistro } from "@/lib/vacantes-catalog";
 import { aMayusculasPlataforma } from "@/lib/texto-plataforma-mayusculas";
 
@@ -175,7 +174,7 @@ export function EditorExpedienteCompleto({
             ini.posicion !== (form.posicion ?? "").trim().toUpperCase() ||
             ini.servicio !== (form.servicio ?? "").trim().toUpperCase());
         if (cambioSlot) {
-          addVacanteRegistro(
+          const creada = addVacanteRegistro(
             {
               planta: ini.planta,
               posicion: ini.posicion,
@@ -185,15 +184,24 @@ export function EditorExpedienteCompleto({
             },
             catalogoServicios,
           );
+          if (creada) await persistirVacantesCatalogoEnServidor();
         }
         if (vacanteIdRef.current) {
-          consumirVacantePorId(vacanteIdRef.current);
+          await consumirVacanteTrasAlta({
+            vacanteId: vacanteIdRef.current,
+            alta: {
+              planta: (form.planta ?? "").trim(),
+              servicioLinea: (form.servicio ?? "").trim(),
+              rowServiceNo: (form.noServicio ?? "").trim(),
+            },
+            posicion: (form.posicion ?? "").trim(),
+          });
           vacanteIdRef.current = "";
         }
       }
 
       if (colaboradorTieneBaja(actualizado)) {
-        registrarVacantePorBajaColaborador(actualizado, catalogoServicios);
+        await registrarVacanteTrasBaja(actualizado, catalogoServicios);
       }
       await onGuardado(actualizado);
     } catch (e) {

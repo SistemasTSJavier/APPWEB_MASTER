@@ -16,7 +16,9 @@ import {
   loadVacantesCatalogo,
   removeVacanteFromCatalog,
   saveVacantesCatalogoDirect,
+  updateVacanteRegistro,
   type VacanteRegistro,
+  type VacanteRegistroPatch,
 } from '@/lib/vacantes-catalog'
 
 export {
@@ -121,26 +123,10 @@ export function addVacanteToCatalog(
 
 export function updateVacanteInCatalog(
   id: string,
-  patch: Partial<Pick<VacanteRegistro, 'puesto' | 'servicioLinea' | 'rowServiceNo' | 'notas'>>,
-): boolean {
-  const all = loadVacantesCatalogo()
-  let found = false
-  const next = all.map((v) => {
-    if (v.id !== id) return v
-    found = true
-    return {
-      ...v,
-      puesto: patch.puesto !== undefined ? patch.puesto.trim().toUpperCase() || undefined : v.puesto,
-      servicioLinea:
-        patch.servicioLinea !== undefined
-          ? patch.servicioLinea.trim().toUpperCase() || undefined
-          : v.servicioLinea,
-      rowServiceNo:
-        patch.rowServiceNo !== undefined ? patch.rowServiceNo.trim() || undefined : v.rowServiceNo,
-      notas: patch.notas !== undefined ? patch.notas.trim() || undefined : v.notas,
-      updatedAt: new Date().toISOString(),
-    }
-  })
-  if (!found) return false
-  return saveVacantesCatalogo(next)
+  patch: VacanteRegistroPatch,
+  catalogo: CatalogoServicioItem[] = [],
+): VacanteRegistro | null {
+  return updateVacanteRegistro(id, patch, catalogo)
 }
+
+export type { VacanteRegistroPatch }
