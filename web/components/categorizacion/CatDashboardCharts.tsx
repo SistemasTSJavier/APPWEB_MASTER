@@ -9,7 +9,7 @@ const BARRAS = [
 ];
 
 const ESCALA_LEYENDA = [
-  { n: 1, label: "Deficiente", color: "#fff2cc" },
+  { n: 1, label: "No cumple con el estandar", color: "#fff2cc" },
   { n: 2, label: "Regular", color: "#fce4d6" },
   { n: 3, label: "Bueno", color: "#f8cbad" },
   { n: 4, label: "Muy bueno", color: "#f4b183" },
@@ -41,8 +41,9 @@ export function CatBarChartModulos({
               {ESCALA_LEYENDA.map((e) => (
                 <th
                   key={e.n}
-                  className={`border border-slate-300 px-1 py-1 text-center ${e.text ?? "text-slate-800"}`}
+                  className={`border border-slate-300 px-0.5 py-1 text-center leading-tight ${e.text ?? "text-slate-800"} ${e.n === 1 ? "text-[7px] sm:text-[8px]" : ""}`}
                   style={{ backgroundColor: e.color }}
+                  title={e.label}
                 >
                   {e.n} = {e.label}
                 </th>

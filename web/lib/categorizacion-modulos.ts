@@ -9,7 +9,7 @@ export const CATEGORIZACION_MODULOS = [
   {
     id: "recursos-humanos",
     label: "Recursos Humanos",
-    description: "Ausentismos, rotación y actas (1–5). Promedio y comentarios.",
+    description: "Faltas del mes desde cuadrícula (automático). Rotación y actas (1–5).",
     icon: "🏢",
   },
   {
@@ -21,7 +21,7 @@ export const CATEGORIZACION_MODULOS = [
   {
     id: "capacitacion",
     label: "Capacitación",
-    description: "Registrar colaboradores a cursos vigentes; asistencia y desempeño (1–5).",
+    description: "Registrar colaboradores a cursos vigentes; desempeño (1–5).",
     icon: "📚",
   },
   {

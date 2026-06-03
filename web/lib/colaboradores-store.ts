@@ -12,6 +12,7 @@ export type { SincronizarMoperResultado } from "@/lib/colaboradores-data";
 
 export {
   listColaboradoresCompletos,
+  invalidateColaboradoresListCache,
   findColaboradorCompletoByNo,
   findColaboradorByNo,
   upsertColaboradorCompleto,

@@ -106,7 +106,7 @@ export function CatCatalogoCapacitacionesPanel() {
         <Link href="/categorizacion/capacitacion" className="font-bold text-violet-800 underline">
           Capacitación
         </Link>
-        , asigna colaboradores y califica asistencia y desempeño.
+        , asigna colaboradores y califica desempeño.
       </p>
 
       <section className="card space-y-3 border border-violet-100">

@@ -11,6 +11,32 @@ import type { AppRole } from "@/lib/app-role";
 
 const LOOP_MS = 20_000;
 
+function documentoEnFullscreen(): boolean {
+  return Boolean(document.fullscreenElement);
+}
+
+async function solicitarFullscreenVentana(): Promise<boolean> {
+  try {
+    const el = document.documentElement;
+    if (!documentoEnFullscreen()) {
+      await el.requestFullscreen();
+    }
+    return documentoEnFullscreen();
+  } catch {
+    return false;
+  }
+}
+
+async function salirFullscreenVentana(): Promise<void> {
+  try {
+    if (documentoEnFullscreen()) {
+      await document.exitFullscreen();
+    }
+  } catch {
+    /* ignorar */
+  }
+}
+
 export function CatDashboardClient({
   appRole,
   email,
@@ -112,30 +138,34 @@ export function CatDashboardClient({
     setModoLoop(false);
     setLoopIndex(0);
     if (no.trim()) {
-      setMostrar(true);
-      setPantallaCompleta(true);
+      void abrirPresentacion();
     }
   }
 
-  function cerrarPresentacion() {
+  const cerrarPresentacion = useCallback(() => {
+    void salirFullscreenVentana();
     setPantallaCompleta(false);
     setMostrar(false);
     detenerLoop();
-  }
+  }, []);
 
-  function mostrarDashboard() {
+  const abrirPresentacion = useCallback(async () => {
+    setMostrar(true);
+    setPantallaCompleta(true);
+    await solicitarFullscreenVentana();
+  }, []);
+
+  async function mostrarDashboard() {
     if (noSel.trim()) {
       detenerLoop();
-      setMostrar(true);
-      setPantallaCompleta(true);
+      await abrirPresentacion();
       return;
     }
     if (servicio && empleadosServicio.length > 0) {
       setLoopIndex(0);
       setModoLoop(true);
-      setMostrar(true);
-      setPantallaCompleta(true);
       setSegundosRestantes(LOOP_MS / 1000);
+      await abrirPresentacion();
       return;
     }
     setErr("SELECCIONA UN SERVICIO CON COLABORADORES O UN COLABORADOR.");
@@ -145,13 +175,17 @@ export function CatDashboardClient({
     if (!pantallaCompleta) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") cerrarPresentacion();
+    const onFullscreenChange = () => {
+      if (!documentoEnFullscreen()) {
+        setPantallaCompleta(false);
+        setMostrar(false);
+        detenerLoop();
+      }
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("fullscreenchange", onFullscreenChange);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("fullscreenchange", onFullscreenChange);
     };
   }, [pantallaCompleta]);
 
@@ -255,7 +289,12 @@ export function CatDashboardClient({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary uppercase" disabled={!puedeMostrar || busy} onClick={mostrarDashboard}>
+            <button
+              type="button"
+              className="btn-primary uppercase"
+              disabled={!puedeMostrar || busy}
+              onClick={() => void mostrarDashboard()}
+            >
               {noSel.trim() ? "Presentar (pantalla completa)" : "Presentar loop (pantalla completa)"}
             </button>
             {modoLoop ? (
@@ -359,39 +398,32 @@ export function CatDashboardClient({
       </div>
 
       {pantallaCompleta && mostrar && empleadoEnPantalla && data ? (
-        <div className="fixed inset-0 z-[250] flex flex-col bg-slate-900/40 backdrop-blur-sm">
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-700 bg-slate-900 px-4 py-3 text-white sm:px-6">
-            <div className="min-w-0 text-sm font-medium">
-              {modoLoop ? (
-                <span>
-                  <strong className="uppercase">Loop</strong> · {servicio} · {loopPos}/{empleadosServicio.length}
-                  {empleadoEnPantalla ? ` · ${empleadoEnPantalla.nombre}` : ""} · siguiente{" "}
-                  <strong>{segundosRestantes}s</strong>
-                </span>
-              ) : (
-                <span>
-                  <strong className="uppercase">Presentación</strong> · {empleadoEnPantalla.nombre} (N°{" "}
-                  {empleadoEnPantalla.noEmpleado})
-                </span>
-              )}
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              {modoLoop ? (
-                <button type="button" className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold uppercase" onClick={detenerLoop}>
-                  Pausar loop
-                </button>
-              ) : null}
+        <div className="fixed inset-0 z-[9999] flex h-[100dvh] w-[100dvw] flex-col bg-white">
+          <div className="absolute right-3 top-3 z-10 flex flex-wrap items-center justify-end gap-2 sm:right-4 sm:top-4">
+            {modoLoop ? (
+              <span className="rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-[10px] font-semibold text-slate-700 shadow-sm sm:text-xs">
+                Loop · {servicio} · {loopPos}/{empleadosServicio.length} · {segundosRestantes}s
+              </span>
+            ) : null}
+            {modoLoop ? (
               <button
                 type="button"
-                className="rounded-lg bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-900"
-                onClick={cerrarPresentacion}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-800 shadow-sm"
+                onClick={detenerLoop}
               >
-                Salir (Esc)
+                Pausar loop
               </button>
-            </div>
+            ) : null}
+            <button
+              type="button"
+              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold uppercase text-white shadow-sm"
+              onClick={cerrarPresentacion}
+            >
+              Salir
+            </button>
           </div>
 
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-3 sm:p-6 md:p-8">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <CatDashboardView
               key={modoLoop ? `loop-${empleadoEnPantalla.noEmpleado}-${loopIndex}` : empleadoEnPantalla.noEmpleado}
               ref={dashRef}

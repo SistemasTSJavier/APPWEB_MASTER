@@ -1,12 +1,11 @@
 "use client";
 
-import { forwardRef, useState } from "react";
+import { forwardRef } from "react";
 import type { CatDashboardEmpleado } from "@/lib/categorizacion-dashboard-types";
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
 import { CatBarChartModulos } from "@/components/categorizacion/CatDashboardCharts";
-
-const LOGO_CANDIDATOS = ["/logo.webp", "/logo_ficha_tecnica.png", "/plantilla.png"] as const;
+import { TacticalSupportLogo } from "@/components/tactical-support-logo";
 
 export const CatDashboardView = forwardRef<
   HTMLDivElement,
@@ -25,18 +24,18 @@ export const CatDashboardView = forwardRef<
       ref={ref}
       className={
         presentacion
-          ? "flex h-full min-h-0 w-full max-w-[1600px] flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-2xl"
+          ? "flex h-full min-h-0 w-full max-w-none flex-col overflow-hidden rounded-none border-0 bg-white shadow-none"
           : "overflow-hidden rounded-xl border border-slate-300 bg-white shadow-md"
       }
     >
       <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-5 sm:px-8 sm:py-6">
-        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-          <DashboardLogo grande={presentacion} />
-          <div className="min-w-0 flex-1">
-            <p className="text-lg font-extrabold uppercase tracking-wide text-slate-800 sm:text-2xl">
+        <div className="flex flex-col items-center justify-center gap-3 text-center sm:gap-4">
+          <TacticalSupportLogo priority={presentacion} />
+          <div>
+            <h1 className="text-lg font-extrabold uppercase tracking-[0.12em] text-slate-800 sm:text-2xl">
               Tactical Support
-            </p>
-            <p className="mt-0.5 text-[10px] font-semibold text-slate-500 sm:text-xs">
+            </h1>
+            <p className="mt-1 text-[10px] font-semibold text-slate-500 sm:text-xs">
               Dashboard de categorización · {fecha}
             </p>
           </div>
@@ -83,6 +82,21 @@ export const CatDashboardView = forwardRef<
             operaciones={empleado.promedioOperaciones}
             enfoque={empleado.promedioEnfoque}
           />
+
+          {empleado.faltasMesActual > 0 ? (
+            <div className="mt-5 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-4">
+              <p className="text-[10px] font-bold uppercase text-amber-950">
+                Ausentismos — cuadrícula ({empleado.faltasMesYm || "mes actual"})
+              </p>
+              <p className="mt-2 text-3xl font-extrabold tabular-nums text-amber-950">{empleado.faltasMesActual}</p>
+              <p className="text-xs font-semibold uppercase text-amber-900">
+                {empleado.faltasMesActual === 1 ? "falta registrada" : "faltas registradas"} en asistencia
+              </p>
+              {empleado.faltasMesDetalle ? (
+                <p className="mt-2 text-[11px] font-medium leading-relaxed text-amber-950">{empleado.faltasMesDetalle}</p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section className="flex flex-col px-5 py-6 pb-8 sm:px-6 sm:py-8 sm:pb-10 xl:col-span-4 xl:overflow-y-auto xl:pb-10">
@@ -115,25 +129,6 @@ export const CatDashboardView = forwardRef<
     </div>
   );
 });
-
-function DashboardLogo({ grande }: { grande?: boolean }) {
-  const [logoIdx, setLogoIdx] = useState(0);
-  const src = LOGO_CANDIDATOS[Math.min(logoIdx, LOGO_CANDIDATOS.length - 1)];
-
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt="Tactical Support"
-      className={
-        grande
-          ? "h-14 w-auto max-w-[180px] shrink-0 object-contain sm:h-20 md:h-24"
-          : "h-14 w-auto max-w-[160px] shrink-0 object-contain sm:h-16"
-      }
-      onError={() => setLogoIdx((i) => Math.min(i + 1, LOGO_CANDIDATOS.length - 1))}
-    />
-  );
-}
 
 function formatearFechaLegible(ymd: string): string {
   const [y, m, d] = ymd.split("-").map(Number);

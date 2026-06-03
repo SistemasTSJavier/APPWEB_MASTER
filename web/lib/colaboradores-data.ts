@@ -3,6 +3,7 @@
  */
 import type { ColaboradorCompleto, ColaboradorSnapshot } from "@/lib/colaboradores-types";
 import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
+import { buildColaboradoresPorNoMap } from "@/lib/colaboradores-list-helpers";
 import { SupabaseDataError } from "@/lib/supabase-data-error";
 
 async function readErrorBody(r: Response): Promise<string> {
@@ -63,10 +64,18 @@ async function remoteBatch(items: ColaboradorCompleto[]): Promise<void> {
 
 /** Caché en memoria del listado (evita GET completo repetido en la misma sesión). */
 let colaboradoresListCache: ColaboradorCompleto[] | null = null;
+let colaboradoresByNoMap: Map<string, ColaboradorCompleto> | null = null;
 let colaboradoresListInflight: Promise<ColaboradorCompleto[]> | null = null;
+
+function setColaboradoresListCache(list: ColaboradorCompleto[]): ColaboradorCompleto[] {
+  colaboradoresListCache = list;
+  colaboradoresByNoMap = buildColaboradoresPorNoMap(list);
+  return list;
+}
 
 export function invalidateColaboradoresListCache(): void {
   colaboradoresListCache = null;
+  colaboradoresByNoMap = null;
   colaboradoresListInflight = null;
 }
 
@@ -76,16 +85,21 @@ function patchColaboradoresListCache(data: ColaboradorCompleto): void {
   const idx = colaboradoresListCache.findIndex((c) => c.noEmpleado === key);
   if (idx >= 0) colaboradoresListCache[idx] = data;
   else colaboradoresListCache.push(data);
+  if (colaboradoresByNoMap) colaboradoresByNoMap.set(key, data);
+}
+
+function patchColaboradoresListCacheMany(items: ColaboradorCompleto[]): void {
+  if (!colaboradoresListCache || items.length === 0) return;
+  for (const data of items) {
+    patchColaboradoresListCache(sincronizarEstadoBajaEnColaborador(data));
+  }
 }
 
 async function fetchColaboradoresListCached(): Promise<ColaboradorCompleto[]> {
   if (colaboradoresListCache) return colaboradoresListCache;
   if (!colaboradoresListInflight) {
     colaboradoresListInflight = remoteList()
-      .then((list) => {
-        colaboradoresListCache = list;
-        return list;
-      })
+      .then((list) => setColaboradoresListCache(list))
       .finally(() => {
         colaboradoresListInflight = null;
       });
@@ -101,9 +115,11 @@ export async function listColaboradoresCompletos(options?: {
 }
 
 export async function findColaboradorCompletoByNo(noEmpleado: string): Promise<ColaboradorCompleto | null> {
-  const list = await fetchColaboradoresListCached();
+  await fetchColaboradoresListCached();
   const key = noEmpleado.trim().toUpperCase();
-  return list.find((c) => c.noEmpleado === key) ?? null;
+  if (!key) return null;
+  if (colaboradoresByNoMap) return colaboradoresByNoMap.get(key) ?? null;
+  return colaboradoresListCache?.find((c) => c.noEmpleado === key) ?? null;
 }
 
 export async function findColaboradorByNo(noEmpleado: string): Promise<ColaboradorSnapshot | null> {
@@ -128,8 +144,10 @@ export async function upsertColaboradorCompleto(data: ColaboradorCompleto): Prom
 }
 
 export async function upsertColaboradoresBatch(items: ColaboradorCompleto[]): Promise<void> {
-  await remoteBatch(items);
-  invalidateColaboradoresListCache();
+  const prepared = items.map((d) => sincronizarEstadoBajaEnColaborador(d));
+  await remoteBatch(prepared);
+  if (colaboradoresListCache) patchColaboradoresListCacheMany(prepared);
+  else invalidateColaboradoresListCache();
 }
 
 /** Alinea snapshot, Parte 1 del expediente (`form`) y `moperActual` con un destino MOPER (mismo criterio que al guardar un movimiento). */

@@ -161,7 +161,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
 
   async function recargarColaboradores() {
     try {
-      const list = await listColaboradoresCompletos();
+      const list = await listColaboradoresCompletos({ forceRefresh: true });
       setRows(list);
       setListaError(null);
     } catch (e) {

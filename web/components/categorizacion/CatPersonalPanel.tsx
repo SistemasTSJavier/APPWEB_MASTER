@@ -8,6 +8,11 @@ import {
   serviciosUnicosDesdePersonal,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
+import {
+  fetchCatPersonalList,
+  patchCatPersonalCache,
+  setCatPersonalCache,
+} from "@/lib/categorizacion-personal-client";
 
 type SyncStats = {
   sincronizados: number;
@@ -49,6 +54,7 @@ export function CatPersonalPanel() {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
         const list = Array.isArray(j.rows) ? (j.rows as CatPersonalRow[]) : [];
+        setCatPersonalCache(list);
         setRows(list);
         const stats = j.stats as SyncStats | undefined;
         if (stats) {
@@ -73,12 +79,16 @@ export function CatPersonalPanel() {
 
   const load = useCallback(async () => {
     setBusy(true);
+    setMsg(null);
     try {
-      await sincronizarActivos({ soloMensaje: true });
+      const list = await fetchCatPersonalList();
+      setRows(list);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL CARGAR.");
     } finally {
       setBusy(false);
     }
-  }, [sincronizarActivos]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -98,9 +108,9 @@ export function CatPersonalPanel() {
       if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
       setMsg("GUARDADO.");
       setEdit(null);
-      setRows((prev) =>
-        prev.map((p) => (p.noEmpleado === edit.noEmpleado ? (j.row as CatPersonalRow) ?? edit : p)),
-      );
+      const saved = (j.row as CatPersonalRow) ?? edit;
+      patchCatPersonalCache(saved);
+      setRows((prev) => prev.map((p) => (p.noEmpleado === edit.noEmpleado ? saved : p)));
     } catch (e) {
       setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL GUARDAR.");
     } finally {
@@ -115,9 +125,9 @@ export function CatPersonalPanel() {
       <section className="card space-y-3 border border-violet-100 bg-violet-50/40">
         <h2 className="text-sm font-bold uppercase text-slate-900">Colaboradores activos (automático)</h2>
         <p className="text-xs font-medium leading-relaxed text-slate-700">
-          Al abrir este módulo se cargan los expedientes <strong>activos</strong> de Colaboradores (sin fecha de baja ni
-          estatus inactivo). No hace falta registrar uno por uno: nombre, servicio, puesto, fechas y escolaridad se toman del
-          expediente.
+          Al abrir se muestra el catálogo guardado (rápido). Use <strong>Actualizar desde Colaboradores</strong> para traer
+          expedientes <strong>activos</strong> (sin baja ni estatus inactivo): nombre, servicio, puesto, fechas y escolaridad
+          se copian del expediente.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="space-y-1 sm:col-span-2">
@@ -151,6 +161,7 @@ export function CatPersonalPanel() {
       <CatMsg msg={msg} />
 
       <section className="card overflow-x-auto">
+        {busy && rows.length === 0 ? <p className="mb-2 text-sm text-slate-500">Cargando catálogo…</p> : null}
         <h2 className="mb-3 text-sm font-bold uppercase text-slate-900">
           Personal en categorización ({rowsFiltrados.length}
           {rows.length !== rowsFiltrados.length ? ` de ${rows.length}` : ""})
@@ -226,9 +237,9 @@ export function CatPersonalPanel() {
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && !syncing ? (
+        {rows.length === 0 && !busy && !syncing ? (
           <p className="py-6 text-center text-sm text-slate-500">
-            No hay colaboradores activos en expedientes o aún no se ha sincronizado.
+            Catálogo vacío. Pulse <strong>Actualizar desde Colaboradores</strong> para sincronizar activos.
           </p>
         ) : null}
         {rows.length > 0 && rowsFiltrados.length === 0 ? (

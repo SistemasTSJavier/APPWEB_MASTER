@@ -165,16 +165,17 @@ export async function syncCatPersonalActivosDesdeColaboradores(
   });
   await upsertCatPersonalMany(toUpsert, client);
 
-  let eliminados = 0;
-  for (const p of existing) {
-    if (activoNos.has(p.noEmpleado)) continue;
-    await deleteCatPersonal(p.noEmpleado, client);
-    eliminados++;
+  const nosEliminar = existing.filter((p) => !activoNos.has(p.noEmpleado)).map((p) => p.noEmpleado);
+  const DELETE_CHUNK = 200;
+  for (let i = 0; i < nosEliminar.length; i += DELETE_CHUNK) {
+    const chunk = nosEliminar.slice(i, i + DELETE_CHUNK);
+    const { error } = await client.from("cat_personal").delete().in("no_empleado", chunk);
+    if (error) throw new Error(hintSupabaseClientError(error.message));
   }
 
   return {
     sincronizados: toUpsert.length,
-    eliminados,
+    eliminados: nosEliminar.length,
     totalActivos: activos.length,
     totalColaboradores: colaboradores.length,
   };
@@ -469,14 +470,14 @@ export async function upsertRegistroCapacitacion(
 ): Promise<CatCapacitacionRegistro> {
   const client = admin ?? db();
   if (!client) throw new Error("Supabase no configurado");
-  const vals = [input.asistencia, input.desempeno].filter((v): v is number => v != null && Number.isFinite(v));
-  const promedio =
-    vals.length > 0 ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100 : null;
+  const desempeno =
+    input.desempeno != null && Number.isFinite(input.desempeno) ? input.desempeno : null;
+  const promedio = desempeno != null ? Math.round(desempeno * 100) / 100 : null;
   const payload = {
     no_empleado: input.noEmpleado.trim().toUpperCase(),
     curso_id: input.cursoId,
-    asistencia: input.asistencia,
-    desempeno: input.desempeno,
+    asistencia: null,
+    desempeno,
     promedio,
     comentarios: input.comentarios.trim(),
     updated_at: new Date().toISOString(),

@@ -9,6 +9,12 @@ import type { CatDashboardEmpleado, CatDashboardPayload } from "@/lib/categoriza
 import { parseFechaIngresoYmd, textoTiempoEnEmpresa } from "@/lib/categorizacion-tenure";
 import type { CatPersonalRow } from "@/lib/categorizacion-types";
 import {
+  contarFaltasMesDesdeCuadricula,
+  etiquetaFaltasMes,
+  faltasMesParaEmpleado,
+  mesCalendarioActualYm,
+} from "@/lib/categorizacion-faltas-cuadricula";
+import {
   buildResumenCategorizacion,
   listCatEvaluacionesModulo,
   listCatPersonal,
@@ -23,13 +29,19 @@ import {
 } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-function rhDetalle(scores: Record<string, number>): CatDashboardEmpleado["rh"] {
+function rhDetalle(
+  scores: Record<string, number>,
+  faltas: { total: number; fechas: string[] },
+  mesYm: string,
+): CatDashboardEmpleado["rh"] {
   const pick = (key: string) => {
     const v = scores[key];
     return v != null && Number.isFinite(v) ? v : null;
   };
   return {
-    ausentismos: pick("ausentismos"),
+    faltasMesActual: faltas.total,
+    faltasMesDetalle: etiquetaFaltasMes(faltas),
+    faltasMesYm: mesYm,
     rotacionServicios: pick("rotacion_servicios"),
     actasAdministrativas: pick("actas_administrativas"),
   };
@@ -63,11 +75,16 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
   const client =
     admin ?? (isSupabaseServerConfigured() ? createSupabaseServiceRoleClient() : null);
 
-  const [personal, resumen, rhList, colaboradores] = await Promise.all([
+  const mesYm = mesCalendarioActualYm();
+
+  const [personal, resumen, rhList, colaboradores, faltasMes] = await Promise.all([
     listCatPersonal(client),
     buildResumenCategorizacion(client),
     listCatEvaluacionesModulo("recursos_humanos", client),
     client ? fetchAllColaboradoresCompletos(client).catch(() => [] as ColaboradorCompleto[]) : Promise.resolve([]),
+    client
+      ? contarFaltasMesDesdeCuadricula(client, mesYm).catch(() => ({ mesYm, faltas: {} as Record<string, never> }))
+      : Promise.resolve({ mesYm, faltas: {} as Record<string, never> }),
   ]);
 
   const colabMap = new Map(colaboradores.map((c) => [c.noEmpleado.trim().toUpperCase(), c]));
@@ -96,6 +113,8 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       promedioEnfoque,
     ]);
 
+    const faltas = faltasMesParaEmpleado(faltasMes.faltas, key);
+
     return {
       noEmpleado: p.noEmpleado,
       nombre: p.nombre,
@@ -116,7 +135,10 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       paquete: r?.paquete ?? etiquetaPaquete(promedioGeneral),
       nivelId: nivelDesdePromedio(promedioGeneral),
       paqueteId: paqueteDesdePromedio(promedioGeneral),
-      rh: rhDetalle(rhMap.get(key) ?? {}),
+      faltasMesActual: faltas.total,
+      faltasMesDetalle: etiquetaFaltasMes(faltas),
+      faltasMesYm: faltasMes.mesYm,
+      rh: rhDetalle(rhMap.get(key) ?? {}, faltas, faltasMes.mesYm),
     };
   });
 

@@ -76,13 +76,14 @@ function LoginForm() {
               aria-hidden="true"
             />
             <Image
-              src="/logo.webp"
+              src="/logo-tactical-support.png"
               alt="Tactical Support"
-              width={220}
-              height={220}
-              className="relative mx-auto h-[var(--logo-max-h)] w-auto max-w-[min(55vw,12.5rem)] object-contain drop-shadow-[0_16px_40px_rgba(0,0,0,0.5)] sm:max-w-none"
+              width={280}
+              height={280}
+              className="relative mx-auto h-[var(--logo-max-h)] w-auto max-w-[min(55vw,14rem)] object-contain drop-shadow-[0_16px_40px_rgba(0,0,0,0.5)] sm:max-w-none"
               priority
-              sizes="(max-width: 640px) 45vw, 200px"
+              sizes="(max-width: 640px) 45vw, 280px"
+              unoptimized
             />
           </div>
 

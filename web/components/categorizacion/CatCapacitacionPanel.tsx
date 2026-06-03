@@ -6,6 +6,7 @@ import type { CatCapacitacionCurso, CatCapacitacionRegistro, CatPersonalRow } fr
 import { cursoDisponibleParaRegistro } from "@/lib/categorizacion-capacitacion-curso";
 import { CatEmpleadoBuscador, CatListaFiltro } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg, CatPromedioBadge, CatRatingSelect } from "@/components/categorizacion/cat-form-ui";
+import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
 
 export function CatCapacitacionPanel() {
   const [personal, setPersonal] = useState<CatPersonalRow[]>([]);
@@ -16,7 +17,6 @@ export function CatCapacitacionPanel() {
 
   const [regNo, setRegNo] = useState("");
   const [regCursoId, setRegCursoId] = useState("");
-  const [regAsistencia, setRegAsistencia] = useState<number | "">("");
   const [regDesempeno, setRegDesempeno] = useState<number | "">("");
   const [regComentarios, setRegComentarios] = useState("");
   const [filtroHistorial, setFiltroHistorial] = useState("");
@@ -40,15 +40,14 @@ export function CatCapacitacionPanel() {
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const [rp, rc] = await Promise.all([
-        fetch("/api/categorizacion/personal", { cache: "no-store" }),
+      const [personalRows, rc] = await Promise.all([
+        fetchCatPersonalList(),
         fetch("/api/categorizacion/capacitacion", { cache: "no-store" }),
       ]);
-      const jp = await rp.json();
       const jc = await rc.json();
-      if (!rp.ok) throw new Error(jp.error);
+      if (!rc.ok) throw new Error(jc.error);
       if (!jc.ok) throw new Error(jc.error);
-      setPersonal(jp.rows ?? []);
+      setPersonal(personalRows);
       setCursos(jc.cursos ?? []);
       setRegistros(jc.registros ?? []);
     } catch (e) {
@@ -69,6 +68,10 @@ export function CatCapacitacionPanel() {
       setMsg("EMPLEADO Y CAPACITACIÓN REQUERIDOS.");
       return;
     }
+    if (regDesempeno === "") {
+      setMsg("CAPTURE DESEMPEÑO (1–5).");
+      return;
+    }
     setBusy(true);
     try {
       const r = await fetch("/api/categorizacion/capacitacion", {
@@ -78,15 +81,13 @@ export function CatCapacitacionPanel() {
           action: "save_registro",
           noEmpleado: regNo,
           cursoId: regCursoId,
-          asistencia: regAsistencia === "" ? null : regAsistencia,
-          desempeno: regDesempeno === "" ? null : regDesempeno,
+          desempeno: regDesempeno,
           comentarios: regComentarios,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       setMsg("REGISTRO DE CAPACITACIÓN GUARDADO.");
-      setRegAsistencia("");
       setRegDesempeno("");
       setRegComentarios("");
       await load();
@@ -97,14 +98,7 @@ export function CatCapacitacionPanel() {
     }
   }
 
-  const promedioReg =
-    regAsistencia !== "" && regDesempeno !== ""
-      ? Math.round(((Number(regAsistencia) + Number(regDesempeno)) / 2) * 100) / 100
-      : regAsistencia !== ""
-        ? Number(regAsistencia)
-        : regDesempeno !== ""
-          ? Number(regDesempeno)
-          : null;
+  const promedioReg = regDesempeno !== "" ? Number(regDesempeno) : null;
 
   return (
     <div className="space-y-4">
@@ -113,7 +107,7 @@ export function CatCapacitacionPanel() {
         <Link href="/categorizacion/catalogo-capacitaciones" className="font-bold text-violet-800 underline">
           Catálogo capacitaciones
         </Link>
-        . Aquí solo se asignan colaboradores a cursos <strong>vigentes</strong>.
+        . Aquí solo se asignan colaboradores a cursos <strong>vigentes</strong> y se califica <strong>desempeño</strong>.
       </p>
 
       <section className="card space-y-3">
@@ -129,7 +123,7 @@ export function CatCapacitacionPanel() {
               disabled={busy || opcionesPersonal.length === 0}
             />
           </div>
-          <label className="space-y-1">
+          <label className="space-y-1 sm:col-span-2">
             <span className="form-label">Capacitación (vigente)</span>
             <select className="form-control" value={regCursoId} onChange={(e) => setRegCursoId(e.target.value)}>
               <option value="">—</option>
@@ -146,7 +140,6 @@ export function CatCapacitacionPanel() {
               </p>
             ) : null}
           </label>
-          <CatRatingSelect label="Asistencia (1-5)" value={regAsistencia} onChange={setRegAsistencia} />
           <CatRatingSelect label="Desempeño (1-5)" value={regDesempeno} onChange={setRegDesempeno} />
         </div>
         <label className="block space-y-1">
@@ -163,36 +156,36 @@ export function CatCapacitacionPanel() {
 
       <CatMsg msg={msg} />
 
-      <section className="card overflow-x-auto">
-        <h2 className="mb-2 text-sm font-bold uppercase">Historial ({registros.length})</h2>
+      <section className="card overflow-hidden">
+        <h2 className="mb-2 px-1 text-sm font-bold uppercase">Historial ({registros.length})</h2>
         <CatListaFiltro
           value={filtroHistorial}
           onChange={setFiltroHistorial}
           total={registros.length}
           filtrados={registrosFiltrados.length}
         />
-        <table className="w-full min-w-[640px] text-xs">
-          <thead>
-            <tr className="border-b text-[10px] font-bold uppercase text-slate-600">
-              <th className="p-2">N°</th>
-              <th className="p-2">Capacitación</th>
-              <th className="p-2">Asist.</th>
-              <th className="p-2">Desemp.</th>
-              <th className="p-2">Prom.</th>
-            </tr>
-          </thead>
-          <tbody>
-            {registrosFiltrados.map((r) => (
-              <tr key={r.id} className="border-b">
-                <td className="p-2 font-mono">{r.noEmpleado}</td>
-                <td className="p-2">{r.cursoNombre ?? r.cursoId}</td>
-                <td className="p-2">{r.asistencia ?? "—"}</td>
-                <td className="p-2">{r.desempeno ?? "—"}</td>
-                <td className="p-2 font-bold">{r.promedio != null ? r.promedio.toFixed(2) : "—"}</td>
+        <div className="max-h-[min(70vh,32rem)] overflow-auto rounded-lg border border-slate-100">
+          <table className="w-full min-w-[520px] text-xs">
+            <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase text-slate-600">
+              <tr>
+                <th className="p-2">N°</th>
+                <th className="p-2">Capacitación</th>
+                <th className="p-2">Desemp.</th>
+                <th className="p-2">Prom.</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {registrosFiltrados.map((r) => (
+                <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50">
+                  <td className="p-2 font-mono">{r.noEmpleado}</td>
+                  <td className="p-2">{r.cursoNombre ?? r.cursoId}</td>
+                  <td className="p-2">{r.desempeno ?? r.asistencia ?? "—"}</td>
+                  <td className="p-2 font-bold">{r.promedio != null ? r.promedio.toFixed(2) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

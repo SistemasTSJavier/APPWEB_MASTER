@@ -575,7 +575,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       }
       listadoColaboradoresCacheRef.current = null;
       try {
-        const list = await listColaboradoresCompletos();
+        const list = await listColaboradoresCompletos({ forceRefresh: true });
         listadoColaboradoresCacheRef.current = list;
         setSiguienteNoSugerido(calcularSiguienteNoEmpleado(list));
         setForm((prev) => ({
@@ -677,7 +677,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           origen: "IMPORTACION TODO-EN-UNO (SERVIDOR, POR LOTES)",
         });
         try {
-          const list = await listColaboradoresCompletos();
+          const list = await listColaboradoresCompletos({ forceRefresh: true });
           listadoColaboradoresCacheRef.current = list;
           setSiguienteNoSugerido(calcularSiguienteNoEmpleado(list));
         } catch {
@@ -695,7 +695,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           origen: ALTAS_ETIQUETA_PARTE_IMPORT[csvParteNum] ?? `PARTE ${csvParteNum}`,
         });
         try {
-          const list = await listColaboradoresCompletos();
+          const list = await listColaboradoresCompletos({ forceRefresh: true });
           listadoColaboradoresCacheRef.current = list;
           setSiguienteNoSugerido(calcularSiguienteNoEmpleado(list));
         } catch {

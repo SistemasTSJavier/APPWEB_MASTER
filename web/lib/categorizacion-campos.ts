@@ -4,8 +4,10 @@ export type CatEvalModuloId = "recursos_humanos" | "operaciones" | "enfoque_clie
 
 export type CatCampoDef = { key: string; label: string };
 
+/** Ausentismos = faltas del mes en cuadrícula (solo lectura; no se califica 1–5). */
+export const CAT_RH_AUSENTISMOS_LABEL = "Ausentismos (faltas mes actual)";
+
 export const CAT_RH_CAMPOS: CatCampoDef[] = [
-  { key: "ausentismos", label: "Ausentismos" },
   { key: "rotacion_servicios", label: "Rotación dentro de los servicios" },
   { key: "actas_administrativas", label: "Actas administrativas" },
 ];

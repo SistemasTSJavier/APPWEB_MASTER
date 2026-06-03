@@ -1,7 +1,9 @@
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 
 export type CatDashboardRhDetalle = {
-  ausentismos: number | null;
+  faltasMesActual: number;
+  faltasMesDetalle: string;
+  faltasMesYm: string;
   rotacionServicios: number | null;
   actasAdministrativas: number | null;
 };
@@ -27,6 +29,9 @@ export type CatDashboardEmpleado = {
   nivelId: CatNivelId | null;
   paqueteId: CatPaqueteId | null;
   rh: CatDashboardRhDetalle;
+  faltasMesActual: number;
+  faltasMesDetalle: string;
+  faltasMesYm: string;
 };
 
 export type CatDashboardPayload = {
