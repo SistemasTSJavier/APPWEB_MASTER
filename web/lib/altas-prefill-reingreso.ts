@@ -135,6 +135,7 @@ export function formAltaDesdeColaboradorReingreso(
   if (folio) out.numeroFolio = folio;
 
   out.fechaBaja = "";
+  out.estatusEmpleado = "ACTIVO";
 
   const fn = normalizarFechaParaInputDate(out.fechaNacimiento ?? "");
   const ed = fn ? edadAniosAlaFecha(fn) : null;

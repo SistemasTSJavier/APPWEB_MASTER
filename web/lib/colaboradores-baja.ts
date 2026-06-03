@@ -117,18 +117,65 @@ export function bajasFormDesdeColaborador(
   };
 }
 
+/** Estatus en expediente (mayúsculas). */
+export function estatusEmpleadoNormalizado(form: Record<string, string> | undefined): string {
+  return String(form?.estatusEmpleado ?? "ACTIVO")
+    .trim()
+    .toUpperCase() || "ACTIVO";
+}
+
 /**
- * Fusiona la captura de BAJAS en el expediente sin borrar PARTE 1–6 del `form`.
- * Los datos de baja viven en `form` con las mismas claves que ALTAS donde aplica + campos de baja.
+ * Hay fecha de baja válida en expediente → inactivo por baja.
+ * Solo cuenta fechas parseables (`YYYY-MM-DD`); texto basura no bloquea reactivación.
  */
-/** Hay fecha de baja capturada en expediente → considerado inactivo para listados y filtros. */
 export function colaboradorTieneBaja(c: ColaboradorCompleto): boolean {
-  return String(c.form?.fechaBaja ?? "").trim().length > 0;
+  return Boolean(fechaBajaNormalizadaColaborador(c));
 }
 
 /** `form.fechaBaja` en `YYYY-MM-DD` para filtros y orden. */
 export function fechaBajaNormalizadaColaborador(c: ColaboradorCompleto): string {
   return normalizarFechaParaInputDate(String(c.form?.fechaBaja ?? ""));
+}
+
+/**
+ * Vigente en operación: sin fecha de baja y estatus distinto de INACTIVO.
+ * Si no hay fecha de baja, no se considera baja aunque `estatusEmpleado` siga en BAJA por error.
+ */
+export function colaboradorEstaActivoEnOperacion(c: ColaboradorCompleto): boolean {
+  if (colaboradorTieneBaja(c)) return false;
+  const est = estatusEmpleadoNormalizado(c.form);
+  return est !== "INACTIVO";
+}
+
+/** Ajuste en formulario al editar fecha de baja (UI Altas / Colaboradores). */
+export function parcheFormularioAlCambiarFechaBaja(fechaBajaInput: string): {
+  fechaBaja: string;
+  estatusEmpleado: string;
+} {
+  const norm = normalizarFechaParaInputDate(String(fechaBajaInput ?? "").trim());
+  if (norm) return { fechaBaja: norm, estatusEmpleado: "BAJA" };
+  return { fechaBaja: "", estatusEmpleado: "ACTIVO" };
+}
+
+/**
+ * Alinea `fechaBaja` y `estatusEmpleado` antes de persistir.
+ * Sin fecha de baja → ACTIVO si el estatus era BAJA; con fecha válida → BAJA.
+ */
+export function sincronizarEstadoBajaEnColaborador(c: ColaboradorCompleto): ColaboradorCompleto {
+  const form = { ...(c.form ?? {}) };
+  const fbNorm = normalizarFechaParaInputDate(String(form.fechaBaja ?? "").trim());
+  form.fechaBaja = fbNorm;
+
+  if (fbNorm) {
+    form.estatusEmpleado = "BAJA";
+  } else {
+    const est = estatusEmpleadoNormalizado(form);
+    if (est === "BAJA" || !String(form.estatusEmpleado ?? "").trim()) {
+      form.estatusEmpleado = "ACTIVO";
+    }
+  }
+
+  return { ...c, form };
 }
 
 /** Rango opcional sobre **fecha de baja** (no último día laborado). */
@@ -295,7 +342,7 @@ export function aplicarBajaEnExpediente(existing: ColaboradorCompleto, b: BajasF
   form.comentarioBaja = b.comentario.trim();
   form.servicio = b.servicioAsignado.trim() || String(existing.form.servicio ?? "").trim();
 
-  return {
+  return sincronizarEstadoBajaEnColaborador({
     ...existing,
     nombreCompleto: b.nombreCompleto.trim() || existing.nombreCompleto,
     servicioAsignado: b.servicioAsignado.trim(),
@@ -304,5 +351,5 @@ export function aplicarBajaEnExpediente(existing: ColaboradorCompleto, b: BajasF
     puesto: b.puesto.trim(),
     fechaIngreso: fechaIngresoFinal,
     form,
-  };
+  });
 }

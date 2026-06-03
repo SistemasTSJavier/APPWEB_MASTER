@@ -2,6 +2,7 @@
  * Capa de datos: solo Supabase via API del servidor (service role).
  */
 import type { ColaboradorCompleto, ColaboradorSnapshot } from "@/lib/colaboradores-types";
+import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
 import { SupabaseDataError } from "@/lib/supabase-data-error";
 
 async function readErrorBody(r: Response): Promise<string> {
@@ -121,8 +122,9 @@ export async function findColaboradorByNo(noEmpleado: string): Promise<Colaborad
 }
 
 export async function upsertColaboradorCompleto(data: ColaboradorCompleto): Promise<void> {
-  await remoteUpsert(data);
-  patchColaboradoresListCache(data);
+  const prepared = sincronizarEstadoBajaEnColaborador(data);
+  await remoteUpsert(prepared);
+  patchColaboradoresListCache(prepared);
 }
 
 export async function upsertColaboradoresBatch(items: ColaboradorCompleto[]): Promise<void> {

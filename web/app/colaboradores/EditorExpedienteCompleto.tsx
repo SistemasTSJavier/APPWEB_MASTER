@@ -14,7 +14,12 @@ import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
-import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
+import {
+  colaboradorTieneBaja,
+  estatusEmpleadoNormalizado,
+  parcheFormularioAlCambiarFechaBaja,
+  sincronizarEstadoBajaEnColaborador,
+} from "@/lib/colaboradores-baja";
 import { consumirVacanteTrasAlta, persistirVacantesCatalogoEnServidor, registrarVacanteTrasBaja } from "@/lib/vacantes-catalog-flujo";
 import { addVacanteRegistro } from "@/lib/vacantes-catalog";
 import { aMayusculasPlataforma } from "@/lib/texto-plataforma-mayusculas";
@@ -88,7 +93,13 @@ export function EditorExpedienteCompleto({
 
   function setKey(key: string, value: string) {
     const v = DATE_KEYS.has(key) || NUMBER_KEYS.has(key) ? value : aMayusculasPlataforma(value, key);
-    setFormValues((prev) => ({ ...prev, [key]: v }));
+    setFormValues((prev) => {
+      if (key === "fechaBaja") {
+        const parche = parcheFormularioAlCambiarFechaBaja(v);
+        return { ...prev, ...parche };
+      }
+      return { ...prev, [key]: v };
+    });
   }
 
   function onVacantePickerChange(v: VacantePickerValores, vacanteId: string) {
@@ -161,7 +172,7 @@ export function EditorExpedienteCompleto({
         familiares: famFiltrados,
         form,
       };
-      actualizado = limpiarPosicionDuplicadaDeNoServicio(actualizado);
+      actualizado = sincronizarEstadoBajaEnColaborador(limpiarPosicionDuplicadaDeNoServicio(actualizado));
 
       await upsertColaboradorCompleto(actualizado);
 
@@ -312,10 +323,38 @@ export function EditorExpedienteCompleto({
 
     if (DATE_KEYS.has(key)) {
       const v = normalizarFechaParaInputDate(raw) || raw;
+      const esFechaBaja = key === "fechaBaja";
+      const estatusVista = estatusEmpleadoNormalizado(formValues);
       return (
         <label key={key} className="space-y-1">
           <span className="form-label uppercase">{label}</span>
           <input className="form-control uppercase" type="date" value={v} onChange={(e) => setKey(key, e.target.value)} />
+          {esFechaBaja ? (
+            <span className="text-[10px] font-medium leading-tight text-slate-600">
+              Sin fecha de baja el estatus pasa a <strong>ACTIVO</strong> al guardar. Estatus actual en formulario:{" "}
+              <strong>{estatusVista}</strong>
+              {!v && estatusVista === "BAJA" ? " (se corregirá al guardar)" : ""}.
+            </span>
+          ) : null}
+        </label>
+      );
+    }
+
+    if (key === "estatusEmpleado") {
+      const estatusVista = estatusEmpleadoNormalizado(formValues);
+      const enBaja = Boolean(normalizarFechaParaInputDate(String(formValues.fechaBaja ?? "").trim()));
+      return (
+        <label key={key} className="space-y-1">
+          <span className="form-label uppercase">{label}</span>
+          <input
+            className="form-control uppercase bg-slate-100 text-slate-700"
+            readOnly
+            value={enBaja ? "BAJA" : estatusVista}
+            aria-readonly="true"
+          />
+          <span className="text-[10px] font-medium text-slate-500">
+            Se define por la fecha de baja (BAJA) o queda ACTIVO / INACTIVO si no hay baja.
+          </span>
         </label>
       );
     }

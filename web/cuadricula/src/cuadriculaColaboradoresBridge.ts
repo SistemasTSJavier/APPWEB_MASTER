@@ -8,6 +8,7 @@ import {
 
 export { plantaExpedienteColaborador } from "@/lib/colaboradores-catalogo-display";
 import {
+  colaboradorEstaActivoEnOperacion,
   colaboradorTieneBaja,
   fechaBajaNormalizadaColaborador,
   fechaIngresoNormalizadaColaborador,
@@ -292,7 +293,7 @@ export function colaboradoresParaConsultaAsistencia(lista: ColaboradorCompleto[]
 }
 
 export function estatusExpedienteColaborador(c: ColaboradorCompleto): "ACTIVO" | "BAJA" {
-  return colaboradorTieneBaja(c) ? "BAJA" : "ACTIVO";
+  return colaboradorEstaActivoEnOperacion(c) ? "ACTIVO" : "BAJA";
 }
 
 export function fechaBajaDisplayColaborador(c: ColaboradorCompleto): string {

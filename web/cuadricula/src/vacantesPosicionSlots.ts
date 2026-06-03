@@ -7,7 +7,7 @@ import {
   valorCoincideConNoServicio,
 } from "@/lib/colaboradores-catalogo-display";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
-import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
+import { colaboradorEstaActivoEnOperacion, colaboradorTieneBaja } from "@/lib/colaboradores-baja";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import type { VacanteRegistro } from "@/lib/vacantes-catalog";
 import {
@@ -106,12 +106,7 @@ export function listarPlantasParaVacantes(
 
 /** Colaborador vigente en operación (sin baja ni estatus inactivo en expediente). */
 export function colaboradorCuentaComoActivoEnCuadricula(c: ColaboradorCompleto): boolean {
-  if (colaboradorTieneBaja(c)) return false;
-  const estatus = String(c.form?.estatusEmpleado ?? "ACTIVO")
-    .trim()
-    .toUpperCase();
-  if (estatus === "INACTIVO" || estatus === "BAJA") return false;
-  return true;
+  return colaboradorEstaActivoEnOperacion(c);
 }
 
 export function colaboradorCoincideSlot(

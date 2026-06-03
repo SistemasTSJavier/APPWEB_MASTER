@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireCategorizacionApi } from "@/lib/categorizacion-api-auth";
 import {
-  colaboradorToCatPersonal,
   deleteCatPersonal,
   listCatPersonal,
+  syncCatPersonalActivosDesdeColaboradores,
   upsertCatPersonal,
 } from "@/lib/categorizacion-server";
 import type { CatPersonalRow } from "@/lib/categorizacion-types";
@@ -12,7 +12,6 @@ import {
   isSupabaseServerConfigured,
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
-import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 
 export const dynamic = "force-dynamic";
 
@@ -49,18 +48,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    if (body.action === "register_from_colaborador" && body.noEmpleado) {
+    if (body.action === "sync_activos") {
       const admin = createSupabaseServiceRoleClient();
       if (!admin) return NextResponse.json({ error: "Cliente no disponible" }, { status: 503 });
-      const all = await fetchAllColaboradoresCompletos(admin);
-      const key = body.noEmpleado.trim().toUpperCase();
-      const c = all.find((x) => x.noEmpleado === key) ?? null;
-      if (!c) {
-        return NextResponse.json({ error: "No existe expediente en Colaboradores para ese N°." }, { status: 404 });
-      }
-      const row = colaboradorToCatPersonal(c, String(body.periodoEvaluacion ?? ""));
-      await upsertCatPersonal(row);
-      return NextResponse.json({ ok: true, row });
+      const stats = await syncCatPersonalActivosDesdeColaboradores(
+        String(body.periodoEvaluacion ?? ""),
+        admin,
+      );
+      const rows = await listCatPersonal(admin);
+      return NextResponse.json({ ok: true, rows, stats });
     }
 
     if (body.row?.noEmpleado) {

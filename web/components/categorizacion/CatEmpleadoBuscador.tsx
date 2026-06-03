@@ -209,3 +209,38 @@ export function filtrarEmpleados<T extends CatEmpleadoOpcion>(rows: T[], q: stri
   if (!n) return rows;
   return rows.filter((r) => coincideBusquedaEmpleado(r, n));
 }
+
+function normServicioFiltro(s: string): string {
+  return s.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/** Filtro por servicio (exacto) y texto (N°, nombre o servicio). */
+export function filtrarPersonalListado<
+  T extends CatEmpleadoOpcion & { servicio?: string },
+>(rows: T[], busqueda: string, servicioFiltro: string): T[] {
+  let out = rows;
+  const srv = normServicioFiltro(servicioFiltro);
+  if (srv) {
+    out = out.filter((r) => normServicioFiltro(String(r.servicio ?? "")) === srv);
+  }
+  const q = busqueda.trim();
+  if (!q) return out;
+  const n = q.toLowerCase();
+  return out.filter(
+    (r) =>
+      r.noEmpleado.toLowerCase().includes(n) ||
+      r.nombre.toLowerCase().includes(n) ||
+      String(r.servicio ?? "")
+        .toLowerCase()
+        .includes(n),
+  );
+}
+
+export function serviciosUnicosDesdePersonal<T extends { servicio?: string }>(rows: T[]): string[] {
+  const set = new Set<string>();
+  for (const r of rows) {
+    const s = normServicioFiltro(String(r.servicio ?? ""));
+    if (s) set.add(s);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+}

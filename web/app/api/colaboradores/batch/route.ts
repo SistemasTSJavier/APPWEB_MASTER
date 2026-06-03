@@ -8,15 +8,17 @@ import {
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores } from "@/lib/app-role";
 import { dedupeColaboradoresUpsertLastWins } from "@/lib/colaboradores-upsert-dedupe";
+import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
 
 export const dynamic = "force-dynamic";
 
 const MAX_BATCH = 2000;
 
 function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
-  const key = data.noEmpleado.trim().toUpperCase();
+  const synced = sincronizarEstadoBajaEnColaborador(data);
+  const key = synced.noEmpleado.trim().toUpperCase();
   return {
-    ...data,
+    ...synced,
     noEmpleado: key,
     nombreCompleto: data.nombreCompleto.trim(),
     servicioAsignado: data.servicioAsignado.trim(),

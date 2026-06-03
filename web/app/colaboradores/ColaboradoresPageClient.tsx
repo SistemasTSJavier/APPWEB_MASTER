@@ -9,7 +9,11 @@ import { colaboradoresToCsv, downloadCsv } from "@/lib/colaboradores-csv";
 import { listMoperHistorialPorEmpleado } from "@/lib/moper-historial";
 import { ALTAS_ETIQUETA_PARTE_IMPORT } from "@/lib/altas-import-partes";
 import { groupFormByAltasPartes, type FormParteGrupo } from "@/lib/altas-expediente-partes";
-import { colaboradorTieneBaja, fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
+import {
+  colaboradorEstaActivoEnOperacion,
+  colaboradorTieneBaja,
+  fechaIngresoNormalizadaColaborador,
+} from "@/lib/colaboradores-baja";
 import {
   claveServicioAgrupada,
   servicioAgrupadoUsaZona,
@@ -322,9 +326,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
 
   const filtrados = useMemo(() => {
     return rows.filter((c) => {
-      const conBaja = colaboradorTieneBaja(c);
-      if (filtroActivo === "activos" && conBaja) return false;
-      if (filtroActivo === "inactivos" && !conBaja) return false;
+      const activo = colaboradorEstaActivoEnOperacion(c);
+      if (filtroActivo === "activos" && !activo) return false;
+      if (filtroActivo === "inactivos" && activo) return false;
       if (!fechaEnRangoIngreso(fechaIngresoNormalizadaColaborador(c), fechaDesde, fechaHasta)) return false;
       if (servicio && claveServicioAgrupada(servicioLineaColaborador(c)) !== servicio) return false;
       if (servicioAgrupadoUsaZona(servicio) && zona) {
@@ -680,8 +684,8 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                 onChange={(e) => setFiltroActivo(e.target.value as "todos" | "activos" | "inactivos")}
               >
                 <option value="todos">TODOS</option>
-                <option value="activos">SOLO ACTIVOS (SIN BAJA)</option>
-                <option value="inactivos">SOLO INACTIVOS (CON FECHA BAJA)</option>
+                <option value="activos">SOLO ACTIVOS (SIN BAJA VIGENTE)</option>
+                <option value="inactivos">SOLO INACTIVOS (BAJA O INACTIVO)</option>
               </select>
             </label>
           </div>

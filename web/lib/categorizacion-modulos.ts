@@ -3,7 +3,7 @@ export const CATEGORIZACION_MODULOS = [
   {
     id: "personal",
     label: "Personal",
-    description: "N°, fechas, periodo de evaluación, puesto, escolaridad y estatus. Registro desde Colaboradores.",
+    description: "Colaboradores activos sincronizados desde expedientes. Filtro por servicio y búsqueda.",
     icon: "👤",
   },
   {

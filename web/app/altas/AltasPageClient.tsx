@@ -8,7 +8,11 @@ import {
   upsertColaboradorCompleto,
   type ColaboradorCompleto,
 } from "@/lib/colaboradores-store";
-import { colaboradorTieneBaja, fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
+import {
+  colaboradorTieneBaja,
+  fechaIngresoNormalizadaColaborador,
+  parcheFormularioAlCambiarFechaBaja,
+} from "@/lib/colaboradores-baja";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import { generarCsvPlantillaAltas } from "@/lib/altas-csv-import";
@@ -121,6 +125,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     licenciaConducir: "",
     cartaNoAntecedentes: "",
     idiomas: "",
+    estatusEmpleado: "ACTIVO",
 
     // Parte 2
     apellidoPaterno: "",
@@ -424,6 +429,11 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         if (nc) next.nombreCompleto = valorCampoAltaMayusculas("nombreCompleto", nc);
       }
 
+      if (name === "fechaBaja") {
+        const parche = parcheFormularioAlCambiarFechaBaja(v);
+        next = { ...next, ...parche };
+      }
+
       return next;
     });
   }
@@ -458,8 +468,10 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       return;
     }
     const reingNorm = normalizarFechaParaInputDate(form.reingreso.trim());
+    let expedientePrevioGuardar: ColaboradorCompleto | null = null;
     try {
-        const prev = await findColaboradorCompletoByNo(noFinal);
+        expedientePrevioGuardar = await findColaboradorCompletoByNo(noFinal);
+        const prev = expedientePrevioGuardar;
         const needReingresoPorNumero = Boolean(prev && colaboradorTieneBaja(prev));
         const needReingresoPorNombre = Boolean(
           coincidenciaNombreBaja &&
@@ -519,22 +531,26 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
 
     const familiaresNorm = normalizarFamiliaresAltaMayusculas(familiares);
 
+    const formExpediente = expedientePrevioGuardar
+      ? { ...expedientePrevioGuardar.form, ...flatForm }
+      : { ...flatForm, estatusEmpleado: flatForm.estatusEmpleado ?? "ACTIVO" };
+
     try {
       await upsertColaboradorCompleto({
         noEmpleado: noFinal,
         nombreCompleto: nombreGuardar,
         fechaIngreso: flatForm.fechaIngreso,
         servicioAsignado: flatForm.servicio,
-        ultimoServicio: "",
+        ultimoServicio: expedientePrevioGuardar?.ultimoServicio ?? "",
         nss: flatForm.imss,
         posicion: flatForm.posicion,
         puesto: flatForm.puesto,
-        moperActual: {
+        moperActual: expedientePrevioGuardar?.moperActual ?? {
           servicio: servicioAlta,
           puesto: flatForm.puesto.trim(),
         },
-        registeredAt: new Date().toISOString(),
-        form: flatForm,
+        registeredAt: expedientePrevioGuardar?.registeredAt ?? new Date().toISOString(),
+        form: formExpediente,
         familiares: familiaresNorm.map((f) => ({
           nombreFamiliar: f.nombreFamiliar,
           parentesco: f.parentesco,
@@ -1288,12 +1304,18 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                   value={form.fechaIngreso}
                   onChange={(v) => updateField("fechaIngreso", v, "date")}
                 />
-                <Field
-                  label="FECHA DE BAJA"
-                  type="date"
-                  value={form.fechaBaja}
-                  onChange={(v) => updateField("fechaBaja", v, "date")}
-                />
+                <div className="space-y-1">
+                  <Field
+                    label="FECHA DE BAJA"
+                    type="date"
+                    value={form.fechaBaja}
+                    onChange={(v) => updateField("fechaBaja", v, "date")}
+                  />
+                  <p className="text-[10px] font-medium text-slate-600">
+                    Si la quitas por error, el estatus en pantalla pasa a <strong>ACTIVO</strong> y se guarda así al confirmar el
+                    expediente.
+                  </p>
+                </div>
                 <SelectField
                   label="ENVIO"
                   value={form.envio}

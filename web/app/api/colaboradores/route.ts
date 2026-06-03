@@ -8,13 +8,14 @@ import {
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores, roleMayReadColaboradoresApi } from "@/lib/app-role";
+import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
 import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 
 export const dynamic = "force-dynamic";
 
 function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
-  return colaboradorCompletoMayusculas(data);
+  return colaboradorCompletoMayusculas(sincronizarEstadoBajaEnColaborador(data));
 }
 
 /** GET: lista todos los expedientes */

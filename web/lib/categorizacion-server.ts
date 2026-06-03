@@ -13,7 +13,13 @@ import type {
   CatPersonalRow,
   CatResumenEmpleado,
 } from "@/lib/categorizacion-types";
-import { colaboradorTieneBaja, fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
+import {
+  colaboradorEstaActivoEnOperacion,
+  colaboradorTieneBaja,
+  fechaIngresoNormalizadaColaborador,
+  servicioAsignadoDesdeExpediente,
+} from "@/lib/colaboradores-baja";
+import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
@@ -50,18 +56,26 @@ function mapPersonal(r: Record<string, unknown>): CatPersonalRow {
   };
 }
 
+/** Colaborador vigente para catálogo Personal (sin baja ni estatus inactivo). */
+export function colaboradorActivoParaCatPersonal(c: ColaboradorCompleto): boolean {
+  if (!c.noEmpleado.trim()) return false;
+  return colaboradorEstaActivoEnOperacion(c);
+}
+
 export function colaboradorToCatPersonal(
   c: ColaboradorCompleto,
   periodoEvaluacion: string,
 ): CatPersonalRow {
   const f = c.form ?? {};
-  const estatus = colaboradorTieneBaja(c) ? "BAJA" : String(f.estatusEmpleado ?? "ACTIVO").trim() || "ACTIVO";
+  const estatus = colaboradorEstaActivoEnOperacion(c)
+    ? String(f.estatusEmpleado ?? "ACTIVO").trim() || "ACTIVO"
+    : "BAJA";
   return {
     noEmpleado: c.noEmpleado.trim().toUpperCase(),
     periodoEvaluacion: periodoEvaluacion.trim(),
     fechaIngreso: fechaIngresoNormalizadaColaborador(c) || parseFechaIngresoYmd(String(c.fechaIngreso ?? f.fechaIngreso ?? "")),
     nombre: String(c.nombreCompleto ?? f.nombreCompleto ?? "").trim(),
-    servicio: String(c.servicioAsignado ?? f.servicio ?? c.ultimoServicio ?? "").trim(),
+    servicio: servicioAsignadoDesdeExpediente(c) || String(c.ultimoServicio ?? "").trim(),
     puesto: String(c.puesto ?? f.puesto ?? "").trim(),
     fechaNacimiento: String(f.fechaNacimiento ?? "").trim(),
     edad: textoEdadDesdeExpediente(f.fechaNacimiento, f.edad) || String(f.edad ?? "").trim(),
@@ -79,28 +93,91 @@ export async function listCatPersonal(admin?: SupabaseClient | null): Promise<Ca
   return (data ?? []).map((r) => mapPersonal(r as Record<string, unknown>));
 }
 
+function personalRowToDb(row: CatPersonalRow, updatedAt: string) {
+  return {
+    no_empleado: row.noEmpleado.trim().toUpperCase(),
+    periodo_evaluacion: row.periodoEvaluacion,
+    fecha_ingreso: row.fechaIngreso,
+    nombre: row.nombre,
+    servicio: row.servicio,
+    puesto: row.puesto,
+    fecha_nacimiento: row.fechaNacimiento,
+    edad: row.edad,
+    escolaridad: row.escolaridad,
+    estatus: row.estatus,
+    fecha_baja: row.fechaBaja,
+    updated_at: updatedAt,
+  };
+}
+
 export async function upsertCatPersonal(row: CatPersonalRow, admin?: SupabaseClient | null): Promise<void> {
+  await upsertCatPersonalMany([row], admin);
+}
+
+const CAT_PERSONAL_UPSERT_CHUNK = 200;
+
+export async function upsertCatPersonalMany(
+  rows: CatPersonalRow[],
+  admin?: SupabaseClient | null,
+): Promise<void> {
   const client = admin ?? db();
   if (!client) throw new Error("Supabase no configurado");
+  if (rows.length === 0) return;
   const now = new Date().toISOString();
-  const { error } = await client.from("cat_personal").upsert(
-    {
-      no_empleado: row.noEmpleado.trim().toUpperCase(),
-      periodo_evaluacion: row.periodoEvaluacion,
-      fecha_ingreso: row.fechaIngreso,
-      nombre: row.nombre,
-      servicio: row.servicio,
-      puesto: row.puesto,
-      fecha_nacimiento: row.fechaNacimiento,
-      edad: row.edad,
-      escolaridad: row.escolaridad,
-      estatus: row.estatus,
-      fecha_baja: row.fechaBaja,
-      updated_at: now,
-    },
-    { onConflict: "no_empleado" },
-  );
-  if (error) throw new Error(hintSupabaseClientError(error.message));
+  for (let i = 0; i < rows.length; i += CAT_PERSONAL_UPSERT_CHUNK) {
+    const chunk = rows.slice(i, i + CAT_PERSONAL_UPSERT_CHUNK).map((row) => personalRowToDb(row, now));
+    const { error } = await client.from("cat_personal").upsert(chunk, { onConflict: "no_empleado" });
+    if (error) throw new Error(hintSupabaseClientError(error.message));
+  }
+}
+
+export type SyncCatPersonalActivosResult = {
+  sincronizados: number;
+  eliminados: number;
+  totalActivos: number;
+  totalColaboradores: number;
+};
+
+/**
+ * Sincroniza cat_personal con expedientes activos en Colaboradores.
+ * Quita del catálogo quien tiene baja o estatus inactivo; conserva periodo de evaluación ya capturado.
+ */
+export async function syncCatPersonalActivosDesdeColaboradores(
+  periodoEvaluacionDefault = "",
+  admin?: SupabaseClient | null,
+): Promise<SyncCatPersonalActivosResult> {
+  const client = admin ?? db();
+  if (!client) throw new Error("Supabase no configurado");
+
+  const [colaboradores, existing] = await Promise.all([
+    fetchAllColaboradoresCompletos(client),
+    listCatPersonal(client),
+  ]);
+  const existingByNo = new Map(existing.map((p) => [p.noEmpleado, p]));
+  const activos = colaboradores.filter(colaboradorActivoParaCatPersonal);
+  const activoNos = new Set(activos.map((c) => normalizarNoEmpleado(c.noEmpleado)));
+
+  const periodoDef = periodoEvaluacionDefault.trim();
+  const toUpsert = activos.map((c) => {
+    const no = normalizarNoEmpleado(c.noEmpleado);
+    const prev = existingByNo.get(no);
+    return colaboradorToCatPersonal(c, prev?.periodoEvaluacion ?? periodoDef);
+  });
+  await upsertCatPersonalMany(toUpsert, client);
+
+  let eliminados = 0;
+  for (const p of existing) {
+    if (activoNos.has(p.noEmpleado)) continue;
+    await deleteCatPersonal(p.noEmpleado, client);
+    eliminados++;
+  }
+
+  return {
+    sincronizados: toUpsert.length,
+    eliminados,
+    totalActivos: activos.length,
+    totalColaboradores: colaboradores.length,
+  };
 }
 
 export async function deleteCatPersonal(noEmpleado: string, admin?: SupabaseClient | null): Promise<void> {
