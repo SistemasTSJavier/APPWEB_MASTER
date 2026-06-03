@@ -1,4 +1,5 @@
 import type { CatPersonalRow } from "@/lib/categorizacion-types";
+import { filtrarCatPersonalCalificable } from "@/lib/categorizacion-servicios-calificables";
 
 let catPersonalCache: CatPersonalRow[] | null = null;
 let catPersonalInflight: Promise<CatPersonalRow[]> | null = null;
@@ -9,7 +10,7 @@ export function invalidateCatPersonalCache(): void {
 }
 
 export function setCatPersonalCache(rows: CatPersonalRow[]): void {
-  catPersonalCache = rows;
+  catPersonalCache = filtrarCatPersonalCalificable(rows);
 }
 
 export function patchCatPersonalCache(row: CatPersonalRow): void {
@@ -31,7 +32,8 @@ export async function fetchCatPersonalList(options?: {
       const r = await fetch("/api/categorizacion/personal", { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
-      const rows = Array.isArray(j.rows) ? (j.rows as CatPersonalRow[]) : [];
+      const raw = Array.isArray(j.rows) ? (j.rows as CatPersonalRow[]) : [];
+      const rows = filtrarCatPersonalCalificable(raw);
       catPersonalCache = rows;
       return rows;
     })().finally(() => {

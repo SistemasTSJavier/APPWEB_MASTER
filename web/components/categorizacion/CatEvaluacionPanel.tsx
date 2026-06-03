@@ -10,8 +10,9 @@ import { promedioDeScores, promedioEvaluacionModulo } from "@/lib/categorizacion
 import type { CatPersonalRow } from "@/lib/categorizacion-types";
 import {
   CatEmpleadoBuscador,
+  CatFiltroServicio,
   CatListaFiltro,
-  filtrarEmpleados,
+  filtrarPersonalListado,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg, CatPromedioBadge, CatRatingGrid } from "@/components/categorizacion/cat-form-ui";
 import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
@@ -39,12 +40,19 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [filtroTabla, setFiltroTabla] = useState("");
+  const [filtroServicio, setFiltroServicio] = useState("");
 
-  const opciones = useMemo(
-    () => personal.map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre })),
-    [personal],
+  const filtroPorServicio = modulo === "operaciones" || modulo === "enfoque_cliente";
+
+  const personalFiltrado = useMemo(
+    () =>
+      filtrarPersonalListado(personal, filtroTabla, filtroPorServicio ? filtroServicio : ""),
+    [personal, filtroTabla, filtroServicio, filtroPorServicio],
   );
-  const personalFiltrado = useMemo(() => filtrarEmpleados(personal, filtroTabla), [personal, filtroTabla]);
+  const opciones = useMemo(
+    () => personalFiltrado.map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre })),
+    [personalFiltrado],
+  );
 
   const faltasSeleccionado = useMemo(
     () => (noSel && esRh ? faltasMesParaEmpleado(faltasMap, noSel) : null),
@@ -66,12 +74,12 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
 
   const evaluadosCount = useMemo(() => {
     let n = 0;
-    for (const p of personal) {
+    for (const p of personalFiltrado) {
       const ev = evalMap.get(noKey(p.noEmpleado));
       if (promedioEvaluacionModulo(ev?.scores, ev?.promedio) != null) n++;
     }
     return n;
-  }, [personal, evalMap]);
+  }, [personalFiltrado, evalMap]);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -261,14 +269,22 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
 
       <section className="card overflow-hidden">
         <h2 className="mb-2 px-1 text-sm font-bold uppercase">
-          Resumen — {labelModuloEval(modulo)} ({evaluadosCount} de {personal.length} con promedio)
+          Resumen — {labelModuloEval(modulo)} ({evaluadosCount} de {personalFiltrado.length} con promedio
+          {personal.length !== personalFiltrado.length ? ` · ${personal.length} en catálogo` : ""})
         </h2>
-        <CatListaFiltro
-          value={filtroTabla}
-          onChange={setFiltroTabla}
-          total={personal.length}
-          filtrados={personalFiltrado.length}
-        />
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtroPorServicio ? (
+            <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={personal} />
+          ) : null}
+          <div className={filtroPorServicio ? "sm:col-span-2" : "sm:col-span-3"}>
+            <CatListaFiltro
+              value={filtroTabla}
+              onChange={setFiltroTabla}
+              total={personal.length}
+              filtrados={personalFiltrado.length}
+            />
+          </div>
+        </div>
         <div className="max-h-[min(70vh,36rem)] overflow-auto rounded-lg border border-slate-100">
           <table className="w-full min-w-[640px] text-xs">
             <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase text-slate-600">

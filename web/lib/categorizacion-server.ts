@@ -21,6 +21,10 @@ import {
 } from "@/lib/colaboradores-baja";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
+import {
+  filtrarCatPersonalCalificable,
+  servicioCatPersonalEsCalificable,
+} from "@/lib/categorizacion-servicios-calificables";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import {
@@ -62,6 +66,13 @@ export function colaboradorActivoParaCatPersonal(c: ColaboradorCompleto): boolea
   return colaboradorEstaActivoEnOperacion(c);
 }
 
+/** Activo en expediente y asignado a un servicio que sí se califica en categorización. */
+export function colaboradorCalificableEnCategorizacion(c: ColaboradorCompleto): boolean {
+  if (!colaboradorActivoParaCatPersonal(c)) return false;
+  const svc = servicioAsignadoDesdeExpediente(c) || String(c.ultimoServicio ?? "").trim();
+  return servicioCatPersonalEsCalificable(svc);
+}
+
 export function colaboradorToCatPersonal(
   c: ColaboradorCompleto,
   periodoEvaluacion: string,
@@ -90,7 +101,8 @@ export async function listCatPersonal(admin?: SupabaseClient | null): Promise<Ca
   if (!client) return [];
   const { data, error } = await client.from("cat_personal").select("*").order("nombre", { ascending: true });
   if (error) throw new Error(hintSupabaseClientError(error.message));
-  return (data ?? []).map((r) => mapPersonal(r as Record<string, unknown>));
+  const rows = (data ?? []).map((r) => mapPersonal(r as Record<string, unknown>));
+  return filtrarCatPersonalCalificable(rows);
 }
 
 function personalRowToDb(row: CatPersonalRow, updatedAt: string) {
@@ -154,7 +166,7 @@ export async function syncCatPersonalActivosDesdeColaboradores(
     listCatPersonal(client),
   ]);
   const existingByNo = new Map(existing.map((p) => [p.noEmpleado, p]));
-  const activos = colaboradores.filter(colaboradorActivoParaCatPersonal);
+  const activos = colaboradores.filter(colaboradorCalificableEnCategorizacion);
   const activoNos = new Set(activos.map((c) => normalizarNoEmpleado(c.noEmpleado)));
 
   const periodoDef = periodoEvaluacionDefault.trim();

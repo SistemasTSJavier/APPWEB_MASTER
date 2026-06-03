@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CatCapacitacionCurso, CatCapacitacionRegistro, CatPersonalRow } from "@/lib/categorizacion-types";
 import { cursoDisponibleParaRegistro } from "@/lib/categorizacion-capacitacion-curso";
-import { CatEmpleadoBuscador, CatListaFiltro } from "@/components/categorizacion/CatEmpleadoBuscador";
+import {
+  CatEmpleadoBuscador,
+  CatFiltroServicio,
+  CatListaFiltro,
+  filtrarPersonalListado,
+} from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg, CatPromedioBadge, CatRatingSelect } from "@/components/categorizacion/cat-form-ui";
 import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
 
@@ -20,22 +25,38 @@ export function CatCapacitacionPanel() {
   const [regDesempeno, setRegDesempeno] = useState<number | "">("");
   const [regComentarios, setRegComentarios] = useState("");
   const [filtroHistorial, setFiltroHistorial] = useState("");
+  const [filtroServicio, setFiltroServicio] = useState("");
 
-  const opcionesPersonal = useMemo(
-    () => personal.map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre })),
-    [personal],
+  const personalVisible = useMemo(
+    () => filtrarPersonalListado(personal, "", filtroServicio),
+    [personal, filtroServicio],
   );
 
+  const opcionesPersonal = useMemo(
+    () => personalVisible.map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre })),
+    [personalVisible],
+  );
+
+  const personalPorNo = useMemo(() => new Map(personal.map((p) => [p.noEmpleado, p])), [personal]);
+
   const registrosFiltrados = useMemo(() => {
+    const visibles = new Set(personalVisible.map((p) => p.noEmpleado));
+    let list = registros.filter((r) => visibles.has(r.noEmpleado));
     const q = filtroHistorial.trim().toLowerCase();
-    if (!q) return registros;
-    return registros.filter((r) => {
-      const p = personal.find((x) => x.noEmpleado === r.noEmpleado);
+    if (!q) return list;
+    return list.filter((r) => {
+      const p = personalPorNo.get(r.noEmpleado);
       const nom = (p?.nombre ?? "").toLowerCase();
+      const srv = (p?.servicio ?? "").toLowerCase();
       const curso = (r.cursoNombre ?? r.cursoId ?? "").toLowerCase();
-      return r.noEmpleado.toLowerCase().includes(q) || nom.includes(q) || curso.includes(q);
+      return (
+        r.noEmpleado.toLowerCase().includes(q) ||
+        nom.includes(q) ||
+        srv.includes(q) ||
+        curso.includes(q)
+      );
     });
-  }, [registros, filtroHistorial, personal]);
+  }, [registros, filtroHistorial, personalVisible, personalPorNo]);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -112,8 +133,9 @@ export function CatCapacitacionPanel() {
 
       <section className="card space-y-3">
         <h2 className="text-sm font-bold uppercase">Registrar colaborador a capacitación</h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={personal} />
+          <div className="sm:col-span-2 lg:col-span-2">
             <CatEmpleadoBuscador
               label="Empleado"
               value={regNo}
@@ -157,7 +179,10 @@ export function CatCapacitacionPanel() {
       <CatMsg msg={msg} />
 
       <section className="card overflow-hidden">
-        <h2 className="mb-2 px-1 text-sm font-bold uppercase">Historial ({registros.length})</h2>
+        <h2 className="mb-2 px-1 text-sm font-bold uppercase">
+          Historial ({registrosFiltrados.length}
+          {registros.length !== registrosFiltrados.length ? ` de ${registros.length}` : ""})
+        </h2>
         <CatListaFiltro
           value={filtroHistorial}
           onChange={setFiltroHistorial}

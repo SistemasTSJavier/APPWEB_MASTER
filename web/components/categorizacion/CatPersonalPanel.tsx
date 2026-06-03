@@ -126,8 +126,8 @@ export function CatPersonalPanel() {
         <h2 className="text-sm font-bold uppercase text-slate-900">Colaboradores activos (automático)</h2>
         <p className="text-xs font-medium leading-relaxed text-slate-700">
           Al abrir se muestra el catálogo guardado (rápido). Use <strong>Actualizar desde Colaboradores</strong> para traer
-          expedientes <strong>activos</strong> (sin baja ni estatus inactivo): nombre, servicio, puesto, fechas y escolaridad
-          se copian del expediente.
+          expedientes <strong>activos</strong> en servicios operativos calificables (sin baja ni estatus inactivo). No se
+          incluyen áreas corporativas (Comercial, RH, Dirección, Sistemas, Spacelab, Operaciones corporativo, etc.).
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="space-y-1 sm:col-span-2">

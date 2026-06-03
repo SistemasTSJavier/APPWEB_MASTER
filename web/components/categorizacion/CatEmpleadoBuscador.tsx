@@ -244,3 +244,31 @@ export function serviciosUnicosDesdePersonal<T extends { servicio?: string }>(ro
   }
   return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
 }
+
+/** Selector de servicio (mismo criterio que Personal). */
+export function CatFiltroServicio({
+  value,
+  onChange,
+  personal,
+  className = "",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  personal: { servicio?: string }[];
+  className?: string;
+}) {
+  const opciones = useMemo(() => serviciosUnicosDesdePersonal(personal), [personal]);
+  return (
+    <label className={`space-y-1 ${className}`.trim()}>
+      <span className="form-label">Filtrar por servicio</span>
+      <select className="form-control uppercase" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Todos los servicios</option>
+        {opciones.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
