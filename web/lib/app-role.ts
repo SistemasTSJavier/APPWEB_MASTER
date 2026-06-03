@@ -10,7 +10,8 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura), MOPER (registra/edita) y Gestores proceso. Sin altas, expedientes legal, servicios ni ficha técnica.
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC igual que admin (subir/eliminar, todos los departamentos).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
- * - aux_legal / gerente_legal: Colaboradores, Expedientes legal e historial MOPER solo consulta.
+ * - aux_legal: Colaboradores, Expedientes legal e historial MOPER (consulta).
+ * - gerente_legal: lo mismo + Alertas contrato (contratos de prueba).
  * - editor_cuadricula: inicio, Bajas, Colaboradores y MOPER solo consulta; Cuadrícula con captura/guardado e import CSV.
  * - capacitacion: inicio y sección Categorización únicamente.
  */
@@ -114,6 +115,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/cuadricula": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
   "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
+  "/gerente-legal": ["admin", "gerente_legal"],
   "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/servicios": ["admin", "rh", "aux_rh"],
   "/sgc": ["admin", "mejora_continua"],
@@ -155,6 +157,11 @@ export function canAccessPath(role: AppRole, pathname: string, userEmail?: strin
 /** Roles legales: solo colaboradores y expedientes legal (lectura). */
 export function esRolLegalSoloLectura(role: AppRole): boolean {
   return role === "aux_legal" || role === "gerente_legal";
+}
+
+/** Alertas de vencimiento de contrato de prueba: solo Administrador y Gerente Legal. */
+export function roleMayAccessGerenteLegalContratos(role: AppRole): boolean {
+  return role === "admin" || role === "gerente_legal";
 }
 
 /** Modulo Expedientes legal (pagina y API de listado de PDFs). */
@@ -335,6 +342,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
     },
     { href: "/expedientes-legal", label: "Expedientes legal", roles: ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"] },
+    {
+      href: "/gerente-legal/contratos",
+      label: "Alertas contrato",
+      roles: ["admin", "gerente_legal"],
+    },
     { href: "/ficha-tecnica", label: "Ficha técnica", roles: ["admin", "rh", "aux_rh"] },
     {
       href: "/moper",

@@ -73,7 +73,7 @@ export default async function Home() {
       <section className="relative min-w-0 overflow-x-hidden rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm sm:p-4 md:p-5 lg:p-6">
         <div
           className="pointer-events-none absolute inset-0 bg-center bg-no-repeat opacity-[0.06]"
-          style={{ backgroundImage: "url('/logo-tactical-support.png')", backgroundSize: "min(85vw, 520px)" }}
+          style={{ backgroundImage: "url('/logo.webp')", backgroundSize: "min(85vw, 520px)" }}
           aria-hidden="true"
         />
 
@@ -138,6 +138,13 @@ export default async function Home() {
                   FICHA TECNICA.
                 </span>
                 <span className="sm:hidden">BAJAS/COLABORADORES CONSULTA · MOPER EDICION.</span>
+              </>
+            ) : auth.role === "gerente_legal" ? (
+              <>
+                <span className="hidden sm:inline">
+                  USA LA BARRA IZQUIERDA: COLABORADORES, EXPEDIENTES LEGAL Y <strong>ALERTAS CONTRATO</strong>.
+                </span>
+                <span className="sm:hidden">COLABORADORES · EXPEDIENTES · ALERTAS CONTRATO.</span>
               </>
             ) : esRolLegalSoloLectura(auth.role) ? (
               <>

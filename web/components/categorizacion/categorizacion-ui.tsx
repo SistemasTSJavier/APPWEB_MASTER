@@ -23,7 +23,7 @@ export function CategorizacionHero({
     <header className="relative overflow-hidden rounded-2xl border border-violet-900/40 bg-gradient-to-br from-violet-950 via-slate-900 to-slate-950 px-5 py-7 shadow-xl sm:px-8 sm:py-9">
       <div
         className="pointer-events-none absolute inset-0 bg-center bg-no-repeat opacity-[0.06]"
-        style={{ backgroundImage: "url('/logo-tactical-support.png')", backgroundSize: "min(70%, 280px)" }}
+        style={{ backgroundImage: "url('/logo.webp')", backgroundSize: "min(70%, 280px)" }}
         aria-hidden
       />
       <div className="pointer-events-none absolute -right-8 top-0 h-36 w-36 rounded-full bg-violet-500/25 blur-3xl" aria-hidden />

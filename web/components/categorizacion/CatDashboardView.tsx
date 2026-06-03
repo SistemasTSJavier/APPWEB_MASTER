@@ -5,6 +5,7 @@ import type { CatDashboardEmpleado } from "@/lib/categorizacion-dashboard-types"
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
 import { CatBarChartModulos } from "@/components/categorizacion/CatDashboardCharts";
+import { CAT_DASHBOARD_LOGO_FALLBACKS } from "@/lib/brand-logo";
 import { TacticalSupportLogo } from "@/components/tactical-support-logo";
 
 export const CatDashboardView = forwardRef<
@@ -30,7 +31,7 @@ export const CatDashboardView = forwardRef<
     >
       <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-5 sm:px-8 sm:py-6">
         <div className="flex flex-col items-center justify-center gap-3 text-center sm:gap-4">
-          <TacticalSupportLogo priority={presentacion} />
+          <TacticalSupportLogo priority={presentacion} fallbacks={CAT_DASHBOARD_LOGO_FALLBACKS} />
           <div>
             <h1 className="text-lg font-extrabold uppercase tracking-[0.12em] text-slate-800 sm:text-2xl">
               Tactical Support

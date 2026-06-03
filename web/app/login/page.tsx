@@ -76,7 +76,7 @@ function LoginForm() {
               aria-hidden="true"
             />
             <Image
-              src="/logo-tactical-support.png"
+              src="/logo.webp"
               alt="Tactical Support"
               width={280}
               height={280}

@@ -30,7 +30,7 @@ export function AppSidebarNav({
     <aside className="print:hidden rounded-2xl border border-slate-800 bg-gradient-to-b from-slate-950 via-slate-950 to-blue-950 p-3 text-white shadow-xl sm:p-4 md:sticky md:top-4 md:z-10 md:flex md:h-fit md:max-h-[calc(100dvh-2rem)] md:flex-col md:overflow-y-auto md:self-start md:p-5">
       <div className="flex items-center gap-3 md:flex-col md:gap-0">
         <Image
-          src="/logo-tactical-support.png"
+          src="/logo.webp"
           alt="Logo"
           width={132}
           height={132}
