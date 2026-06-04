@@ -115,6 +115,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/cuadricula": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
   "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
+  "/ds3": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
   "/gerente-legal": ["admin", "gerente_legal"],
   "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/servicios": ["admin", "rh", "aux_rh"],
@@ -162,6 +163,15 @@ export function esRolLegalSoloLectura(role: AppRole): boolean {
 /** Alertas de vencimiento de contrato de prueba: solo Administrador y Gerente Legal. */
 export function roleMayAccessGerenteLegalContratos(role: AppRole): boolean {
   return role === "admin" || role === "gerente_legal";
+}
+
+/** Modulo DS3 (consulta y subida de archivos por colaborador). */
+export function roleMayAccessDs3(role: AppRole): boolean {
+  return roleMayAccessExpedientesLegal(role);
+}
+
+export function roleMayEditDs3(role: AppRole): boolean {
+  return roleMayEditColaboradoresLegacyRh(role);
 }
 
 /** Modulo Expedientes legal (pagina y API de listado de PDFs). */
@@ -342,6 +352,7 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
     },
     { href: "/expedientes-legal", label: "Expedientes legal", roles: ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"] },
+    { href: "/ds3", label: "DS3", roles: ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"] },
     {
       href: "/gerente-legal/contratos",
       label: "Alertas contrato",

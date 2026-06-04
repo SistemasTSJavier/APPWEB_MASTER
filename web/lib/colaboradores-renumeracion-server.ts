@@ -5,6 +5,7 @@ import { mapaColaboradoresPorNo } from "@/lib/colaboradores-csv-columna-import";
 import { normalizeNoEmpleado } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { EXPEDIENTE_LEGAL_BUCKET } from "@/lib/expediente-legal-constants";
+import { DS3_BUCKET } from "@/lib/ds3-constants";
 
 const FOTOS_BUCKET = "colaboradores-fotos";
 
@@ -187,6 +188,7 @@ export async function renumerarColaboradorEnSupabase(
   try {
     await moverPrefijoStorage(admin, FOTOS_BUCKET, noActual, nuevo);
     await moverPrefijoStorage(admin, EXPEDIENTE_LEGAL_BUCKET, noActual, nuevo);
+    await moverPrefijoStorage(admin, DS3_BUCKET, noActual, nuevo);
   } catch {
     /* archivos opcionales; el expediente ya quedo con URL actualizada si aplica */
   }
