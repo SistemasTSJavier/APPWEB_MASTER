@@ -134,7 +134,26 @@ export function colaboradorTieneBaja(c: ColaboradorCompleto): boolean {
 
 /** `form.fechaBaja` en `YYYY-MM-DD` para filtros y orden. */
 export function fechaBajaNormalizadaColaborador(c: ColaboradorCompleto): string {
-  return normalizarFechaParaInputDate(String(c.form?.fechaBaja ?? ""));
+  return normalizarFechaParaInputDate(String(c.form?.fechaBaja ?? "").trim());
+}
+
+/** Alinea fecha/estatus de baja antes de métricas o listados (misma lógica que al guardar). */
+export function prepararColaboradorParaMetricas(c: ColaboradorCompleto): ColaboradorCompleto {
+  return sincronizarEstadoBajaEnColaborador(c);
+}
+
+/** Expediente con N° de empleado usable en conteos. */
+export function expedienteColaboradorValido(c: ColaboradorCompleto): boolean {
+  return Boolean(String(c.noEmpleado ?? "").trim());
+}
+
+/**
+ * Activo para tarjeta de inicio y filtro «Solo activos» en Colaboradores:
+ * sin fecha de baja válida y estatus distinto de INACTIVO (tras normalizar expediente).
+ */
+export function colaboradorActivoParaMetricas(c: ColaboradorCompleto): boolean {
+  if (!expedienteColaboradorValido(c)) return false;
+  return colaboradorEstaActivoEnOperacion(prepararColaboradorParaMetricas(c));
 }
 
 /**

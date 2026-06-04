@@ -41,7 +41,7 @@ export default async function Home() {
         {
           title: "ACTIVOS",
           value: fmt(stats.activosTotal),
-          subtitle: "SIN FECHA DE BAJA EN EXPEDIENTE (TODO EL TIEMPO)",
+          subtitle: "SIN BAJA VIGENTE NI ESTATUS INACTIVO (IGUAL QUE «SOLO ACTIVOS» EN COLABORADORES)",
         },
         {
           title: "ALTAS POR MES",

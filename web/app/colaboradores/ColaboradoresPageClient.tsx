@@ -11,7 +11,6 @@ import { ALTAS_ETIQUETA_PARTE_IMPORT } from "@/lib/altas-import-partes";
 import { groupFormByAltasPartes, type FormParteGrupo } from "@/lib/altas-expediente-partes";
 import {
   colaboradorEstaActivoEnOperacion,
-  colaboradorTieneBaja,
   fechaIngresoNormalizadaColaborador,
 } from "@/lib/colaboradores-baja";
 import {
@@ -774,7 +773,7 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                       {c.moperActual?.puesto?.trim() || c.puesto?.trim() || "—"}
                     </td>
                     <td className="table-cell align-middle whitespace-nowrap">
-                      {colaboradorTieneBaja(c) ? (
+                      {!colaboradorEstaActivoEnOperacion(c) ? (
                         <span
                           className="inline-block rounded-md bg-slate-200 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-slate-800 ring-1 ring-slate-300/80"
                           title={

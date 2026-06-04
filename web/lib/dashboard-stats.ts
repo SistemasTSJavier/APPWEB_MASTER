@@ -1,5 +1,11 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
-import { colaboradorTieneBaja } from "@/lib/colaboradores-baja";
+import {
+  colaboradorActivoParaMetricas,
+  colaboradorEstaActivoEnOperacion,
+  colaboradorTieneBaja,
+  expedienteColaboradorValido,
+  prepararColaboradorParaMetricas,
+} from "@/lib/colaboradores-baja";
 import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { claveServicioAgrupada, servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { createSupabaseServiceRoleClient, isSupabaseServerConfigured } from "@/lib/supabase/admin";
@@ -11,7 +17,7 @@ export type { AniversarioEmpresaSemana, CumpleaneroMes };
 
 export type DashboardStats = {
   totalColaboradores: number;
-  /** Sin `fechaBaja` en expediente (todo el tiempo). */
+  /** Sin baja vigente ni estatus INACTIVO (misma regla que filtro «Solo activos» en Colaboradores). */
   activosTotal: number;
   /** `fechaIngreso` efectiva en el mes calendario actual (America/Mexico_City). */
   altasEsteMes: number;
@@ -69,13 +75,19 @@ function calcular(list: ColaboradorCompleto[]): Omit<DashboardStats, "fuente" | 
   const puestos = new Set<string>();
   const servicios = new Set<string>();
   let bajasEsteMes = 0;
-  let bajasConFechaBaja = 0;
   let altasEsteMes = 0;
+  let activosTotal = 0;
+  let totalColaboradores = 0;
 
-  for (const c of list) {
+  for (const raw of list) {
+    if (!expedienteColaboradorValido(raw)) continue;
+    totalColaboradores += 1;
+    const c = prepararColaboradorParaMetricas(raw);
+
     agregarDesdeColaborador(c, puestos, servicios);
+    if (colaboradorEstaActivoEnOperacion(c)) activosTotal += 1;
+
     if (colaboradorTieneBaja(c)) {
-      bajasConFechaBaja += 1;
       const udl = normalizarFechaParaInputDate(String(c.form?.ultimoDiaLaborado ?? ""));
       if (udl && fechaYYYYMMDDEnMes(udl, year, month)) bajasEsteMes += 1;
     }
@@ -87,17 +99,19 @@ function calcular(list: ColaboradorCompleto[]): Omit<DashboardStats, "fuente" | 
     }
   }
 
-  const activosTotal = list.length - bajasConFechaBaja;
-
   return {
-    totalColaboradores: list.length,
+    totalColaboradores,
     activosTotal,
     altasEsteMes,
     bajasEsteMes,
     puestosUnicos: puestos.size,
     serviciosUnicos: servicios.size,
-    cumpleanosEsteMes: cumpleanosActivosEnMes(list),
-    aniversariosEmpresaSemana: aniversariosEmpresaProximaSemana(list),
+    cumpleanosEsteMes: cumpleanosActivosEnMes(
+      list.filter((c) => expedienteColaboradorValido(c) && colaboradorActivoParaMetricas(c)),
+    ),
+    aniversariosEmpresaSemana: aniversariosEmpresaProximaSemana(
+      list.filter((c) => expedienteColaboradorValido(c) && colaboradorActivoParaMetricas(c)),
+    ),
   };
 }
 
