@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { parseAppRole, type AppRole } from "@/lib/app-role";
+import { resolveAppRoleFromUser, type AppRole } from "@/lib/app-role";
 import type { User } from "@supabase/supabase-js";
 
 export type AuthedUser = { user: User; role: AppRole };
@@ -13,7 +13,7 @@ async function getAuthedUserWithRoleUncached(): Promise<AuthedUser | null> {
       error,
     } = await supabase.auth.getUser();
     if (error || !user) return null;
-    const role = parseAppRole(user.user_metadata?.app_role ?? user.app_metadata?.app_role);
+    const role = resolveAppRoleFromUser(user);
     if (!role) return null;
     return { user, role };
   } catch {

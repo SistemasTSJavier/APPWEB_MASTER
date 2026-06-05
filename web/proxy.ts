@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   canAccessPath,
   defaultHomeForRole,
-  parseAppRole,
+  resolveAppRoleFromUser,
   type AppRole,
 } from "@/lib/app-role";
 
@@ -85,9 +85,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(login);
   }
 
-  const role: AppRole | null = parseAppRole(
-    user.user_metadata?.app_role ?? user.app_metadata?.app_role,
-  );
+  const role: AppRole | null = resolveAppRoleFromUser(user);
 
   if (!role) {
     if (pathname === "/login") return supabaseResponse;

@@ -139,6 +139,13 @@ export default async function Home() {
                 </span>
                 <span className="sm:hidden">BAJAS/COLABORADORES CONSULTA · MOPER EDICION.</span>
               </>
+            ) : auth.role === "relaciones_laborales" ? (
+              <>
+                <span className="hidden sm:inline">
+                  ACCESO EXCLUSIVO A <strong>MOPER</strong>: REGISTRA, EDITA Y GUARDA MOVIMIENTOS. LOS DEMAS MODULOS NO ESTAN DISPONIBLES PARA TU ROL.
+                </span>
+                <span className="sm:hidden">SOLO MOPER: REGISTRAR Y EDITAR.</span>
+              </>
             ) : auth.role === "gerente_legal" ? (
               <>
                 <span className="hidden sm:inline">

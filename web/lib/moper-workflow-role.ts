@@ -6,7 +6,7 @@ export type MoperWorkflowRol = "admin" | "gerente" | "consulta";
 
 export function moperWorkflowRolFromAppRole(role: AppRole): MoperWorkflowRol {
   if (role === "admin") return "admin";
-  if (role === "rh" || role === "gerente_rh") return "gerente";
+  if (role === "rh" || role === "gerente_rh" || role === "relaciones_laborales") return "gerente";
   return "consulta";
 }
 
@@ -15,11 +15,11 @@ export function moperWorkflowPuedeEditar(role: AppRole): boolean {
 }
 
 export function moperWorkflowPuedeAjustarFolio(role: AppRole): boolean {
-  return role === "admin" || role === "gerente_rh";
+  return role === "admin" || role === "gerente_rh" || role === "relaciones_laborales";
 }
 
 export function moperWorkflowPuedeFirmarRh(role: AppRole): boolean {
-  return role === "admin" || role === "rh" || role === "gerente_rh";
+  return role === "admin" || role === "rh" || role === "gerente_rh" || role === "relaciones_laborales";
 }
 
 export function moperWorkflowPuedeFirmarGerente(role: AppRole): boolean {

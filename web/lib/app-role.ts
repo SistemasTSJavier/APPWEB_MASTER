@@ -14,6 +14,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - gerente_legal: lo mismo + Alertas contrato (contratos de prueba).
  * - editor_cuadricula: inicio, Bajas, Colaboradores y MOPER solo consulta; Cuadrícula con captura/guardado e import CSV.
  * - capacitacion: inicio y sección Categorización únicamente.
+ * - relaciones_laborales: inicio y MOPER (registrar, editar y guardar); sin otros módulos.
  */
 export type AppRole =
   | "admin"
@@ -25,7 +26,8 @@ export type AppRole =
   | "aux_legal"
   | "gerente_legal"
   | "editor_cuadricula"
-  | "capacitacion";
+  | "capacitacion"
+  | "relaciones_laborales";
 
 /** Correos previstos para usuarios legales (referencia al crear usuarios en Supabase). */
 export const AUX_LEGAL_EMAIL = "auxlegal@tacticalsupport.com.mx";
@@ -36,6 +38,9 @@ export const EDITOR_CUADRICULA_EMAIL = "coordinadorcentrodecontrol@tacticalsuppo
 
 /** Usuario de capacitación: acceso a Categorización (metadata app_role: capacitacion o correo autorizado). */
 export const CAPACITACION_EMAIL = "capacitacion@tacticalsupport.com.mx";
+
+/** Relaciones laborales: solo MOPER con edición (metadata app_role: relaciones_laborales o este correo). */
+export const RELACIONES_LABORALES_EMAIL = "relacioneslaborales@tacticalsupport.com.mx";
 
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -68,6 +73,9 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   capacitacion: "capacitacion",
   capacitación: "capacitacion",
   "capacitacion rh": "capacitacion",
+  relaciones_laborales: "relaciones_laborales",
+  "relaciones laborales": "relaciones_laborales",
+  relacioneslaborales: "relaciones_laborales",
 };
 
 export function parseAppRole(raw: unknown): AppRole | null {
@@ -87,7 +95,21 @@ export const APP_ROLE_LABEL: Record<AppRole, string> = {
   gerente_legal: "Gerente legal",
   editor_cuadricula: "Editor cuadrícula",
   capacitacion: "Capacitación",
+  relaciones_laborales: "Relaciones laborales",
 };
+
+/** Rol efectivo: metadata `app_role` o correos corporativos conocidos. */
+export function resolveAppRoleFromUser(user: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+  app_metadata?: Record<string, unknown> | null;
+}): AppRole | null {
+  const fromMeta = parseAppRole(user.user_metadata?.app_role ?? user.app_metadata?.app_role);
+  if (fromMeta) return fromMeta;
+  const e = (user.email ?? "").trim().toLowerCase();
+  if (e === RELACIONES_LABORALES_EMAIL.toLowerCase()) return "relaciones_laborales";
+  return null;
+}
 
 /** Primera sección de la ruta, p. ej. `/colaboradores/xxx` → `/colaboradores` */
 export function routeSection(pathname: string): string {
@@ -109,6 +131,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
     "gerente_legal",
     "editor_cuadricula",
     "capacitacion",
+    "relaciones_laborales",
   ],
   "/altas": ["admin", "rh", "aux_rh"],
   "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "editor_cuadricula"],
@@ -117,7 +140,17 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
   "/ds3": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
   "/gerente-legal": ["admin", "gerente_legal"],
-  "/moper": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
+  "/moper": [
+    "admin",
+    "rh",
+    "gerente_rh",
+    "mejora_continua",
+    "nominas",
+    "aux_legal",
+    "gerente_legal",
+    "editor_cuadricula",
+    "relaciones_laborales",
+  ],
   "/servicios": ["admin", "rh", "aux_rh"],
   "/sgc": ["admin", "mejora_continua"],
   "/gestores-proceso": ["admin", "rh", "aux_rh", "gerente_rh"],
@@ -186,12 +219,14 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
   );
 }
 
-/** Tras login o acceso denegado: siempre el panel de inicio. */
-export function defaultHomeForRole(_role: AppRole): string {
+/** Tras login o acceso denegado. */
+export function defaultHomeForRole(role: AppRole): string {
+  if (role === "relaciones_laborales") return "/moper";
   return "/";
 }
 
-export function inicioHrefParaRol(_role: AppRole): string {
+export function inicioHrefParaRol(role: AppRole): string {
+  if (role === "relaciones_laborales") return "/moper";
   return "/";
 }
 
@@ -240,7 +275,7 @@ export function roleMayExportColaboradoresCsv(role: AppRole): boolean {
 }
 
 export function roleMayWriteMoperHistorial(role: AppRole): boolean {
-  return role === "admin" || role === "rh" || role === "gerente_rh";
+  return role === "admin" || role === "rh" || role === "gerente_rh" || role === "relaciones_laborales";
 }
 
 export function roleMayPurgeMoperHistorial(role: AppRole): boolean {
@@ -256,7 +291,8 @@ export function roleMayReadMoperHistorialApi(role: AppRole): boolean {
     role === "nominas" ||
     role === "aux_legal" ||
     role === "gerente_legal" ||
-    role === "editor_cuadricula"
+    role === "editor_cuadricula" ||
+    role === "relaciones_laborales"
   );
 }
 
@@ -336,6 +372,9 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
   if (role === "capacitacion") {
     return [{ href: "/categorizacion", label: "Categorización" }];
   }
+  if (role === "relaciones_laborales") {
+    return [{ href: "/moper", label: "Moper" }];
+  }
 
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
@@ -362,7 +401,17 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     {
       href: "/moper",
       label: "Moper",
-      roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
+      roles: [
+        "admin",
+        "rh",
+        "gerente_rh",
+        "mejora_continua",
+        "nominas",
+        "aux_legal",
+        "gerente_legal",
+        "editor_cuadricula",
+        "relaciones_laborales",
+      ],
     },
     {
       href: "/sgc",

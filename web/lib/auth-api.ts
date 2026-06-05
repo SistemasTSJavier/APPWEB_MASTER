@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { parseAppRole, type AppRole } from "@/lib/app-role";
+import { resolveAppRoleFromUser, type AppRole } from "@/lib/app-role";
 import type { User } from "@supabase/supabase-js";
 
 export type AuthedApiUser = { user: User; role: AppRole };
@@ -15,12 +15,12 @@ export async function getAuthedApiUser(): Promise<AuthedApiUser | NextResponse> 
     if (error || !user) {
       return NextResponse.json({ error: "Sesion invalida o expirada. Inicia sesion de nuevo." }, { status: 401 });
     }
-    const role = parseAppRole(user.user_metadata?.app_role ?? user.app_metadata?.app_role);
+    const role = resolveAppRoleFromUser(user);
     if (!role) {
       return NextResponse.json(
         {
           error:
-            "Tu usuario no tiene rol (app_role). Un administrador debe asignarlo en Supabase: Authentication → Users → User Metadata, p. ej. {\"app_role\":\"rh\"}.",
+            'Tu usuario no tiene rol (app_role). Un administrador debe asignarlo en Supabase: Authentication → Users → User Metadata, p. ej. {"app_role":"rh"} o {"app_role":"relaciones_laborales"}.',
         },
         { status: 403 },
       );
