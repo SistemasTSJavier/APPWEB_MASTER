@@ -1,7 +1,11 @@
 import type { MoperRegistroApi } from "@/lib/moper-registros-types";
+import { moperFirmaPublicUrl } from "@/lib/moper-public-paths";
 
 export function buildMailtoBody(registro: MoperRegistroApi): string {
-  const appUrl = typeof window !== "undefined" ? window.location.origin + "/moper" : "";
+  const firmaUrl =
+    typeof window !== "undefined"
+      ? window.location.origin + moperFirmaPublicUrl(registro.codigo_acceso ?? undefined)
+      : "";
   const line = (label: string, value: string | number | null | undefined) =>
     value != null && String(value).trim() !== "" ? `${label}: ${String(value).trim()}` : null;
   const sueldoActual =
@@ -29,8 +33,8 @@ export function buildMailtoBody(registro: MoperRegistroApi): string {
     line("Sueldo", sueldoActual !== "-" || sueldoNuevo !== "-" ? `${sueldoActual} → ${sueldoNuevo}` : null),
     line("Motivo", registro.motivo),
     line("Quien solicita", registro.solicitado_por),
-    registro.codigo_acceso ? `\nCodigo de acceso para firma del oficial: ${registro.codigo_acceso}` : null,
-    appUrl ? `\nMOPER: ${appUrl}` : null,
+    registro.codigo_acceso ? `\nCodigo de acceso: ${registro.codigo_acceso}` : null,
+    firmaUrl ? `\nEnlace para firmar (sin login): ${firmaUrl}` : null,
   ].filter(Boolean);
   return lines.join("\r\n");
 }

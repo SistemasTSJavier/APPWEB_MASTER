@@ -32,7 +32,8 @@ function MoperPageContent() {
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Modulo</p>
         <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">MOPER</h1>
         <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
-          Captura y firmas internas abajo; el oficial usa el codigo de acceso para firmar conformidad.
+          Captura y firmas internas abajo. El oficial firma en{" "}
+          <strong className="text-sky-900">/moper/firma</strong> con su codigo — sin iniciar sesion en la plataforma.
         </p>
       </div>
       <CodigoAccesoPanel />

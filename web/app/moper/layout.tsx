@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { AppModuleLayout } from "@/components/app-module-layout";
 
-export default function MoperLayout({ children }: { children: ReactNode }) {
-  return <AppModuleLayout currentPath="/moper">{children}</AppModuleLayout>;
+/** Layout raiz MOPER: las rutas hijas definen su propio shell (interno con sesion o firma publica). */
+export default function MoperRootLayout({ children }: { children: ReactNode }) {
+  return children;
 }

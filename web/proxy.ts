@@ -7,9 +7,15 @@ import {
   resolveAppRoleFromUser,
   type AppRole,
 } from "@/lib/app-role";
+import {
+  isMoperFirmaPublicPage,
+  isMoperPublicApi,
+  MOPER_FIRMA_PUBLIC_PATH,
+} from "@/lib/moper-public-paths";
 
-function publicApiPath(pathname: string): boolean {
-  return pathname === "/api/supabase/status" || pathname === "/api/auth/me";
+function publicApiPath(pathname: string, method: string): boolean {
+  if (pathname === "/api/supabase/status" || pathname === "/api/auth/me") return true;
+  return isMoperPublicApi(pathname, method);
 }
 
 /** Rutas de auth que no requieren sesión (login, callback OAuth, cerrar sesión). */
@@ -31,6 +37,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const pathname = request.nextUrl.pathname;
+  const method = request.method;
 
   let user: User | null = null;
   try {
@@ -55,11 +62,11 @@ export async function proxy(request: NextRequest) {
       user = data.user ?? null;
     }
   } catch {
-    if (isAuthPublicPath(pathname)) {
+    if (isAuthPublicPath(pathname) || isMoperFirmaPublicPage(pathname)) {
       return supabaseResponse;
     }
     if (pathname.startsWith("/api/")) {
-      if (publicApiPath(pathname)) return supabaseResponse;
+      if (publicApiPath(pathname, method)) return supabaseResponse;
       return NextResponse.json(
         {
           error: "No se pudo contactar Supabase Auth desde el servidor.",
@@ -75,11 +82,17 @@ export async function proxy(request: NextRequest) {
 
   if (!user) {
     if (pathname.startsWith("/api/")) {
-      if (publicApiPath(pathname)) return supabaseResponse;
+      if (publicApiPath(pathname, method)) return supabaseResponse;
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
-    if (isAuthPublicPath(pathname)) {
+    if (isAuthPublicPath(pathname) || isMoperFirmaPublicPage(pathname)) {
       return supabaseResponse;
+    }
+    if (pathname === "/moper" && request.nextUrl.searchParams.has("codigo")) {
+      const dest = new URL(MOPER_FIRMA_PUBLIC_PATH, request.url);
+      const codigo = request.nextUrl.searchParams.get("codigo");
+      if (codigo) dest.searchParams.set("codigo", codigo);
+      return NextResponse.redirect(dest);
     }
     const login = new URL("/login", request.url);
     return NextResponse.redirect(login);
@@ -90,14 +103,14 @@ export async function proxy(request: NextRequest) {
   if (!role) {
     if (pathname === "/login") return supabaseResponse;
     if (pathname.startsWith("/auth/signout")) return supabaseResponse;
-    if (pathname.startsWith("/api/") && publicApiPath(pathname)) return supabaseResponse;
+    if (pathname.startsWith("/api/") && publicApiPath(pathname, method)) return supabaseResponse;
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Usuario sin app_role en metadata" }, { status: 403 });
     }
     return NextResponse.redirect(new URL("/login?error=sin_rol", request.url));
   }
 
-  if (pathname.startsWith("/api/") && publicApiPath(pathname)) {
+  if (pathname.startsWith("/api/") && publicApiPath(pathname, method)) {
     return supabaseResponse;
   }
 
@@ -106,6 +119,10 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/")) {
+    return supabaseResponse;
+  }
+
+  if (isMoperFirmaPublicPage(pathname)) {
     return supabaseResponse;
   }
 
