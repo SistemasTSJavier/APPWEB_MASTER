@@ -16,9 +16,12 @@ import { saveManyAttendanceGrids } from './attendanceStorage'
 import { withComputedTotals } from './attendanceTotals'
 import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import {
-  colaboradorPertenecePlantaAsistencia,
+  colaboradorActivoParaCapturaAsistencia,
   colaboradorToGridRow,
   listarPlantasCapturaAsistencia,
+  mapaColaboradoresActivosCapturaPorEmpNo,
+  normPlantaCapturaNombre,
+  plantaCapturaColaborador,
   gridRowServiceNo,
   plantaToStorageKey,
 } from './cuadriculaColaboradoresBridge'
@@ -1138,13 +1141,14 @@ export function mergeCsvShiftsIntoGridRows(
     let targets = gridByEmp.get(canon) ?? []
     if (targets.length === 0 && reconcile?.agregarFilasCsvPorEmpNo) {
       const col = reconcile.colaboradoresByEmp.get(canon)
-      if (!col) {
+      if (!col || !colaboradorActivoParaCapturaAsistencia(col)) {
         csvEmployeesNotInGrid.push(imp.employeeNo)
         continue
       }
       if (
         !reconcile.omitirFiltroPlantaExpediente &&
-        !colaboradorPertenecePlantaAsistencia(col, reconcile.plantaNombre)
+        plantaCapturaColaborador(col, reconcile.catalogo) !==
+          normPlantaCapturaNombre(reconcile.plantaNombre)
       ) {
         csvEmployeesNotInGrid.push(imp.employeeNo)
         continue
@@ -1315,7 +1319,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   const plantasExpediente = listarPlantasCapturaAsistencia(opts.colaboradores, opts.catalogo)
   const expedienteNorm = new Map(plantasExpediente.map((p) => [normPlantaCsv(p), p]))
 
-  const colaboradoresByEmpEarly = mapaColaboradoresPorNoEmpleadoCanon(opts.colaboradores)
+  const colaboradoresByEmpEarly = mapaColaboradoresActivosCapturaPorEmpNo(opts.colaboradores)
   const { groups: grouped, rowsSinPlanta: rowsSinPlantaCsv } = groupCsvRowsByPlanta(
     opts.parsedRows,
     opts.catalogo,

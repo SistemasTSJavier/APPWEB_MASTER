@@ -1,50 +1,22 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import type { AttendanceWeekPrefetch } from "./attendanceStorage";
-import {
-  loadAttendanceGridForPlantaWithMeta,
-  mergeStoredGridsForPlanta,
-  normalizeStoredRows,
-  resolveMergedStoredGridForPlanta,
-} from "./attendanceStorage";
+import { normalizeStoredRows, resolveMergedStoredGridForPlanta } from "./attendanceStorage";
 import { getAttendanceWeekPrefetch } from "./attendanceWeekPrefetch";
 import type { RemoteAttendanceFetchMeta } from "./attendanceRemote";
-import { injectCatalogVacantes, mergeAttendanceRowsWithStoredAndVacantes } from "./attendanceVacantes";
-import { listVacantesPorPlanta } from "./vacantesStorage";
 import {
   agruparActivosPorPlantaCaptura,
   colaboradorToGridRow,
-  colaboradoresParaAsistenciaCsvImport,
+  colaboradoresActivosParaCapturaPlanta,
+  filtrarColaboradoresActivosCaptura,
   gridRowServiceNo,
   normPlantaCapturaNombre,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
 import { canonicalEmpNoAttendance, empNoClaveGridRow, indexGridRowsByEmpNo } from "@/lib/attendance-emp-no";
 import { sortGridRowsByPosicion } from "./attendanceGridSort";
-import { elegirValorIdentificacionAsistencia } from "./attendanceGridColumns";
-import { appendFilasGuardadasFueraDeBase } from "./attendancePlantaMerge";
 import { emptyShifts, WEEK_COLUMNS, ZERO_TOTALS, type GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
-
-function aplicarTotalesPorFila(rows: GridRow[], base: GridRow[]): GridRow[] {
-  const baseByKey = new Map(base.map((b) => [empNoClaveGridRow(b), b]));
-  return rows.map((r) => {
-    const k = empNoClaveGridRow(r);
-    const br = k ? baseByKey.get(k) : undefined;
-    const merged: GridRow = {
-      ...r,
-      rowServiceNo: elegirValorIdentificacionAsistencia(br?.rowServiceNo, r.rowServiceNo),
-      servicioLinea: elegirValorIdentificacionAsistencia(br?.servicioLinea, r.servicioLinea),
-      plantaLinea:
-        elegirValorIdentificacionAsistencia(br?.plantaLinea, r.plantaLinea) ||
-        br?.plantaLinea ||
-        r.plantaLinea,
-      position: elegirValorIdentificacionAsistencia(br?.position, r.position),
-      role: elegirValorIdentificacionAsistencia(br?.role, r.role),
-    };
-    return withComputedTotals(merged, gridRowServiceNo(merged));
-  });
-}
 
 function maxSavedAtIso(a: string | null, b: string | undefined): string | null {
   if (!b?.trim()) return a;
@@ -79,10 +51,10 @@ function fusionarCapturaSemanalDesdeExpediente(
 }
 
 export type MergePlantaWeekOpts = {
-  /** Captura semanal: solo activos, sin vacantes ni filas de baja guardadas. */
-  soloCapturaActivos?: boolean;
   /** Filas base precalculadas (cache); evita reconstruirlas al cambiar de semana. */
   baseRows?: GridRow[];
+  /** Reimportación CSV: vacía la semana de estos N.º antes de fusionar guardados. */
+  reemplazarEmpNos?: Set<string>;
 };
 
 /**
@@ -109,10 +81,11 @@ function capturaBase(
     capturaBaseCache.colaboradores !== colaboradores ||
     capturaBaseCache.catalogo !== catalogo
   ) {
+    const activosLista = filtrarColaboradoresActivosCaptura(colaboradores);
     capturaBaseCache = {
       colaboradores,
       catalogo,
-      grupos: agruparActivosPorPlantaCaptura(colaboradores, catalogo),
+      grupos: agruparActivosPorPlantaCaptura(activosLista, catalogo),
       basePorPlanta: new Map(),
     };
   }
@@ -139,109 +112,21 @@ async function mergePlantaWeekBlock(
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
   prefetchedWeek: AttendanceWeekPrefetch | null,
-  todosColaboradores: ColaboradorCompleto[] = activos,
+  _todosColaboradores: ColaboradorCompleto[] = activos,
   opts?: MergePlantaWeekOpts,
 ): Promise<{ rows: GridRow[]; savedAt: string | null }> {
-  const soloCaptura = opts?.soloCapturaActivos !== false;
   const scopeId = plantaToStorageKey(plantaNombre);
   if (!scopeId || activos.length === 0) {
     return { rows: [], savedAt: null };
   }
 
-  const base =
+  let base =
     opts?.baseRows ?? activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
-  const empKeys = activos
-    .map((c) => canonicalEmpNoAttendance(c.noEmpleado))
-    .filter(Boolean);
-  const stored = prefetchedWeek
-    ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, empKeys, prefetchedWeek)
-    : (await loadAttendanceGridForPlantaWithMeta(weekStartIso, scopeId, empKeys, null)).grid;
 
-  const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
-  let rows: GridRow[];
-
-  if (soloCaptura) {
-    rows =
-      normStored.length > 0
-        ? fusionarCapturaSemanalDesdeExpediente(base, normStored)
-        : sortGridRowsByPosicion(
-            base.map((r) => withComputedTotals(r, gridRowServiceNo(r))),
-          );
-    /* Incluye filas guardadas (p. ej. importadas) que no están en la base activa. */
-    if (normStored.length > 0) {
-      rows = sortGridRowsByPosicion(
-        appendFilasGuardadasFueraDeBase(
-          rows,
-          normStored,
-          todosColaboradores,
-          plantaNombre,
-          catalogo,
-        ),
-      );
-    }
-  } else {
-    let merged = base;
-    if (normStored.length) {
-      merged = mergeAttendanceRowsWithStoredAndVacantes(base, normStored);
-      merged = appendFilasGuardadasFueraDeBase(
-        merged,
-        normStored,
-        todosColaboradores,
-        plantaNombre,
-        catalogo,
-      );
-    }
-    merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaNombre));
-    rows = aplicarTotalesPorFila(merged, base);
-  }
-
-  return {
-    rows,
-    savedAt: stored?.savedAt ?? null,
-  };
-}
-
-async function mergePlantaWeekBlockForCsvImport(
-  colaboradoresPlanta: ColaboradorCompleto[],
-  todosColaboradores: ColaboradorCompleto[],
-  plantaNombre: string,
-  catalogo: CatalogoServicioItem[],
-  weekStartIso: string,
-  prefetchedWeek: AttendanceWeekPrefetch | null,
-  reemplazarEmpNos?: Set<string>,
-): Promise<{ rows: GridRow[]; savedAt: string | null }> {
-  const scopeId = plantaToStorageKey(plantaNombre);
-  if (!scopeId || colaboradoresPlanta.length === 0) {
-    return { rows: [], savedAt: null };
-  }
-
-  const base = colaboradoresPlanta.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
-  const empKeys = colaboradoresPlanta.map((c) => c.noEmpleado);
-  const stored = prefetchedWeek
-    ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, empKeys, prefetchedWeek)
-    : (await loadAttendanceGridForPlantaWithMeta(weekStartIso, scopeId, empKeys, null)).grid;
-
-  let merged = base;
-  const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
-  if (normStored.length) {
-    merged = mergeAttendanceRowsWithStoredAndVacantes(base, normStored);
-    merged = appendFilasGuardadasFueraDeBase(
-      merged,
-      normStored,
-      todosColaboradores,
-      plantaNombre,
-      catalogo,
-    );
-  } else {
-    merged = mergeAttendanceRowsWithStoredAndVacantes(base, []);
-  }
-
-  merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaNombre));
-
-  if (reemplazarEmpNos?.size) {
-    merged = merged.map((r) => {
+  if (opts?.reemplazarEmpNos?.size) {
+    base = base.map((r) => {
       const k = empNoClaveGridRow(r);
-      if (!k || !reemplazarEmpNos.has(k)) return r;
+      if (!k || !opts.reemplazarEmpNos!.has(k)) return r;
       return {
         ...r,
         shifts: emptyShifts(WEEK_COLUMNS.length),
@@ -250,8 +135,23 @@ async function mergePlantaWeekBlockForCsvImport(
     });
   }
 
+  const empKeys = activos
+    .map((c) => canonicalEmpNoAttendance(c.noEmpleado))
+    .filter(Boolean);
+  const stored = prefetchedWeek
+    ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, empKeys, prefetchedWeek)
+    : null;
+
+  const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
+  const rows =
+    normStored.length > 0
+      ? fusionarCapturaSemanalDesdeExpediente(base, normStored)
+      : sortGridRowsByPosicion(
+          base.map((r) => withComputedTotals(r, gridRowServiceNo(r))),
+        );
+
   return {
-    rows: aplicarTotalesPorFila(merged, base),
+    rows,
     savedAt: stored?.savedAt ?? null,
   };
 }
@@ -294,14 +194,12 @@ export async function mergeGridRowsForPlantaWeek(
     weekStartIso,
     prefetchedWeek ?? null,
     colaboradores,
-    { soloCapturaActivos: true, baseRows: base },
+    { baseRows: base },
   );
   return rows;
 }
 
-/**
- * Cuadrícula para importar CSV: incluye activos y bajas de la planta (historial por N.º de empleado).
- */
+/** Base para importar CSV: mismos activos de la planta que la cuadrícula en pantalla. */
 export async function mergeGridRowsForPlantaWeekForCsvImport(
   colaboradores: ColaboradorCompleto[],
   plantaNombre: string,
@@ -310,27 +208,17 @@ export async function mergeGridRowsForPlantaWeekForCsvImport(
   prefetchedWeek?: AttendanceWeekPrefetch | null,
   opts?: { numerosEmpleadoEnCsv?: Set<string>; reemplazarEmpNos?: Set<string> },
 ): Promise<GridRow[]> {
-  const enPlanta = colaboradoresParaAsistenciaCsvImport(colaboradores, plantaNombre);
-  if (opts?.numerosEmpleadoEnCsv?.size) {
-    const ya = new Set(
-      enPlanta.map((c) => canonicalEmpNoAttendance(c.noEmpleado)).filter(Boolean),
-    );
-    for (const c of colaboradores) {
-      const k = canonicalEmpNoAttendance(c.noEmpleado);
-      if (!k || !opts.numerosEmpleadoEnCsv.has(k) || ya.has(k)) continue;
-      enPlanta.push(c);
-      ya.add(k);
-    }
-    enPlanta.sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
-  }
-  const { rows } = await mergePlantaWeekBlockForCsvImport(
+  const enPlanta = colaboradoresActivosParaCapturaPlanta(colaboradores, plantaNombre, catalogo);
+  const cache = capturaBase(colaboradores, catalogo);
+  const { base } = baseDePlanta(cache, plantaNombre);
+  const { rows } = await mergePlantaWeekBlock(
     enPlanta,
-    colaboradores,
     plantaNombre,
     catalogo,
     weekStartIso,
     prefetchedWeek ?? null,
-    opts?.reemplazarEmpNos,
+    colaboradores,
+    { baseRows: base, reemplazarEmpNos: opts?.reemplazarEmpNos },
   );
   return rows;
 }
@@ -368,7 +256,7 @@ export async function mergeGridRowsTodasPlantasWeek(
         weekStartIso,
         prefetch,
         colaboradores,
-        { soloCapturaActivos: true, baseRows: base },
+        { baseRows: base },
       );
     }),
   );
@@ -408,14 +296,7 @@ export function splitGridRowsByPlanta(rows: GridRow[]): Map<string, GridRow[]> {
   return map;
 }
 
-/**
- * Filas a guardar de una planta SIN perder lo ya almacenado:
- * - Lo en pantalla manda por N° de empleado (incluye ediciones manuales).
- * - Lo guardado (importación CSV, bajas, empleados fuera de la base activa)
- *   que no esté en pantalla se conserva tal cual.
- * Así «Guardar» nunca borra asistencia importada de empleados que la vista
- * de captura no muestra.
- */
+/** Filas a guardar: exactamente lo visible (activos de Colaboradores + asistencia de la semana). */
 export async function filasParaGuardarPlantaWeek(
   colaboradores: ColaboradorCompleto[],
   plantaNombre: string,
@@ -424,35 +305,14 @@ export async function filasParaGuardarPlantaWeek(
   prefetch: AttendanceWeekPrefetch,
   filasPantalla?: GridRow[] | null,
 ): Promise<GridRow[]> {
-  const enPantalla =
-    filasPantalla && filasPantalla.length > 0
-      ? filasPantalla
-      : await mergeGridRowsForPlantaWeek(
-          colaboradores,
-          plantaNombre,
-          catalogo,
-          weekStartIso,
-          prefetch,
-        );
-
-  const scopeKey = plantaToStorageKey(plantaNombre);
-  if (!scopeKey) return enPantalla;
-
-  /* Sin filtro de empleados: conserva también filas guardadas de bajas o
-     empleados que no están en la base activa de la planta. */
-  const stored = mergeStoredGridsForPlanta(weekStartIso, scopeKey, [], prefetch);
-  const storedRows = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
-  if (storedRows.length === 0) return enPantalla;
-
-  const enPantallaKeys = new Set(
-    enPantalla.map((r) => empNoClaveGridRow(r)).filter(Boolean),
+  if (filasPantalla && filasPantalla.length > 0) return filasPantalla;
+  return mergeGridRowsForPlantaWeek(
+    colaboradores,
+    plantaNombre,
+    catalogo,
+    weekStartIso,
+    prefetch,
   );
-  const extras = storedRows.filter((r) => {
-    if (r.vacant) return false;
-    const k = empNoClaveGridRow(r);
-    return Boolean(k) && !enPantallaKeys.has(k);
-  });
-  return extras.length > 0 ? [...enPantalla, ...extras] : enPantalla;
 }
 
 /** @deprecated Use mergeGridRowsForPlantaWeek */

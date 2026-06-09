@@ -13,6 +13,7 @@ export { plantaExpedienteColaborador } from "@/lib/colaboradores-catalogo-displa
 import {
   colaboradorEstaActivoEnOperacion,
   colaboradorTieneBaja,
+  expedienteColaboradorValido,
   fechaBajaNormalizadaColaborador,
   fechaIngresoNormalizadaColaborador,
 } from "@/lib/colaboradores-baja";
@@ -74,14 +75,42 @@ export function coincideColaboradorPlantaExpediente(c: ColaboradorCompleto, plan
   return normTxt(plantaExpedienteColaborador(c)) === p;
 }
 
-/** Activos con la misma planta en expediente. */
-export function colaboradoresActivosPorPlanta(lista: ColaboradorCompleto[], planta: string): ColaboradorCompleto[] {
-  return lista.filter((c) => !colaboradorTieneBaja(c) && coincideColaboradorPlantaExpediente(c, planta));
+/**
+ * Mismo criterio que Colaboradores → «Solo activos»: expediente con N.º válido,
+ * sin fecha de baja y estatus distinto de INACTIVO.
+ */
+export function colaboradorActivoParaCapturaAsistencia(c: ColaboradorCompleto): boolean {
+  return expedienteColaboradorValido(c) && colaboradorEstaActivoEnOperacion(c);
+}
+
+/** Lista precalculada de activos para cuadrícula (evita mezclar bajas/inactivos). */
+export function filtrarColaboradoresActivosCaptura(lista: ColaboradorCompleto[]): ColaboradorCompleto[] {
+  return lista.filter(colaboradorActivoParaCapturaAsistencia);
 }
 
 /**
- * Lista estable para captura semanal: activos de la planta (expediente o catálogo), orden por N.º.
- * Misma base en todas las semanas; solo cambian los códigos guardados por semana.
+ * Planta única del colaborador (misma resolución que pantalla Colaboradores:
+ * expediente primero, catálogo si falta). Un empleado → una sola planta.
+ */
+export function plantaCapturaColaborador(
+  c: ColaboradorCompleto,
+  catalogo: CatalogoServicioItem[] = [],
+): string {
+  return normTxt(plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c));
+}
+
+/** Activos con la misma planta en expediente. */
+export function colaboradoresActivosPorPlanta(lista: ColaboradorCompleto[], planta: string): ColaboradorCompleto[] {
+  const p = normTxt(planta);
+  if (!p) return [];
+  return lista.filter(
+    (c) => colaboradorActivoParaCapturaAsistencia(c) && normTxt(plantaExpedienteColaborador(c)) === p,
+  );
+}
+
+/**
+ * Lista estable para captura semanal: activos de la planta, orden por N.º.
+ * Misma base en todas las semanas; identidad siempre desde Colaboradores.
  */
 export function colaboradoresActivosParaCapturaPlanta(
   lista: ColaboradorCompleto[],
@@ -91,13 +120,10 @@ export function colaboradoresActivosParaCapturaPlanta(
   const p = normTxt(planta);
   if (!p) return [];
   return lista
-    .filter((c) => {
-      if (!colaboradorEstaActivoEnOperacion(c)) return false;
-      const pl = normTxt(plantaColaborador(c, catalogo));
-      if (pl === p) return true;
-      const exp = normTxt(plantaExpedienteColaborador(c));
-      return exp === p;
-    })
+    .filter(
+      (c) =>
+        colaboradorActivoParaCapturaAsistencia(c) && plantaCapturaColaborador(c, catalogo) === p,
+    )
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
 }
 
@@ -118,8 +144,8 @@ export function agruparActivosPorPlantaCaptura(
 ): Map<string, ColaboradorCompleto[]> {
   const map = new Map<string, ColaboradorCompleto[]>();
   for (const c of lista) {
-    if (!colaboradorEstaActivoEnOperacion(c)) continue;
-    const p = normTxt(plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c));
+    if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
+    const p = plantaCapturaColaborador(c, catalogo);
     if (!p) continue;
     const arr = map.get(p);
     if (arr) arr.push(c);
@@ -242,8 +268,8 @@ export function listarPlantasCapturaAsistencia(
 ): string[] {
   const set = new Set<string>();
   for (const c of lista) {
-    if (!colaboradorEstaActivoEnOperacion(c)) continue;
-    const p = normTxt(plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c));
+    if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
+    const p = plantaCapturaColaborador(c, catalogo);
     if (p) set.add(p);
   }
   return [...set].sort((a, b) => a.localeCompare(b, "es"));
@@ -256,6 +282,21 @@ export function listarPlantasDistintas(lista: ColaboradorCompleto[], _catalogo: 
 
 export function gridRowServiceNo(row: GridRow): string {
   return (row.rowServiceNo ?? "").trim();
+}
+
+/** Mapa N.º → colaborador activo (captura asistencia / importación CSV). */
+export function mapaColaboradoresActivosCapturaPorEmpNo(
+  lista: ColaboradorCompleto[],
+): Map<string, ColaboradorCompleto> {
+  const map = new Map<string, ColaboradorCompleto>();
+  for (const c of lista) {
+    if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
+    for (const raw of [c.noEmpleado, String(c.form?.noEmpleado1 ?? "")]) {
+      const k = canonicalEmpNoAttendance(raw);
+      if (k && !map.has(k)) map.set(k, c);
+    }
+  }
+  return map;
 }
 
 /** Busca colaborador por N.º canónico (expediente o form.noEmpleado1). */
@@ -385,9 +426,9 @@ export function colaboradorConBajaToBajasRow(
 }
 
 export function colaboradoresActivosTodos(lista: ColaboradorCompleto[]): ColaboradorCompleto[] {
-  return lista
-    .filter((c) => !colaboradorTieneBaja(c))
-    .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+  return filtrarColaboradoresActivosCaptura(lista).sort((a, b) =>
+    a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }),
+  );
 }
 
 /** Todos los colaboradores con N° de empleado (activos y bajas) para Consulta asistencia. */

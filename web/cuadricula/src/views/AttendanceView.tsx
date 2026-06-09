@@ -74,7 +74,7 @@ import {
   csvDelimiterUserHint,
   csvLayoutHasPlantaColumn,
   filterCsvRowsForPlantaNombre,
-  mapaColaboradoresPorNoEmpleadoCanon,
+  mapaColaboradoresActivosCapturaPorEmpNo,
   mergeCsvShiftsIntoGridRows,
   parseAttendanceGridCodesCsv,
 } from '../attendanceGridCsvImport'
@@ -596,7 +596,7 @@ export function AttendanceView() {
       prefetchImport,
       { numerosEmpleadoEnCsv, reemplazarEmpNos: numerosEmpleadoEnCsv },
     )
-    const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(colaboradores)
+    const colaboradoresByEmp = mapaColaboradoresActivosCapturaPorEmpNo(colaboradores)
     const {
       next,
       updatedCount,
@@ -1237,7 +1237,7 @@ export function AttendanceView() {
         ) : null}
         {!gridLoading && rows.length > 0 ? (
         <p className="hint captureGridCount" style={{ padding: '0.25rem 1rem' }}>
-          {rows.length} empleado(s) — semana {weekRangeLabel}
+          {rows.length} colaborador(es) activo(s) — semana {weekRangeLabel}
           {esVistaTodasPlantas ? ' (todas las plantas)' : ` — ${plantaSeleccionada}`}
         </p>
         ) : null}

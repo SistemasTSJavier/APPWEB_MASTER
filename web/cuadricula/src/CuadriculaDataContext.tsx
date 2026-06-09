@@ -4,7 +4,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { AppRole } from "@/lib/app-role";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
-import { colaboradorToEmpleadoIncidencia, colaboradoresActivosTodos } from "./cuadriculaColaboradoresBridge";
+import {
+  colaboradorToEmpleadoIncidencia,
+  filtrarColaboradoresActivosCaptura,
+} from "./cuadriculaColaboradoresBridge";
 import { canEditCuadricula, canImportCuadriculaSemanaCsv } from "./cuadriculaPermissions";
 import { loadVacantesCatalogo, saveVacantesCatalogoDirect } from "@/lib/vacantes-catalog";
 import { fetchVacantesCatalogRemote } from "./vacantesRemote";
@@ -20,6 +23,8 @@ type CuadriculaDataState = {
   puedeImportarCsv: boolean;
   /** Lista para buscadores (incidencias / comidas): activos, expediente real. */
   empleadosBusqueda: ReturnType<typeof colaboradorToEmpleadoIncidencia>[];
+  /** Activos válidos para cuadrícula (mismo criterio que Colaboradores → Solo activos). */
+  colaboradoresActivosCaptura: ColaboradorCompleto[];
 };
 
 const CuadriculaDataContext = createContext<CuadriculaDataState | null>(null);
@@ -74,9 +79,14 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
     void load();
   }, [load]);
 
-  const empleadosBusqueda = useMemo(
-    () => colaboradoresActivosTodos(colaboradores).map(colaboradorToEmpleadoIncidencia),
+  const colaboradoresActivosCaptura = useMemo(
+    () => filtrarColaboradoresActivosCaptura(colaboradores),
     [colaboradores],
+  );
+
+  const empleadosBusqueda = useMemo(
+    () => colaboradoresActivosCaptura.map(colaboradorToEmpleadoIncidencia),
+    [colaboradoresActivosCaptura],
   );
 
   const puedeEditar = canEditCuadricula(appRole);
@@ -93,6 +103,7 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       puedeEditar,
       puedeImportarCsv,
       empleadosBusqueda,
+      colaboradoresActivosCaptura,
     }),
     [
       catalogo,
@@ -104,6 +115,7 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       puedeEditar,
       puedeImportarCsv,
       empleadosBusqueda,
+      colaboradoresActivosCaptura,
     ],
   );
 
