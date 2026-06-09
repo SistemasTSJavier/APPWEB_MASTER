@@ -1,8 +1,7 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { ColaboradorVacantePicker, type VacantePickerValores } from "@/components/colaboradores/colaborador-vacante-picker";
 import { upsertColaboradorCompleto, type ColaboradorCompleto } from "@/lib/colaboradores-store";
 import type { FamiliarGuardado } from "@/lib/colaboradores-types";
 import { ALTAS_ETIQUETA_PARTE_IMPORT } from "@/lib/altas-import-partes";
@@ -15,13 +14,10 @@ import { edadAniosAlaFecha, textoEdadDesdeExpediente } from "@/lib/edad-desde-na
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
 import {
-  colaboradorTieneBaja,
   estatusEmpleadoNormalizado,
   parcheFormularioAlCambiarFechaBaja,
   sincronizarEstadoBajaEnColaborador,
 } from "@/lib/colaboradores-baja";
-import { consumirVacanteTrasAlta, persistirVacantesCatalogoEnServidor, registrarVacanteTrasBaja } from "@/lib/vacantes-catalog-flujo";
-import { addVacanteRegistro } from "@/lib/vacantes-catalog";
 import { aMayusculasPlataforma } from "@/lib/texto-plataforma-mayusculas";
 
 const DATE_KEYS = new Set([
@@ -60,12 +56,9 @@ function familiaresInicial(c: ColaboradorCompleto): FamiliarGuardado[] {
   return [{ nombreFamiliar: "", parentesco: "", fechaNacimiento: "", beneficiarioBancario: "NO" }];
 }
 
-const CAMPOS_VACANTE_PARTE1 = new Set(["servicio", "noServicio", "planta", "posicion"]);
-
 type Props = {
   colaborador: ColaboradorCompleto;
   catalogoServicios: CatalogoServicioItem[];
-  editarVacantesCuadricula?: boolean;
   onCancel: () => void;
   /** Recibe el registro ya persistido para refrescar la lista sin esperar recarga. */
   onGuardado: (guardado: ColaboradorCompleto) => Promise<void>;
@@ -74,7 +67,6 @@ type Props = {
 export function EditorExpedienteCompleto({
   colaborador,
   catalogoServicios,
-  editarVacantesCuadricula = false,
   onCancel,
   onGuardado,
 }: Props) {
@@ -82,14 +74,6 @@ export function EditorExpedienteCompleto({
   const [familiares, setFamiliares] = useState<FamiliarGuardado[]>(() => familiaresInicial(colaborador));
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
-  const vacanteIdRef = useRef("");
-  const asignacionInicialRef = useRef({
-    servicio: (colaborador.form?.servicio ?? colaborador.servicioAsignado ?? "").trim(),
-    noServicio: (colaborador.form?.noServicio ?? "").trim(),
-    planta: (colaborador.form?.planta ?? "").trim(),
-    posicion: (colaborador.posicion ?? colaborador.form?.posicion ?? "").trim(),
-    puesto: (colaborador.puesto ?? colaborador.form?.puesto ?? "").trim(),
-  });
 
   function setKey(key: string, value: string) {
     const v = DATE_KEYS.has(key) || NUMBER_KEYS.has(key) ? value : aMayusculasPlataforma(value, key);
@@ -100,18 +84,6 @@ export function EditorExpedienteCompleto({
       }
       return { ...prev, [key]: v };
     });
-  }
-
-  function onVacantePickerChange(v: VacantePickerValores, vacanteId: string) {
-    vacanteIdRef.current = vacanteId;
-    setFormValues((prev) => ({
-      ...prev,
-      servicio: v.servicio,
-      noServicio: v.noServicio,
-      planta: v.planta,
-      posicion: v.posicion,
-      puesto: v.puesto || prev.puesto || "",
-    }));
   }
 
   function updateFamiliar(i: number, patch: Partial<FamiliarGuardado>) {
@@ -175,45 +147,6 @@ export function EditorExpedienteCompleto({
       actualizado = sincronizarEstadoBajaEnColaborador(limpiarPosicionDuplicadaDeNoServicio(actualizado));
 
       await upsertColaboradorCompleto(actualizado);
-
-      if (editarVacantesCuadricula) {
-        const ini = asignacionInicialRef.current;
-        const cambioSlot =
-          ini.planta &&
-          ini.posicion &&
-          (ini.planta !== (form.planta ?? "").trim().toUpperCase() ||
-            ini.posicion !== (form.posicion ?? "").trim().toUpperCase() ||
-            ini.servicio !== (form.servicio ?? "").trim().toUpperCase());
-        if (cambioSlot) {
-          const creada = addVacanteRegistro(
-            {
-              planta: ini.planta,
-              posicion: ini.posicion,
-              servicioLinea: ini.servicio,
-              rowServiceNo: ini.noServicio,
-              puesto: ini.puesto,
-            },
-            catalogoServicios,
-          );
-          if (creada) await persistirVacantesCatalogoEnServidor();
-        }
-        if (vacanteIdRef.current) {
-          await consumirVacanteTrasAlta({
-            vacanteId: vacanteIdRef.current,
-            alta: {
-              planta: (form.planta ?? "").trim(),
-              servicioLinea: (form.servicio ?? "").trim(),
-              rowServiceNo: (form.noServicio ?? "").trim(),
-            },
-            posicion: (form.posicion ?? "").trim(),
-          });
-          vacanteIdRef.current = "";
-        }
-      }
-
-      if (colaboradorTieneBaja(actualizado)) {
-        await registrarVacanteTrasBaja(actualizado, catalogoServicios);
-      }
       await onGuardado(actualizado);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "ERROR AL GUARDAR." });
@@ -411,32 +344,8 @@ export function EditorExpedienteCompleto({
         </p>
       ) : null}
       <form onSubmit={guardar} className="space-y-8">
-        {editarVacantesCuadricula ? (
-          <div className="space-y-3 rounded-lg border-2 border-blue-200 bg-blue-50/40 p-4">
-            <h4 className="text-xs font-bold uppercase tracking-wide text-blue-950">
-              Asignación (vacantes Cuadrícula)
-            </h4>
-            <p className="text-[11px] text-blue-900">
-              Elija servicio, planta y posición del catálogo para corregir. Al guardar, la posición elegida se quita del
-              catálogo; la asignación anterior vuelve como vacante si cambió.
-            </p>
-            <ColaboradorVacantePicker
-              valores={{
-                servicio: formValues.servicio ?? "",
-                noServicio: formValues.noServicio ?? "",
-                planta: formValues.planta ?? "",
-                posicion: formValues.posicion ?? "",
-                puesto: formValues.puesto ?? "",
-              }}
-              onChange={onVacantePickerChange}
-            />
-          </div>
-        ) : null}
-
         {([1, 2, 3, 4, 6] as const).map((parteNum) => {
-          const keys = [...(ALTAS_FORM_KEYS_PARTE[parteNum] ?? [])].filter(
-            (k) => !(editarVacantesCuadricula && parteNum === 1 && CAMPOS_VACANTE_PARTE1.has(k)),
-          );
+          const keys = [...(ALTAS_FORM_KEYS_PARTE[parteNum] ?? [])];
           return (
             <div key={`parte-${parteNum}`} className="space-y-3 border-b border-slate-100 pb-6 last:border-0">
               <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">

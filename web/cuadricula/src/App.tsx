@@ -6,7 +6,6 @@ import { AsistenciaConsultaView } from './views/AsistenciaConsultaView'
 import { BajasView } from './views/BajasView'
 import { ComidasView } from './views/ComidasView'
 import { IncidenciasView } from './views/IncidenciasView'
-import { VacantesView } from './views/VacantesView'
 
 export default function App() {
   const [module, setModule] = useState<ModuleId>('asistencia')
@@ -49,7 +48,6 @@ export default function App() {
         {module === 'bajas' && isModuleActive('bajas') && <BajasView />}
         {module === 'incidencias' && isModuleActive('incidencias') && <IncidenciasView />}
         {module === 'comidas' && isModuleActive('comidas') && <ComidasView />}
-        {module === 'vacantes' && <VacantesView />}
       </div>
     </div>
   )

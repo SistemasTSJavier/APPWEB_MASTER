@@ -30,7 +30,7 @@ export const APP_MODULES: AppModule[] = [
     active: false,
   },
   { id: 'comidas', label: 'Comidas', hint: 'Comedor y turnos de comida', active: false },
-  { id: 'vacantes', label: 'Vacantes', hint: 'Posiciones libres por planta', active: true },
+  { id: 'vacantes', label: 'Vacantes', hint: 'Posiciones libres por planta', active: false },
 ]
 
 export const ACTIVE_MODULE_IDS = new Set(
