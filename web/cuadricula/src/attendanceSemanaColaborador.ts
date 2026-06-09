@@ -3,6 +3,7 @@ import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import type { AttendanceWeekPrefetch } from "./attendanceStorage";
 import {
   loadAttendanceGridForPlantaWithMeta,
+  mergeStoredGridsForPlanta,
   normalizeStoredRows,
   resolveMergedStoredGridForPlanta,
 } from "./attendanceStorage";
@@ -386,13 +387,60 @@ export async function mergeGridRowsTodasPlantasWeek(
 export function splitGridRowsByPlanta(rows: GridRow[]): Map<string, GridRow[]> {
   const map = new Map<string, GridRow[]>();
   for (const r of rows) {
-    const p = (r.plantaLinea ?? "").trim().toUpperCase();
+    const p = normPlantaCapturaNombre(r.plantaLinea ?? "");
     if (!p) continue;
     const list = map.get(p) ?? [];
     list.push(r);
     map.set(p, list);
   }
   return map;
+}
+
+/**
+ * Filas a guardar de una planta SIN perder lo ya almacenado:
+ * - Lo en pantalla manda por N° de empleado (incluye ediciones manuales).
+ * - Lo guardado (importación CSV, bajas, empleados fuera de la base activa)
+ *   que no esté en pantalla se conserva tal cual.
+ * Así «Guardar» nunca borra asistencia importada de empleados que la vista
+ * de captura no muestra.
+ */
+export async function filasParaGuardarPlantaWeek(
+  colaboradores: ColaboradorCompleto[],
+  plantaNombre: string,
+  catalogo: CatalogoServicioItem[],
+  weekStartIso: string,
+  prefetch: AttendanceWeekPrefetch,
+  filasPantalla?: GridRow[] | null,
+): Promise<GridRow[]> {
+  const enPantalla =
+    filasPantalla && filasPantalla.length > 0
+      ? filasPantalla
+      : await mergeGridRowsForPlantaWeek(
+          colaboradores,
+          plantaNombre,
+          catalogo,
+          weekStartIso,
+          prefetch,
+        );
+
+  const scopeKey = plantaToStorageKey(plantaNombre);
+  if (!scopeKey) return enPantalla;
+
+  /* Sin filtro de empleados: conserva también filas guardadas de bajas o
+     empleados que no están en la base activa de la planta. */
+  const stored = mergeStoredGridsForPlanta(weekStartIso, scopeKey, [], prefetch);
+  const storedRows = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
+  if (storedRows.length === 0) return enPantalla;
+
+  const enPantallaKeys = new Set(
+    enPantalla.map((r) => empNoClaveGridRow(r)).filter(Boolean),
+  );
+  const extras = storedRows.filter((r) => {
+    if (r.vacant) return false;
+    const k = empNoClaveGridRow(r);
+    return Boolean(k) && !enPantallaKeys.has(k);
+  });
+  return extras.length > 0 ? [...enPantalla, ...extras] : enPantalla;
 }
 
 /** @deprecated Use mergeGridRowsForPlantaWeek */

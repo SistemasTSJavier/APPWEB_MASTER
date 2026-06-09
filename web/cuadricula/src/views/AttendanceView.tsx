@@ -41,11 +41,13 @@ import {
   colaboradoresActivosPorServicioCatalogo,
   gridRowServiceNo,
   listarPlantasCapturaAsistencia,
+  normPlantaCapturaNombre,
   plantaExpedienteColaborador,
   plantaFromStorageKey,
   plantaToStorageKey,
 } from '../cuadriculaColaboradoresBridge'
 import {
+  filasParaGuardarPlantaWeek,
   mergeGridRowsForPlantaWeek,
   mergeGridRowsForPlantaWeekForCsvImport,
   mergeGridRowsTodasPlantasWeek,
@@ -825,37 +827,28 @@ export function AttendanceView() {
     const porPlantaEnPantalla = esVistaTodasPlantas ? splitGridRowsByPlanta(rows) : null
     const plantaActualNorm = esVistaTodasPlantas
       ? ''
-      : plantaSeleccionada.trim().toUpperCase()
+      : normPlantaCapturaNombre(plantaSeleccionada)
     const prefetch = await getAttendanceWeekPrefetch(weekIso)
     const mergeResults = await Promise.all(
       plantas.map(async (planta) => {
         const scopeKey = plantaToStorageKey(planta)
         if (!scopeKey) return null
-        const norm = planta.trim().toUpperCase()
-        let filas: GridRow[]
+        const norm = normPlantaCapturaNombre(planta)
+        let filasPantalla: GridRow[] | null = null
         if (porPlantaEnPantalla) {
-          filas =
-            porPlantaEnPantalla.get(norm) ??
-            (await mergeGridRowsForPlantaWeek(
-              colaboradores,
-              planta,
-              catalogo,
-              weekIso,
-              prefetch,
-            ))
-        } else {
-          const esPlantaEnPantalla =
-            norm === plantaActualNorm && Boolean(plantaStorageKey)
-          filas = esPlantaEnPantalla
-            ? rows
-            : await mergeGridRowsForPlantaWeek(
-                colaboradores,
-                planta,
-                catalogo,
-                weekIso,
-                prefetch,
-              )
+          filasPantalla = porPlantaEnPantalla.get(norm) ?? null
+        } else if (norm === plantaActualNorm && plantaStorageKey) {
+          filasPantalla = rows
         }
+        /* Unión pantalla + guardado: nunca borra lo importado que la vista no muestra. */
+        const filas = await filasParaGuardarPlantaWeek(
+          colaboradores,
+          planta,
+          catalogo,
+          weekIso,
+          prefetch,
+          filasPantalla,
+        )
         return filas.length > 0 ? { scopeKey, rows: filas } : null
       }),
     )
@@ -863,7 +856,8 @@ export function AttendanceView() {
       (item): item is { scopeKey: string; rows: GridRow[] } => item != null,
     )
     if (batchItems.length > 0) {
-      const batch = await saveManyAttendanceGrids(weekIso, batchItems)
+      /* forceReplace: el lote ya es la unión pantalla + guardado, no pierde nada. */
+      const batch = await saveManyAttendanceGrids(weekIso, batchItems, { forceReplace: true })
       guardadas = batch.saved
       fallidas = Math.max(0, batchItems.length - batch.saved) + batch.failed
     }
