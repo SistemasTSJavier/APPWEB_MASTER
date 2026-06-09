@@ -29,6 +29,8 @@ import { enrichGridRowsEstatus } from './attendancePlantaMerge'
 import {
   mergeGridRowsForPlantaWeek,
   mergeGridRowsForPlantaWeekForCsvImport,
+  mergeGridRowsTodasPlantasWeek,
+  splitGridRowsByPlanta,
 } from './attendanceSemanaColaborador'
 import { sortGridRowsByPosicion } from './attendanceGridSort'
 import {
@@ -834,8 +836,8 @@ export function parseAttendanceGridCodesCsv(text: string):
     if (trimmedEnd.trimStart().startsWith('--')) continue
     contentLines.push(trimmedEnd)
   }
-  if (contentLines.length < 2) {
-    return { ok: false, error: 'El archivo no tiene cabecera y filas de datos.' }
+  if (contentLines.length < 1) {
+    return { ok: false, error: 'El archivo está vacío.' }
   }
 
   const delim = pickDelimiter(contentLines)
@@ -1153,7 +1155,10 @@ export function mergeCsvShiftsIntoGridRows(
         csvEmployeesNotInGrid.push(imp.employeeNo)
         continue
       }
-      targets = [colaboradorToGridRow(col, reconcile.catalogo, reconcile.plantaNombre)]
+      const plantaFila = reconcile.omitirFiltroPlantaExpediente
+        ? plantaCapturaColaborador(col, reconcile.catalogo)
+        : reconcile.plantaNombre
+      targets = [colaboradorToGridRow(col, reconcile.catalogo, plantaFila)]
       gridCanonKeys.add(canon)
     } else if (targets.length === 0) {
       csvEmployeesNotInGrid.push(imp.employeeNo)
@@ -1302,6 +1307,81 @@ function groupCsvRowsByPlanta(
     groups.set(p, list)
   }
   return { groups, rowsSinPlanta }
+}
+
+export type DirectCsvImportResult = {
+  rows: GridRow[]
+  totalUpdated: number
+  omitidosSinRegistro: string[]
+  plantsSaved: number
+  plantsSaveFailed: number
+  filasCsv: number
+}
+
+/**
+ * Importación directa: empareja por N.º de empleado sobre la cuadrícula visible (todas las plantas),
+ * pinta al instante y guarda por planta. No depende de agrupar por PLANTA en el CSV.
+ */
+export async function importAttendanceCsvDirectToGrid(opts: {
+  parsedRows: ParsedAttendanceGridCsvRow[]
+  colaboradores: ColaboradorCompleto[]
+  catalogo: CatalogoServicioItem[]
+  weekIso: string
+  /** Filas actuales en pantalla; si existen, evita recargar del servidor antes de fusionar. */
+  baseRows?: GridRow[]
+  persist?: boolean
+}): Promise<DirectCsvImportResult> {
+  const colaboradoresByEmp = mapaColaboradoresActivosCapturaPorEmpNo(opts.colaboradores)
+  let base: GridRow[]
+  if (opts.baseRows && opts.baseRows.length > 0) {
+    base = opts.baseRows
+  } else {
+    base = (
+      await mergeGridRowsTodasPlantasWeek(opts.colaboradores, opts.catalogo, opts.weekIso)
+    ).rows
+  }
+
+  const { next, updatedCount, csvEmployeesNotInGrid } = mergeCsvShiftsIntoGridRows(
+    base,
+    opts.parsedRows,
+    {
+      catalogo: opts.catalogo,
+      plantaNombre: '',
+      colaboradoresByEmp,
+      agregarFilasCsvPorEmpNo: true,
+      todosColaboradores: opts.colaboradores,
+      reemplazarSemanaDesdeCsv: true,
+      omitirFiltroPlantaExpediente: true,
+    },
+  )
+
+  const rows = sortGridRowsByPosicion(next)
+  let plantsSaved = 0
+  let plantsSaveFailed = 0
+
+  if (opts.persist !== false && updatedCount > 0) {
+    const porPlanta = splitGridRowsByPlanta(rows)
+    const items: { scopeKey: string; rows: GridRow[] }[] = []
+    for (const [plantaNorm, filas] of porPlanta) {
+      if (filas.length === 0) continue
+      const scopeKey = plantaToStorageKey(plantaNorm)
+      if (scopeKey) items.push({ scopeKey, rows: filas })
+    }
+    if (items.length > 0) {
+      const batch = await saveManyAttendanceGrids(opts.weekIso, items, { forceReplace: true })
+      plantsSaved = batch.saved
+      plantsSaveFailed = batch.failed
+    }
+  }
+
+  return {
+    rows,
+    totalUpdated: updatedCount,
+    omitidosSinRegistro: csvEmployeesNotInGrid,
+    plantsSaved,
+    plantsSaveFailed,
+    filasCsv: opts.parsedRows.length,
+  }
 }
 
 /**

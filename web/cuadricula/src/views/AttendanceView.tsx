@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { isAttendanceDayLocked } from '../attendanceDayLock'
 import { addDays, downloadTextFile, formatDateEs, mondayOfWeek, weekDayMetas } from '../attendanceExportSummary'
-import { empNoClaveGridRow, saveManyAttendanceGrids, weekStartToIso } from '../attendanceStorage'
+import { saveManyAttendanceGrids, weekStartToIso } from '../attendanceStorage'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
 import { withComputedTotals } from '../attendanceTotals'
 import {
@@ -30,42 +30,14 @@ import { WEEK_COLUMNS, type GridRow, type Turn } from '../mockData'
 import { TOTAL_COLUMN_HELP } from '../weekTotalsLegend'
 import { AttendanceGridRow } from '../components/AttendanceGridRow'
 import {
-  applyAttendanceCsvToAllPlantasWeek,
   buildCsvListaNumerosEmpleado,
   csvDelimiterUserHint,
+  importAttendanceCsvDirectToGrid,
   parseAttendanceGridCodesCsv,
 } from '../attendanceGridCsvImport'
 
 const TURNS: Turn[] = ['D', 'T', 'N']
 const CODE_HINTS = ['A', 'D', 'F', 'INC', 'VAC', 'PCGS', 'PSGS', 'CAP', 'DD']
-
-function aplicarImportacionEnPantalla(
-  plantas: Array<{ plantaNombre: string; updatedCount: number; rows: GridRow[] }>,
-  prev: GridRow[],
-): GridRow[] {
-  const slices = plantas.filter((p) => p.updatedCount > 0 && p.rows.length > 0)
-  if (slices.length === 0) return prev
-  const porEmp = new Map<string, GridRow>()
-  for (const p of slices) {
-    for (const r of p.rows) {
-      const k = empNoClaveGridRow(r)
-      if (k) porEmp.set(k, r)
-    }
-  }
-  const vistos = new Set<string>()
-  const next = prev.map((r) => {
-    const k = empNoClaveGridRow(r)
-    if (k && porEmp.has(k)) {
-      vistos.add(k)
-      return porEmp.get(k)!
-    }
-    return r
-  })
-  for (const [k, r] of porEmp) {
-    if (!vistos.has(k)) next.push(r)
-  }
-  return next
-}
 
 export function AttendanceView() {
   const {
@@ -86,7 +58,10 @@ export function AttendanceView() {
   const importCsvRef = useRef<HTMLInputElement>(null)
   const [importRefresh, setImportRefresh] = useState(0)
   const [gridLoading, setGridLoading] = useState(false)
+  const [importandoCsv, setImportandoCsv] = useState(false)
   const [guardandoSemana, setGuardandoSemana] = useState(false)
+  const rowsRef = useRef<GridRow[]>([])
+  rowsRef.current = rows
 
   const colaboradoresRef = useRef(colaboradoresActivosCaptura)
   const catalogoRef = useRef(catalogo)
@@ -154,6 +129,7 @@ export function AttendanceView() {
     }
 
     setCsvImportOmitidos(null)
+    setSaveMessage(null)
     const parsed = parseAttendanceGridCodesCsv(text)
     if (parsed.ok === false) {
       setSaveMessage(`CSV: ${parsed.error}`)
@@ -161,45 +137,62 @@ export function AttendanceView() {
     }
 
     const delimHint = csvDelimiterUserHint(parsed.delimiter)
-    const sinNumeroMsg =
-      (parsed.filasSinNumeroEmpleado ?? 0) > 0
-        ? `${parsed.filasSinNumeroEmpleado} fila(s) no se ingresaron: no se detectó N.º de empleado.`
-        : ''
+    const stats: string[] = []
+    if ((parsed.filasLeidas ?? 0) > 0) stats.push(`${parsed.filasLeidas} fila(s) leídas`)
+    if ((parsed.filasSinNumeroEmpleado ?? 0) > 0) {
+      stats.push(`${parsed.filasSinNumeroEmpleado} sin N.º de empleado`)
+    }
+    if ((parsed.filasSinCodigos ?? 0) > 0) {
+      stats.push(`${parsed.filasSinCodigos} sin códigos de asistencia`)
+    }
+    const statsMsg = stats.length ? ` (${stats.join(', ')}).` : '.'
 
-    const result = await applyAttendanceCsvToAllPlantasWeek({
-      parsedRows: parsed.rows,
-      colaboradores: colaboradoresActivosCaptura,
-      catalogo,
-      weekIso,
-    })
+    setImportandoCsv(true)
+    try {
+      const result = await importAttendanceCsvDirectToGrid({
+        parsedRows: parsed.rows,
+        colaboradores: colaboradoresActivosCaptura,
+        catalogo,
+        weekIso,
+        baseRows: rowsRef.current.length > 0 ? rowsRef.current : undefined,
+      })
 
-    if (result.totalUpdated === 0) {
+      if (result.totalUpdated === 0) {
+        setSaveMessage(
+          `CSV (${weekRangeLabel}): ningún colaborador activo coincidió con el archivo${statsMsg} Revise N.º de empleado y la semana visible.`,
+        )
+        if (result.omitidosSinRegistro.length > 0) setCsvImportOmitidos(result.omitidosSinRegistro)
+        return
+      }
+
+      startGridTransition(() => setRows(result.rows))
+
+      const parts: string[] = [
+        `Importado: ${result.totalUpdated} colaborador(es) activo(s) en ${weekRangeLabel}. Separador: ${delimHint}.`,
+      ]
+      if (result.plantsSaved > 0) {
+        parts.push(`Guardado en ${result.plantsSaved} planta(s).`)
+      }
+      if (result.plantsSaveFailed > 0) {
+        parts.push(
+          `${result.plantsSaveFailed} planta(s) no se guardaron en servidor; los datos ya están en pantalla — pulse «Guardar semana».`,
+        )
+      }
+      if (result.omitidosSinRegistro.length > 0) {
+        setCsvImportOmitidos(result.omitidosSinRegistro)
+        parts.push(`${result.omitidosSinRegistro.length} N.º del CSV no están activos en Colaboradores.`)
+      }
+      if ((parsed.filasSinNumeroEmpleado ?? 0) > 0) {
+        parts.push(`${parsed.filasSinNumeroEmpleado} fila(s) ignoradas: sin N.º de empleado.`)
+      }
+      setSaveMessage(parts.join(' '))
+    } catch (err) {
       setSaveMessage(
-        `CSV (${weekRangeLabel}): no se actualizó ningún colaborador activo.${sinNumeroMsg ? ` ${sinNumeroMsg}` : ''}`,
+        err instanceof Error ? err.message : 'Error al importar el CSV. Intente de nuevo o use «Guardar semana».',
       )
-      if (result.omitidosSinRegistro.length > 0) setCsvImportOmitidos(result.omitidosSinRegistro)
-      return
+    } finally {
+      setImportandoCsv(false)
     }
-
-    const parts: string[] = [
-      `Importación: ${result.totalUpdated} colaborador(es) activo(s), semana ${weekRangeLabel}. Guardado: ${result.plantsSaved} planta(s). Separador: ${delimHint}.`,
-    ]
-    if (result.plantsSaveFailed > 0) {
-      parts.push(`${result.plantsSaveFailed} planta(s) no se pudieron guardar. Pulse «Guardar semana».`)
-    }
-    if (result.omitidosSinRegistro.length > 0) {
-      setCsvImportOmitidos(result.omitidosSinRegistro)
-      parts.push(
-        `${result.omitidosSinRegistro.length} N.º no ingresados (no activo o no en expediente).`,
-      )
-    }
-    if (sinNumeroMsg) parts.push(sinNumeroMsg)
-    setSaveMessage(parts.join(' '))
-
-    startGridTransition(() =>
-      setRows((prev) => aplicarImportacionEnPantalla(result.plantas, prev)),
-    )
-    setImportRefresh((n) => n + 1)
   }
 
   async function guardarSemana() {
@@ -250,6 +243,7 @@ export function AttendanceView() {
           ? `Semana guardada parcialmente: ${batch.saved} planta(s), ${fallidas} con error. ${weekRangeLabel}.`
           : `Semana guardada: ${batch.saved} planta(s), ${weekRangeLabel}.`,
       )
+      setImportRefresh((n) => n + 1)
     } finally {
       setGuardandoSemana(false)
     }
@@ -339,11 +333,11 @@ export function AttendanceView() {
                   <button
                     type="button"
                     className="btn btn--primary btn--compact"
-                    disabled={loading || gridLoading}
+                    disabled={loading || gridLoading || importandoCsv}
                     onClick={() => importCsvRef.current?.click()}
-                    title="Importar asistencia de todos los colaboradores activos (CSV con columna PLANTA o N.º de empleado)"
+                    title="Importar asistencia por N.º de empleado (columna PLANTA opcional). Los datos se muestran al instante."
                   >
-                    Importar asistencia
+                    {importandoCsv ? 'Importando…' : 'Importar asistencia'}
                   </button>
                 </>
               ) : null}
@@ -362,11 +356,16 @@ export function AttendanceView() {
             </div>
           </div>
 
-          {(gridLoading || saveMessage) ? (
+          {(gridLoading || importandoCsv || saveMessage) ? (
             <div className="captureStatusBar" role="status">
               {gridLoading ? (
                 <span className="captureStatusBar__item captureStatusBar__item--muted">
                   Cargando colaboradores activos y asistencia…
+                </span>
+              ) : null}
+              {importandoCsv ? (
+                <span className="captureStatusBar__item captureStatusBar__item--muted">
+                  Importando CSV y aplicando códigos en la cuadrícula…
                 </span>
               ) : null}
               {saveMessage ? (
