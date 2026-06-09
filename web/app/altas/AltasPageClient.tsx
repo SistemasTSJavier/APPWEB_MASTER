@@ -40,20 +40,6 @@ import {
   resolverExpedientePlantillaReingreso,
 } from "@/lib/altas-prefill-reingreso";
 import {
-  datosAltaDesdeVacante,
-  listarPlantasVacantesPorServicio,
-  listarServiciosDesdeVacantes,
-  listarVacantesPorServicioYPlanta,
-} from "@/lib/altas-vacantes";
-import {
-  loadVacantesCatalogo,
-  saveVacantesCatalogoDirect,
-  VACANTES_CATALOG_UPDATED_EVENT,
-  type VacanteRegistro,
-} from "@/lib/vacantes-catalog";
-import { consumirVacanteTrasAlta } from "@/lib/vacantes-catalog-flujo";
-import { fetchVacantesCatalogRemote } from "@/lib/vacantes-catalog-remote";
-import {
   ALTAS_ESTADO_CIVIL_OPCIONES,
   ALTAS_ESTADO_TRAMITE_OPCIONES,
   ALTAS_GESTORES_PROCESO_OPCIONES,
@@ -225,55 +211,6 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   const [renumeracionCsvMsg, setRenumeracionCsvMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [renumeracionCsvBusy, setRenumeracionCsvBusy] = useState(false);
 
-  const [catalogoVacantes, setCatalogoVacantes] = useState<VacanteRegistro[]>([]);
-  const [vacantesHydrated, setVacantesHydrated] = useState(false);
-  const [claveServicioVacante, setClaveServicioVacante] = useState("");
-  const [vacanteAsignadaId, setVacanteAsignadaId] = useState("");
-
-  const serviciosConVacantes = useMemo(
-    () => listarServiciosDesdeVacantes(catalogoVacantes),
-    [catalogoVacantes],
-  );
-
-  const plantasVacante = useMemo(
-    () => listarPlantasVacantesPorServicio(claveServicioVacante, catalogoVacantes),
-    [claveServicioVacante, catalogoVacantes],
-  );
-
-  const vacantesEnPlanta = useMemo(
-    () => listarVacantesPorServicioYPlanta(claveServicioVacante, form.planta, catalogoVacantes),
-    [claveServicioVacante, form.planta, catalogoVacantes],
-  );
-
-  const hayVacantesEnCatalogo = catalogoVacantes.length > 0;
-
-  useEffect(() => {
-    const recargar = () => setCatalogoVacantes(loadVacantesCatalogo());
-    window.addEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
-    let cancelled = false;
-    void (async () => {
-      const local = loadVacantesCatalogo();
-      if (local.length > 0) {
-        if (!cancelled) {
-          recargar();
-          setVacantesHydrated(true);
-        }
-        return;
-      }
-      const remote = await fetchVacantesCatalogRemote();
-      if (cancelled) return;
-      if (remote.meta.status === "ok" && remote.items.length > 0) {
-        saveVacantesCatalogoDirect(remote.items);
-        recargar();
-      }
-      setVacantesHydrated(true);
-    })();
-    return () => {
-      cancelled = true;
-      window.removeEventListener(VACANTES_CATALOG_UPDATED_EVENT, recargar);
-    };
-  }, []);
-
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -396,9 +333,6 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       };
     });
     setFamiliares(familiaresDesdeColaboradorReingreso(fuente));
-    const serv = String(fuente.form?.servicio ?? fuente.servicioAsignado ?? "").trim();
-    if (serv) setClaveServicioVacante(serv);
-    setVacanteAsignadaId("");
     setModoReingreso(true);
     setExpedienteReingresoOrigen(fuente);
   }, [plantillaReingreso]);
@@ -511,24 +445,6 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
 
     const servicioAlta = flatForm.servicio.trim();
 
-    if (hayVacantesEnCatalogo) {
-      if (!vacantesHydrated) {
-        setAltaMsg({
-          ok: false,
-          text: "ESPERE A QUE CARGUE EL CATALOGO DE VACANTES (CUADRICULA).",
-        });
-        return;
-      }
-      if (!vacanteAsignadaId) {
-        setStep(0);
-        setAltaMsg({
-          ok: false,
-          text: "SELECCIONE SERVICIO, PLANTA Y POSICION DE UNA VACANTE DEL CATALOGO (CUADRICULA).",
-        });
-        return;
-      }
-    }
-
     const familiaresNorm = normalizarFamiliaresAltaMayusculas(familiares);
 
     const formExpediente = expedientePrevioGuardar
@@ -558,21 +474,6 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           beneficiarioBancario: f.beneficiarioBancario,
         })),
       });
-      const vacanteIdAlGuardar = vacanteAsignadaId;
-      const { consumida, sync: syncVacante } = await consumirVacanteTrasAlta({
-        vacanteId: vacanteIdAlGuardar || undefined,
-        alta: {
-          planta: flatForm.planta.trim(),
-          servicioLinea: flatForm.servicio.trim(),
-          rowServiceNo: flatForm.noServicio.trim(),
-        },
-        posicion: flatForm.posicion.trim(),
-      });
-      if (consumida) {
-        setCatalogoVacantes(loadVacantesCatalogo());
-        setVacanteAsignadaId("");
-        setClaveServicioVacante("");
-      }
       listadoColaboradoresCacheRef.current = null;
       try {
         const list = await listColaboradoresCompletos({ forceRefresh: true });
@@ -593,17 +494,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           return Number.isFinite(n) ? String(n + 1) : prev;
         });
       }
-      const partesVacante: string[] = [];
-      if (consumida) {
-        partesVacante.push("VACANTE OCUPADA: RETIRADA DEL CATALOGO DE CUADRICULA");
-        if (!syncVacante.ok) {
-          partesVacante.push(`(${syncVacante.aviso ?? "SIN SINCRONIZAR A PRODUCCION"})`);
-        }
-      } else if (hayVacantesEnCatalogo && vacanteIdAlGuardar) {
-        partesVacante.push("AVISO: NO SE PUDO QUITAR LA VACANTE DEL CATALOGO (REVISE CUADRICULA → VACANTES)");
-      }
-      const extraVacante = partesVacante.length ? ` ${partesVacante.join(". ")}.` : "";
-      setAltaMsg({ ok: true, text: `EXPEDIENTE GUARDADO EN SUPABASE.${extraVacante}` });
+      setAltaMsg({ ok: true, text: "EXPEDIENTE GUARDADO EN SUPABASE." });
     } catch (err) {
       setAltaMsg({
         ok: false,
@@ -1013,8 +904,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           </summary>
           <div className="space-y-3 border-t border-slate-200 px-4 pb-4 pt-3 sm:px-5">
           <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-950">
-            En <strong>Parte 1</strong>, servicio/planta/posición salen del catálogo <strong>Cuadrícula → Vacantes</strong>.
-            En CSV masivo esas columnas se ignoran (manual después).
+            En <strong>Parte 1</strong>, servicio, planta y posición se capturan de forma manual en el formulario o en el CSV masivo.
           </p>
           <fieldset className="space-y-2 border-0 p-0">
             <legend className="sr-only">Modo de importacion</legend>
@@ -1419,142 +1309,10 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 ) : null}
                 <Field label="PUESTO" value={form.puesto} onChange={(v) => updateField("puesto", v)} />
 
-                <div className="md:col-span-2 lg:col-span-3 space-y-3 rounded-lg border-2 border-blue-200 bg-blue-50/50 p-4">
-                  <h3 className="text-sm font-bold uppercase text-blue-950">Asignación desde vacantes (Cuadrícula)</h3>
-                  <p className="text-[11px] font-medium text-blue-900">
-                    Elija servicio, planta y posición del catálogo de vacantes (Cuadrícula). Al guardar el alta, esa vacante se
-                    elimina del catálogo y se sincroniza con producción. Si alguien se da de baja, el módulo{" "}
-                    <strong>Bajas</strong> vuelve a registrar la posición como vacante nueva.
-                  </p>
-
-                  {!vacantesHydrated ? (
-                    <p className="text-xs font-medium text-slate-600" role="status">
-                      Cargando catálogo de vacantes…
-                    </p>
-                  ) : !hayVacantesEnCatalogo ? (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold uppercase text-amber-900">
-                        No hay vacantes en catálogo. Importe el CSV en{" "}
-                        <Link href="/cuadricula" className="underline">
-                          Cuadrícula → Vacantes
-                        </Link>{" "}
-                        o capture manualmente:
-                      </p>
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                        <Field label="SERVICIO (MANUAL)" value={form.servicio} onChange={(v) => updateField("servicio", v)} />
-                        <Field label="N.º SERVICIO" value={form.noServicio} onChange={(v) => updateField("noServicio", v)} />
-                        <Field label="PLANTA" value={form.planta} onChange={(v) => updateField("planta", v)} />
-                        <Field label="POSICIÓN" value={form.posicion} onChange={(v) => updateField("posicion", v)} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                      <label className="space-y-1">
-                        <span className="form-label uppercase">Servicio *</span>
-                        <select
-                          className="form-control uppercase"
-                          required={hayVacantesEnCatalogo}
-                          value={claveServicioVacante}
-                          onChange={(e) => {
-                            const clave = e.target.value;
-                            const opt = serviciosConVacantes.find((s) => s.clave === clave);
-                            setClaveServicioVacante(clave);
-                            setVacanteAsignadaId("");
-                            setForm((f) => ({
-                              ...f,
-                              servicio: opt?.servicioLinea ?? "",
-                              noServicio: opt?.rowServiceNo ?? "",
-                              planta: "",
-                              posicion: "",
-                            }));
-                          }}
-                        >
-                          <option value="">Seleccione servicio con vacante…</option>
-                          {serviciosConVacantes.map((s) => (
-                            <option key={s.clave} value={s.clave}>
-                              {s.servicioLinea}
-                              {s.rowServiceNo ? ` (N.º ${s.rowServiceNo})` : ""} — {s.vacantes} vacante
-                              {s.vacantes === 1 ? "" : "s"}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="space-y-1">
-                        <span className="form-label uppercase">Planta *</span>
-                        <select
-                          className="form-control uppercase"
-                          required={hayVacantesEnCatalogo && Boolean(claveServicioVacante)}
-                          value={form.planta}
-                          disabled={!claveServicioVacante}
-                          onChange={(e) => {
-                            setVacanteAsignadaId("");
-                            setForm((f) => ({ ...f, planta: e.target.value, posicion: "" }));
-                          }}
-                        >
-                          <option value="">
-                            {!claveServicioVacante ? "Primero servicio…" : "Seleccione planta…"}
-                          </option>
-                          {plantasVacante.map((p) => (
-                            <option key={p} value={p}>
-                              {p}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="space-y-1">
-                        <span className="form-label uppercase">Posición *</span>
-                        <select
-                          className="form-control uppercase"
-                          required={hayVacantesEnCatalogo && Boolean(form.planta)}
-                          value={vacanteAsignadaId}
-                          disabled={!claveServicioVacante || !form.planta}
-                          onChange={(e) => {
-                            const id = e.target.value;
-                            const v = vacantesEnPlanta.find((x) => x.id === id);
-                            if (!v) {
-                              setVacanteAsignadaId("");
-                              setForm((f) => ({ ...f, posicion: "" }));
-                              return;
-                            }
-                            const d = datosAltaDesdeVacante(v);
-                            setVacanteAsignadaId(id);
-                            setClaveServicioVacante(d.claveServicio);
-                            setForm((f) => ({
-                              ...f,
-                              servicio: d.servicio,
-                              noServicio: d.noServicio,
-                              planta: d.planta,
-                              posicion: d.posicion,
-                              puesto: d.puesto || f.puesto,
-                            }));
-                          }}
-                        >
-                          <option value="">
-                            {!form.planta ? "Primero planta…" : "Seleccione posición…"}
-                          </option>
-                          {vacantesEnPlanta.map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.posicion}
-                              {v.puesto ? ` — ${v.puesto}` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <Field label="N.º SERVICIO" value={form.noServicio} onChange={() => undefined} readOnly />
-                      <Field label="LÍNEA SERVICIO" value={form.servicio} onChange={() => undefined} readOnly />
-                    </div>
-                  )}
-
-                  {vacanteAsignadaId ? (
-                    <p className="text-xs font-semibold uppercase text-green-900">
-                      Asignado: {form.servicio} · N.º {form.noServicio || "—"} · {form.planta} · {form.posicion}
-                      {form.puesto ? ` · ${form.puesto}` : ""}
-                    </p>
-                  ) : null}
-                </div>
+                <Field label="SERVICIO" value={form.servicio} onChange={(v) => updateField("servicio", v)} />
+                <Field label="N.º SERVICIO" value={form.noServicio} onChange={(v) => updateField("noServicio", v)} />
+                <Field label="PLANTA" value={form.planta} onChange={(v) => updateField("planta", v)} />
+                <Field label="POSICIÓN" value={form.posicion} onChange={(v) => updateField("posicion", v)} />
                 <SelectField
                   label="LOCAL/FORANEO"
                   value={form.localForaneo}

@@ -13,9 +13,6 @@ import {
   bajasFormDesdeColaborador,
   type BajasFormState,
 } from "@/lib/colaboradores-baja";
-import { fetchServiciosCatalogo } from "@/lib/servicios-catalogo-client";
-import { registrarVacanteTrasBaja } from "@/lib/vacantes-catalog-flujo";
-
 const EMPTY_FORM: BajasFormState = {
   noEmpleado: "",
   nombreCompleto: "",
@@ -97,26 +94,11 @@ export function BajasRegistroForm({
   const [busquedaFiltrada, setBusquedaFiltrada] = useState("");
   const [listaAbierta, setListaAbierta] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const catalogoServiciosRef = useRef<Awaited<ReturnType<typeof fetchServiciosCatalogo>> | null>(null);
 
   const [form, setForm] = useState<BajasFormState>(EMPTY_FORM);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
-
-  useEffect(() => {
-    let cancel = false;
-    void fetchServiciosCatalogo()
-      .then((items) => {
-        if (!cancel) catalogoServiciosRef.current = items;
-      })
-      .catch(() => {
-        if (!cancel) catalogoServiciosRef.current = [];
-      });
-    return () => {
-      cancel = true;
-    };
-  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setBusquedaFiltrada(busqueda), BUSQUEDA_DEBOUNCE_MS);
@@ -208,24 +190,9 @@ export function BajasRegistroForm({
       const next = aplicarBajaEnExpediente(existing, form);
       await upsertColaboradorCompleto(next);
       onRowsChange(mergeColaboradorEnLista(rows, next));
-      const catalogo = catalogoServiciosRef.current ?? [];
-      const vacante = await registrarVacanteTrasBaja(next, catalogo);
-      const partes = ["BAJA GUARDADA. EXPEDIENTE ACTUALIZADO EN SUPABASE."];
-      if (vacante.creada && vacante.registro) {
-        partes.push(
-          `NUEVA VACANTE EN CATALOGO (${vacante.registro.planta} · POS. ${vacante.registro.posicion} · ${vacante.registro.servicioLinea ?? "—"}) — DISPONIBLE EN ALTAS Y CUADRICULA → VACANTES.`,
-        );
-        if (!vacante.sync.ok) {
-          partes.push(vacante.sync.aviso?.toUpperCase() ?? "VACANTE LOCAL; NO SINCRONIZADA A PRODUCCION.");
-        }
-      } else if (vacante.ok && vacante.motivo) {
-        partes.push(vacante.motivo.toUpperCase());
-      } else if (!vacante.ok && vacante.motivo) {
-        partes.push(`VACANTE: ${vacante.motivo.toUpperCase()}`);
-      }
       setStatusMsg({
         ok: true,
-        text: partes.join(" "),
+        text: "BAJA GUARDADA. EXPEDIENTE ACTUALIZADO EN SUPABASE.",
       });
     } catch (err) {
       setStatusMsg({ ok: false, text: err instanceof Error ? err.message : "ERROR AL GUARDAR." });
