@@ -77,10 +77,10 @@ export function AsistenciaConsultaView() {
           <span className="badge">Por colaborador</span>
         </div>
         <p className="hint consultaIntro">
-          Busque un colaborador <strong>activo o dado de baja</strong> y consulte el resumen de asistencia{" "}
-          <strong>por semana</strong> (totales lun–dom) del mes elegido. Se muestran <strong>Estatus</strong> y{" "}
-          <strong>Fecha de baja</strong> del expediente. El historial se lee del servidor (misma fuente que la
-          cuadrícula por planta), incluso si la persona ya no aparece en la captura semanal.
+          Busque un colaborador y vea un <strong>resumen claro por semana</strong> (lun–dom) del mes elegido:
+          totales de Asist., Extra, Desc., Falta, Inc., PCGS, PSGS, Vac. y Cap. Active{" "}
+          <strong>Mostrar códigos por día</strong> para ver el detalle D/T/N. Los datos son los mismos que en la
+          cuadrícula de captura (servidor y respaldo local).
         </p>
         {loading ? (
           <p className="hint" style={{ marginBottom: 8 }}>
@@ -186,8 +186,14 @@ export function AsistenciaConsultaView() {
           </p>
         ) : (
           <ColaboradorAsistenciaResumenPanel
-            titulo={`Resumen mensual — ${seleccionado.nombreCompleto || seleccionado.noEmpleado}`}
-            subtitulo={`Planta: ${plantaColaborador}. Totales por semana según datos guardados (activos y bajas).`}
+            titulo={`Resumen — ${seleccionado.nombreCompleto || seleccionado.noEmpleado}`}
+            subtitulo={`Planta: ${plantaColaborador}. ${
+              resumenLoading
+                ? "Cargando semanas del mes…"
+                : resumenFilas.filter((f) => f.row?.shifts?.some((d) => d.D || d.T || d.N)).length > 0
+                  ? `${resumenFilas.filter((f) => f.row?.shifts?.some((d) => d.D || d.T || d.N)).length} semana(s) con asistencia en ${mesYm}.`
+                  : `Sin asistencia registrada en ${mesYm}.`
+            }`}
             mesYm={mesYm}
             filas={resumenFilas}
             loading={resumenLoading}

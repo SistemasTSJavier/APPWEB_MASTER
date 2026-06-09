@@ -1764,6 +1764,17 @@
   }
 }
 
+/* Cuadrícula completa en pantalla: el navegador solo pinta filas visibles al hacer scroll */
+.attendanceView--captureGrid .sheet--captureGrid .captureGridBody .tr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 2.1rem;
+}
+
+.attendanceView--captureGrid .captureGridCount {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
 /* Captura asistencia: 8 columnas fijas (SERVICIO … NOMBRES) + semana + totales */
 .sheet.sheet--captureId8 {
   --sticky-w1: 5.25rem;

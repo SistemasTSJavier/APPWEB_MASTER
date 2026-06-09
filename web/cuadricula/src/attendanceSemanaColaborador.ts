@@ -167,6 +167,18 @@ async function mergePlantaWeekBlock(
         : sortGridRowsByPosicion(
             base.map((r) => withComputedTotals(r, gridRowServiceNo(r))),
           );
+    /* Incluye filas guardadas (p. ej. importadas) que no están en la base activa. */
+    if (normStored.length > 0) {
+      rows = sortGridRowsByPosicion(
+        appendFilasGuardadasFueraDeBase(
+          rows,
+          normStored,
+          todosColaboradores,
+          plantaNombre,
+          catalogo,
+        ),
+      );
+    }
   } else {
     let merged = base;
     if (normStored.length) {

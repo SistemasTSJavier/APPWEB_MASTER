@@ -92,7 +92,10 @@ export function ColaboradorAsistenciaResumenPanel({
       {loading ? (
         <p className="hint">Cargando semanas del mes…</p>
       ) : filas.length === 0 ? (
-        <p className="hint">No hay semanas en el mes seleccionado.</p>
+        <p className="hint">
+          Sin asistencia guardada en el mes seleccionado. Capture o importe en la cuadrícula semanal y guarde la
+          semana correspondiente.
+        </p>
       ) : (
         <div className="monthFocoPanel__scroll">
           <table className="sheet sheet--monthFoco" aria-label="Resumen de asistencia por semana">

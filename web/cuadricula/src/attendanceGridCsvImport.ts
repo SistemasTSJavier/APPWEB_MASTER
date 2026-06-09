@@ -816,6 +816,8 @@ export function parseAttendanceGridCodesCsv(text: string):
       rowsSinPlanta?: number
       /** Filas de datos leídas (con o sin cabecera). */
       filasLeidas?: number
+      /** Filas de datos sin N.º de empleado detectable. */
+      filasSinNumeroEmpleado?: number
       /** Filas con N.º pero sin códigos reconocibles. */
       filasSinCodigos?: number
     }
@@ -874,6 +876,7 @@ export function parseAttendanceGridCodesCsv(text: string):
   const byKey = new Map<string, ParsedAttendanceGridCsvRow>()
   let rowsSinPlanta = 0
   let filasLeidas = 0
+  let filasSinNumeroEmpleado = 0
   let filasSinCodigos = 0
 
   for (let r = dataStartRow; r < table.length; r++) {
@@ -883,7 +886,10 @@ export function parseAttendanceGridCodesCsv(text: string):
 
     filasLeidas++
     const parsed = parseCsvAttendanceRow(cells, layout, headerConfirmaDtn)
-    if (!parsed) continue
+    if (!parsed) {
+      filasSinNumeroEmpleado++
+      continue
+    }
 
     if (multiPlanta && layout.plantaCol != null && !parsed.plantaNombre) {
       rowsSinPlanta++
@@ -921,6 +927,7 @@ export function parseAttendanceGridCodesCsv(text: string):
     layout,
     rowsSinPlanta: multiPlanta ? rowsSinPlanta : undefined,
     filasLeidas,
+    filasSinNumeroEmpleado,
     filasSinCodigos,
   }
 }
