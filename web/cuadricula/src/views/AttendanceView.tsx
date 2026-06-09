@@ -82,7 +82,7 @@ import {
 const TURNS: Turn[] = ['D', 'T', 'N']
 
 const CODE_HINTS = ['A', 'D', 'F', 'INC', 'VAC', 'PCGS', 'PSGS', 'CAP', 'DD']
-const RENDER_CHUNK_FILAS = 60
+const RENDER_CHUNK_FILAS = 150
 
 /** Valor del selector de planta: cuadrícula unificada para captura manual. */
 export const PLANTA_ASISTENCIA_TODAS = '__TODAS_PLANTAS__'

@@ -11,11 +11,11 @@ import type { RemoteAttendanceFetchMeta } from "./attendanceRemote";
 import { injectCatalogVacantes, mergeAttendanceRowsWithStoredAndVacantes } from "./attendanceVacantes";
 import { listVacantesPorPlanta } from "./vacantesStorage";
 import {
+  agruparActivosPorPlantaCaptura,
   colaboradorToGridRow,
-  colaboradoresActivosParaCapturaPlanta,
   colaboradoresParaAsistenciaCsvImport,
   gridRowServiceNo,
-  listarPlantasCapturaAsistencia,
+  normPlantaCapturaNombre,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
 import { canonicalEmpNoAttendance, empNoClaveGridRow, indexGridRowsByEmpNo } from "@/lib/attendance-emp-no";
@@ -80,7 +80,57 @@ function fusionarCapturaSemanalDesdeExpediente(
 export type MergePlantaWeekOpts = {
   /** Captura semanal: solo activos, sin vacantes ni filas de baja guardadas. */
   soloCapturaActivos?: boolean;
+  /** Filas base precalculadas (cache); evita reconstruirlas al cambiar de semana. */
+  baseRows?: GridRow[];
 };
+
+/**
+ * Cache de la parte que NO cambia entre semanas: activos agrupados por planta y
+ * sus filas base de cuadrícula. Solo se recalcula cuando cambia la lista de
+ * colaboradores o el catálogo (identidad de los arreglos); cambiar de semana
+ * solo descarga los turnos guardados y los fusiona sobre esta base.
+ */
+type CapturaBaseCache = {
+  colaboradores: ColaboradorCompleto[];
+  catalogo: CatalogoServicioItem[];
+  grupos: Map<string, ColaboradorCompleto[]>;
+  basePorPlanta: Map<string, GridRow[]>;
+};
+
+let capturaBaseCache: CapturaBaseCache | null = null;
+
+function capturaBase(
+  colaboradores: ColaboradorCompleto[],
+  catalogo: CatalogoServicioItem[],
+): CapturaBaseCache {
+  if (
+    !capturaBaseCache ||
+    capturaBaseCache.colaboradores !== colaboradores ||
+    capturaBaseCache.catalogo !== catalogo
+  ) {
+    capturaBaseCache = {
+      colaboradores,
+      catalogo,
+      grupos: agruparActivosPorPlantaCaptura(colaboradores, catalogo),
+      basePorPlanta: new Map(),
+    };
+  }
+  return capturaBaseCache;
+}
+
+function baseDePlanta(
+  cache: CapturaBaseCache,
+  planta: string,
+): { activos: ColaboradorCompleto[]; base: GridRow[] } {
+  const key = normPlantaCapturaNombre(planta);
+  const activos = cache.grupos.get(key) ?? [];
+  let base = cache.basePorPlanta.get(key);
+  if (!base) {
+    base = activos.map((c) => colaboradorToGridRow(c, cache.catalogo, key));
+    cache.basePorPlanta.set(key, base);
+  }
+  return { activos, base };
+}
 
 async function mergePlantaWeekBlock(
   activos: ColaboradorCompleto[],
@@ -97,7 +147,8 @@ async function mergePlantaWeekBlock(
     return { rows: [], savedAt: null };
   }
 
-  const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
+  const base =
+    opts?.baseRows ?? activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
   const empKeys = activos
     .map((c) => canonicalEmpNoAttendance(c.noEmpleado))
     .filter(Boolean);
@@ -221,7 +272,8 @@ export async function mergeGridRowsForPlantaWeek(
   weekStartIso: string,
   prefetchedWeek?: AttendanceWeekPrefetch | null,
 ): Promise<GridRow[]> {
-  const activos = colaboradoresActivosParaCapturaPlanta(colaboradores, plantaNombre, catalogo);
+  const cache = capturaBase(colaboradores, catalogo);
+  const { activos, base } = baseDePlanta(cache, plantaNombre);
   const { rows } = await mergePlantaWeekBlock(
     activos,
     plantaNombre,
@@ -229,7 +281,7 @@ export async function mergeGridRowsForPlantaWeek(
     weekStartIso,
     prefetchedWeek ?? null,
     colaboradores,
-    { soloCapturaActivos: true },
+    { soloCapturaActivos: true, baseRows: base },
   );
   return rows;
 }
@@ -284,7 +336,8 @@ export async function mergeGridRowsTodasPlantasWeek(
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
 ): Promise<TodasPlantasWeekResult> {
-  const plantasCaptura = listarPlantasCapturaAsistencia(colaboradores, catalogo);
+  const cache = capturaBase(colaboradores, catalogo);
+  const plantasCaptura = [...cache.grupos.keys()].sort((a, b) => a.localeCompare(b, "es"));
 
   if (plantasCaptura.length === 0) {
     return { rows: [], remote: { status: "empty" }, lastSavedAt: null };
@@ -294,7 +347,7 @@ export async function mergeGridRowsTodasPlantasWeek(
 
   const blocks = await Promise.all(
     plantasCaptura.map((planta) => {
-      const activos = colaboradoresActivosParaCapturaPlanta(colaboradores, planta, catalogo);
+      const { activos, base } = baseDePlanta(cache, planta);
       return mergePlantaWeekBlock(
         activos,
         planta,
@@ -302,7 +355,7 @@ export async function mergeGridRowsTodasPlantasWeek(
         weekStartIso,
         prefetch,
         colaboradores,
-        { soloCapturaActivos: true },
+        { soloCapturaActivos: true, baseRows: base },
       );
     }),
   );

@@ -101,6 +101,36 @@ export function colaboradoresActivosParaCapturaPlanta(
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
 }
 
+/** Nombre de planta normalizado, igual que las claves de los desplegables de captura. */
+export function normPlantaCapturaNombre(p: string): string {
+  return normTxt(p);
+}
+
+/**
+ * Agrupa SOLO activos por planta en una pasada (mismas claves que
+ * `listarPlantasCapturaAsistencia`). Equivale a llamar
+ * `colaboradoresActivosParaCapturaPlanta` por cada planta, sin recorrer la
+ * lista completa una vez por planta.
+ */
+export function agruparActivosPorPlantaCaptura(
+  lista: ColaboradorCompleto[],
+  catalogo: CatalogoServicioItem[] = [],
+): Map<string, ColaboradorCompleto[]> {
+  const map = new Map<string, ColaboradorCompleto[]>();
+  for (const c of lista) {
+    if (!colaboradorEstaActivoEnOperacion(c)) continue;
+    const p = normTxt(plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c));
+    if (!p) continue;
+    const arr = map.get(p);
+    if (arr) arr.push(c);
+    else map.set(p, [c]);
+  }
+  for (const arr of map.values()) {
+    arr.sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+  }
+  return map;
+}
+
 /** Activos y dados de baja con la misma planta (lista de asistencia con historial). */
 export function colaboradoresParaAsistenciaPorPlanta(
   lista: ColaboradorCompleto[],
