@@ -1,6 +1,10 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
-import { claveServicioAgrupada, servicioLineaColaborador } from "@/lib/servicio-agrupacion";
+import {
+  claveServicioAgrupada,
+  servicioExpedienteColaborador,
+  servicioLineaColaborador,
+} from "@/lib/servicio-agrupacion";
 
 function normTxt(s: string): string {
   return s.trim().replace(/\s+/g, " ").toUpperCase();
@@ -63,22 +67,45 @@ export type FindCatalogoOpts = {
   plantaContexto?: string;
 };
 
+function lineasServicioExpediente(c: ColaboradorCompleto): string[] {
+  const out: string[] = [];
+  const push = (raw: string) => {
+    const n = normTxt(raw);
+    if (n && !out.includes(n)) out.push(n);
+  };
+  push(servicioExpedienteColaborador(c));
+  push(servicioLineaColaborador(c));
+  return out;
+}
+
+/** N.º de servicio capturado en Colaboradores (`form.noServicio`). */
+export function noServicioExpedienteColaborador(c: ColaboradorCompleto): string {
+  return canonicalNoServicioCatalogo(String(c.form?.noServicio ?? ""));
+}
+
 export function findCatalogoForColaborador(
   c: ColaboradorCompleto,
   catalogo: CatalogoServicioItem[],
   opts?: FindCatalogoOpts,
 ): CatalogoServicioItem | null {
-  const linea = normTxt(servicioLineaColaborador(c));
-  if (!linea || !catalogo.length) return null;
+  if (!catalogo.length) return null;
   const plantaHint = normPlantaCatalogo(opts?.plantaContexto ?? plantaExpedienteColaborador(c));
+
+  const noSrv = noServicioExpedienteColaborador(c);
+  if (noSrv) {
+    const porNum = findCatalogoPorNumeroYPlanta(catalogo, noSrv, plantaHint || undefined);
+    if (porNum) return porNum;
+  }
 
   let best: CatalogoServicioItem | null = null;
   let bestScore = -1;
-  for (const item of catalogo) {
-    const score = scoreLineaConCatalogo(linea, item, plantaHint);
-    if (score > bestScore) {
-      bestScore = score;
-      best = item;
+  for (const linea of lineasServicioExpediente(c)) {
+    for (const item of catalogo) {
+      const score = scoreLineaConCatalogo(linea, item, plantaHint);
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
     }
   }
   if (bestScore < 30) return null;
@@ -130,26 +157,28 @@ export function findCatalogoPorNombreYPlanta(
 }
 
 /**
- * N.º de servicio para cuadrícula: **catálogo Servicios** (nombre + planta) manda sobre expediente.
- * El campo `form.noServicio` solo se usa si no hay ítem en catálogo.
+ * N.º de servicio: primero lo capturado en **Colaboradores** (`form.noServicio`);
+ * el catálogo Servicios solo completa si falta en expediente.
  */
 export function noServicioColaborador(
   c: ColaboradorCompleto,
   catalogo?: CatalogoServicioItem[],
   opts?: FindCatalogoOpts,
 ): string {
+  const fromExp = noServicioExpedienteColaborador(c);
+  if (fromExp) return fromExp;
   const match = catalogo?.length ? findCatalogoForColaborador(c, catalogo, opts) : null;
-  const fromCatalog = (match?.numero_servicio ?? "").trim();
-  if (fromCatalog) return fromCatalog;
-  return String(c.form?.noServicio ?? "").trim();
+  return (match?.numero_servicio ?? "").trim();
 }
 
-/** Nombre en catálogo alineado a planta + línea de servicio del colaborador. */
+/** Nombre de servicio: primero expediente Colaboradores; catálogo solo si falta. */
 export function nombreServicioCatalogoColaborador(
   c: ColaboradorCompleto,
   catalogo?: CatalogoServicioItem[],
   opts?: FindCatalogoOpts,
 ): string {
+  const exp = normTxt(servicioExpedienteColaborador(c));
+  if (exp) return exp;
   const match = catalogo?.length ? findCatalogoForColaborador(c, catalogo, opts) : null;
   if (match?.nombre?.trim()) return normTxt(match.nombre);
   return normTxt(servicioLineaColaborador(c));
@@ -160,13 +189,18 @@ export function posicionLaboralColaborador(
   c: ColaboradorCompleto,
   catalogo?: CatalogoServicioItem[],
 ): string {
-  const fromTop = String(c.posicion ?? "").trim();
-  const fromForm = String(c.form?.posicion ?? "").trim();
-  const pos = fromTop || fromForm;
-  if (!pos) return "";
-  const noSrv = noServicioColaborador(c, catalogo);
-  if (noSrv && valorCoincideConNoServicio(pos, noSrv)) return "";
-  return pos;
+  const candidatos = [
+    String(c.form?.posicion ?? "").trim(),
+    String(c.posicion ?? "").trim(),
+  ];
+  const noSrv = noServicioExpedienteColaborador(c);
+  const noCatalogo = noSrv || noServicioColaborador(c, catalogo);
+  for (const pos of candidatos) {
+    if (!pos) continue;
+    if (noCatalogo && valorCoincideConNoServicio(pos, noCatalogo)) continue;
+    return pos;
+  }
+  return "";
 }
 
 /**
@@ -214,6 +248,8 @@ export function reconcileRowServiceNo(
   plantaNombre: string,
 ): string {
   if (colaborador) {
+    const exp = noServicioExpedienteColaborador(colaborador);
+    if (exp) return exp;
     const auth = noServicioColaborador(colaborador, catalogo, { plantaContexto: plantaNombre });
     if (auth) return auth;
   }

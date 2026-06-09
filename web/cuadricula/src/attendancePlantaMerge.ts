@@ -2,7 +2,8 @@ import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { colaboradorTieneBaja, fechaBajaNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import { formatoDesdeYyyyMmDd } from "@/lib/fecha-formato-display";
-import { colaboradorToGridRow, gridRowServiceNo } from "./cuadriculaColaboradoresBridge";
+import { elegirValorIdentificacionAsistencia } from "./attendanceGridColumns";
+import { buscarColaboradorPorClaveAsistencia, colaboradorToGridRow, gridRowServiceNo } from "./cuadriculaColaboradoresBridge";
 import type { GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
 
@@ -17,10 +18,9 @@ export function enrichGridRowsEstatus(
   rows: GridRow[],
   colaboradores: ColaboradorCompleto[],
 ): GridRow[] {
-  const byNo = new Map(colaboradores.map((c) => [c.noEmpleado.trim(), c]));
   return rows.map((r) => {
     if (r.vacant) return { ...r, estatus: undefined, fechaBaja: "—" };
-    const c = byNo.get(empKey(r));
+    const c = buscarColaboradorPorClaveAsistencia(colaboradores, empKey(r));
     if (!c) return r;
     const enBaja = colaboradorTieneBaja(c);
     const fb = fechaBajaNormalizadaColaborador(c);
@@ -43,7 +43,6 @@ export function appendFilasGuardadasFueraDeBase(
   catalogo: CatalogoServicioItem[],
 ): GridRow[] {
   const plantaNorm = plantaNombre.trim().toUpperCase();
-  const byNo = new Map(colaboradores.map((c) => [c.noEmpleado.trim(), c]));
   const keys = new Set(merged.filter((r) => !r.vacant).map((r) => empKey(r)).filter(Boolean));
   const out = [...merged];
 
@@ -54,7 +53,7 @@ export function appendFilasGuardadasFueraDeBase(
     const pl = (r.plantaLinea ?? "").trim().toUpperCase();
     if (plantaNorm && pl && pl !== plantaNorm) continue;
 
-    const c = byNo.get(k);
+    const c = buscarColaboradorPorClaveAsistencia(colaboradores, k);
     let row: GridRow;
     if (c) {
       const base = colaboradorToGridRow(c, catalogo, plantaNombre);
@@ -62,9 +61,15 @@ export function appendFilasGuardadasFueraDeBase(
         ...base,
         shifts:
           r.shifts?.length === base.shifts.length ? r.shifts : base.shifts,
-        rowServiceNo: base.rowServiceNo ?? r.rowServiceNo,
-        servicioLinea: base.servicioLinea ?? r.servicioLinea,
-        plantaLinea: base.plantaLinea ?? r.plantaLinea ?? plantaNorm,
+        rowServiceNo: elegirValorIdentificacionAsistencia(base.rowServiceNo, r.rowServiceNo),
+        servicioLinea: elegirValorIdentificacionAsistencia(base.servicioLinea, r.servicioLinea),
+        plantaLinea:
+          elegirValorIdentificacionAsistencia(base.plantaLinea, r.plantaLinea) ||
+          base.plantaLinea ||
+          r.plantaLinea ||
+          plantaNorm,
+        position: elegirValorIdentificacionAsistencia(base.position, r.position),
+        role: elegirValorIdentificacionAsistencia(base.role, r.role),
       };
     } else {
       row = {

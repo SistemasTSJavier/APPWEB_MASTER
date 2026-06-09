@@ -1,5 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ChangeEvent,
+} from 'react'
 import { isAttendanceDayLocked } from '../attendanceDayLock'
+import { loadResumenMensualColaborador } from '../attendanceResumenColaborador'
 import {
   addDays,
   attendanceExportFilename,
@@ -11,12 +20,12 @@ import {
   downloadTextFile,
   formatDateEs,
   mondayOfWeek,
-  mondaysInCalendarMonth,
   parseIsoYmdToLocalDate,
   type AttendanceExportPeriod,
   weekDayMetas,
 } from '../attendanceExportSummary'
 import {
+  empNoClaveGridRow,
   hasLegacyCatalogAttendanceForWeek,
   loadAttendanceGrid,
   loadLatestPointer,
@@ -27,15 +36,11 @@ import {
 } from '../attendanceStorage'
 import { getAttendanceWeekPrefetch } from '../attendanceWeekPrefetch'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
-import {
-  isAsistenciaCode,
-  isDoubleTurnoExtraCode,
-  withComputedTotals,
-} from '../attendanceTotals'
+import { withComputedTotals } from '../attendanceTotals'
 import {
   colaboradoresActivosPorServicioCatalogo,
   gridRowServiceNo,
-  listarPlantasDeColaboradores,
+  listarPlantasCapturaAsistencia,
   plantaExpedienteColaborador,
   plantaFromStorageKey,
   plantaToStorageKey,
@@ -44,14 +49,11 @@ import {
   mergeGridRowsForPlantaWeek,
   mergeGridRowsForPlantaWeekForCsvImport,
   mergeGridRowsTodasPlantasWeek,
-  mergeRowForEmployeeInWeek,
   splitGridRowsByPlanta,
 } from '../attendanceSemanaColaborador'
 import {
   ATTENDANCE_GRID_ID_COL_COUNT,
   ATTENDANCE_GRID_ID_HEADERS,
-  celdasIdentificacionAsistencia,
-  claseCeldaIdentificacionAsistencia,
 } from '../attendanceGridColumns'
 import {
   attendanceLiteralCsvFilename,
@@ -60,6 +62,7 @@ import {
 import { useCuadriculaData } from '../CuadriculaDataContext'
 import { WEEK_COLUMNS, type GridRow, type Turn } from '../mockData'
 import { TOTAL_COLUMN_HELP, WEEK_TOTALS_LEGEND } from '../weekTotalsLegend'
+import { AttendanceGridRow } from '../components/AttendanceGridRow'
 import { ColaboradorAsistenciaResumenPanel } from '../components/ColaboradorAsistenciaResumenPanel'
 import {
   applyAttendanceCsvToAllPlantasWeek,
@@ -79,6 +82,7 @@ import {
 const TURNS: Turn[] = ['D', 'T', 'N']
 
 const CODE_HINTS = ['A', 'D', 'F', 'INC', 'VAC', 'PCGS', 'PSGS', 'CAP', 'DD']
+const RENDER_CHUNK_FILAS = 60
 
 /** Valor del selector de planta: cuadrícula unificada para captura manual. */
 export const PLANTA_ASISTENCIA_TODAS = '__TODAS_PLANTAS__'
@@ -110,37 +114,6 @@ function formatSavedAt(iso: string): string {
   }
 }
 
-function cellClass(value: string, _serviceNo: string): string {
-  const v = value.trim().toUpperCase()
-  let cls = 'cell'
-  if (!v) return cls
-  if (v === 'D') cls += ' cell--rest'
-  else if (v === 'F' || /^F[1-9]\d*$/i.test(v)) cls += ' cell--absence'
-  else if (
-    v === 'INC' ||
-    v === 'VAC' ||
-    v === 'PCGS' ||
-    v === 'PSGS' ||
-    v === 'CAP'
-  )
-    cls += ' cell--navy'
-  else if (isDoubleTurnoExtraCode(v)) cls += ' cell--double'
-  else if (isAsistenciaCode(v)) cls += ' cell--work'
-  return cls
-}
-
-function cellInputTitle(
-  value: string,
-  _serviceNo: string,
-  locked: boolean,
-  vacant: boolean,
-  readOnly: boolean,
-): string | undefined {
-  if (readOnly) return 'Solo lectura: su rol no permite captura en cuadrícula.'
-  if (locked && !vacant) return 'Día futuro: podrá capturarse cuando llegue la fecha.'
-  return undefined
-}
-
 export function AttendanceView() {
   const {
     catalogo,
@@ -152,6 +125,8 @@ export function AttendanceView() {
     puedeImportarCsv,
   } = useCuadriculaData()
   const [rows, setRows] = useState<GridRow[]>([])
+  const [rowsRender, setRowsRender] = useState<GridRow[]>([])
+  const [, startGridTransition] = useTransition()
   const [plantaSeleccionada, setPlantaSeleccionada] = useState('')
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(new Date()))
   const [exportPeriod, setExportPeriod] = useState<AttendanceExportPeriod>('semana')
@@ -183,9 +158,15 @@ export function AttendanceView() {
   const [vistaColaborador, setVistaColaborador] = useState<'semana' | 'mes'>('semana')
   const [mesConsultaYm, setMesConsultaYm] = useState(() => toMonthYm(new Date()))
 
+  const colaboradoresRef = useRef(colaboradores)
+  const catalogoRef = useRef(catalogo)
+  const weekLoadSeqRef = useRef(0)
+  colaboradoresRef.current = colaboradores
+  catalogoRef.current = catalogo
+
   const plantasOpciones = useMemo(
-    () => listarPlantasDeColaboradores(colaboradores),
-    [colaboradores],
+    () => listarPlantasCapturaAsistencia(colaboradores, catalogo),
+    [colaboradores, catalogo],
   )
 
   const esVistaTodasPlantas = esPlantaAsistenciaTodas(plantaSeleccionada)
@@ -237,18 +218,12 @@ export function AttendanceView() {
     let cancelled = false
     const key = focoColaboradorKey.trim()
     ;(async () => {
-      const filas = await Promise.all(
-        mondaysInCalendarMonth(mesConsultaYm).map(async (monday) => {
-          const wiso = weekStartToIso(monday)
-          const row = await mergeRowForEmployeeInWeek(
-            colaboradores,
-            plantaParaMesConsulta,
-            catalogo,
-            wiso,
-            key,
-          )
-          return { monday, weekIso: wiso, row }
-        }),
+      const filas = await loadResumenMensualColaborador(
+        colaboradores,
+        catalogo,
+        plantaParaMesConsulta,
+        key,
+        mesConsultaYm,
       )
       if (!cancelled) setMesResumenFilas(filas)
     })()
@@ -268,6 +243,33 @@ export function AttendanceView() {
   const mostrarSoloResumenMensual =
     Boolean(focoColaboradorKey.trim()) && vistaColaborador === 'mes'
 
+  useEffect(() => {
+    if (mostrarSoloResumenMensual || gridLoading) {
+      setRowsRender([])
+      return
+    }
+    const source = displayRows
+    if (!source.length) {
+      setRowsRender([])
+      return
+    }
+    let cancelled = false
+    let visible = Math.min(RENDER_CHUNK_FILAS, source.length)
+    setRowsRender(source.slice(0, visible))
+
+    const pump = () => {
+      if (cancelled || visible >= source.length) return
+      visible = Math.min(visible + RENDER_CHUNK_FILAS, source.length)
+      setRowsRender(source.slice(0, visible))
+      if (visible < source.length) requestAnimationFrame(pump)
+    }
+    if (visible < source.length) requestAnimationFrame(pump)
+
+    return () => {
+      cancelled = true
+    }
+  }, [displayRows, mostrarSoloResumenMensual, gridLoading])
+
   const dayMetas = useMemo(
     () => weekDayMetas(weekStart, WEEK_COLUMNS),
     [weekStart],
@@ -280,18 +282,7 @@ export function AttendanceView() {
 
   const weekIso = useMemo(() => weekStartToIso(weekStart), [weekStart])
 
-  const datalistCodes = useMemo(() => {
-    const set = new Set<string>(CODE_HINTS)
-    for (const r of displayRows) {
-      const n = gridRowServiceNo(r)
-      if (n) {
-        const u = n.toUpperCase()
-        set.add(u)
-        set.add(`DD${u}`)
-      }
-    }
-    return [...set]
-  }, [displayRows])
+  const datalistCodes = CODE_HINTS
 
   const weekRangeLabel = `Lun–Dom: ${formatDateEs(weekStart)} – ${formatDateEs(
     addDays(weekStart, 6),
@@ -300,19 +291,26 @@ export function AttendanceView() {
   useEffect(() => {
     if (!plantaSeleccionada.trim()) {
       setRows([])
+      setRowsRender([])
       setLastSavedAt(null)
       return
     }
+    if (loading || colaboradores.length === 0) {
+      setGridLoading(true)
+      return
+    }
+    const loadSeq = ++weekLoadSeqRef.current
     if (esVistaTodasPlantas) {
       let cancelled = false
       setGridLoading(true)
+      setRowsRender([])
       ;(async () => {
         const { rows: merged, remote, lastSavedAt } = await mergeGridRowsTodasPlantasWeek(
-          colaboradores,
-          catalogo,
+          colaboradoresRef.current,
+          catalogoRef.current,
           weekIso,
         )
-        if (cancelled) return
+        if (cancelled || loadSeq !== weekLoadSeqRef.current) return
         setGridLoading(false)
         if (
           remote.status === 'no_config' ||
@@ -326,7 +324,7 @@ export function AttendanceView() {
         }
         setLastSavedAt(lastSavedAt)
         setLegacyRecoveredHint(null)
-        setRows(merged)
+        startGridTransition(() => setRows(merged))
       })()
       return () => {
         cancelled = true
@@ -340,16 +338,17 @@ export function AttendanceView() {
     }
     let cancelled = false
     setGridLoading(true)
+    setRowsRender([])
     ;(async () => {
       const prefetch = await getAttendanceWeekPrefetch(weekIso)
       const merged = await mergeGridRowsForPlantaWeek(
-        colaboradores,
+        colaboradoresRef.current,
         plantaSeleccionada,
-        catalogo,
+        catalogoRef.current,
         weekIso,
         prefetch,
       )
-      if (cancelled) return
+      if (cancelled || loadSeq !== weekLoadSeqRef.current) return
       setGridLoading(false)
       const remote = prefetch.meta
       if (
@@ -372,7 +371,7 @@ export function AttendanceView() {
       } else {
         setLegacyRecoveredHint(null)
       }
-      setRows(merged)
+      startGridTransition(() => setRows(merged))
     })()
     return () => {
       cancelled = true
@@ -383,9 +382,9 @@ export function AttendanceView() {
     plantaStorageKey,
     esVistaTodasPlantas,
     weekIso,
-    colaboradores,
-    catalogo,
     importRefresh,
+    loading,
+    colaboradores.length,
   ])
 
   useEffect(() => {
@@ -641,14 +640,50 @@ export function AttendanceView() {
         )
       }
       setSaveMessage(parts.join(' '))
-      setImportRefresh((n) => n + 1)
-      if (
-        esVistaTodasPlantas ||
-        (plantaSeleccionada.trim() &&
-          result.plantas.some((p) => p.plantaNombre === plantaSeleccionada))
-      ) {
+
+      /* Pinta lo importado de inmediato: la cuadrícula en pantalla refleja el CSV
+         sin depender del ciclo guardar→releer. */
+      const slicesConCambios = result.plantas.filter(
+        (p) => p.updatedCount > 0 && p.rows.length > 0,
+      )
+      const sliceSeleccionada = !esVistaTodasPlantas
+        ? slicesConCambios.find((p) => p.plantaNombre === plantaSeleccionada)
+        : undefined
+      if (sliceSeleccionada) {
+        const filas = sliceSeleccionada.rows
+        startGridTransition(() => setRows(filas))
         setLastSavedAt(new Date().toISOString())
         setLegacyRecoveredHint(null)
+      } else if (esVistaTodasPlantas && slicesConCambios.length > 0) {
+        const porEmp = new Map<string, GridRow>()
+        for (const p of slicesConCambios) {
+          for (const r of p.rows) {
+            const k = empNoClaveGridRow(r)
+            if (k) porEmp.set(k, r)
+          }
+        }
+        startGridTransition(() =>
+          setRows((prev) => {
+            const vistos = new Set<string>()
+            const next = prev.map((r) => {
+              const k = empNoClaveGridRow(r)
+              if (k && porEmp.has(k)) {
+                vistos.add(k)
+                return porEmp.get(k)!
+              }
+              return r
+            })
+            for (const [k, r] of porEmp) {
+              if (!vistos.has(k)) next.push(r)
+            }
+            return next
+          }),
+        )
+        setLastSavedAt(new Date().toISOString())
+        setLegacyRecoveredHint(null)
+      } else {
+        /* La planta visible no venía en el CSV: recarga normal desde almacenamiento. */
+        setImportRefresh((n) => n + 1)
       }
       return
     }
@@ -662,7 +697,15 @@ export function AttendanceView() {
       return
     }
 
-    const { rows: csvRowsPlanta } = filterCsvRowsForPlantaNombre(parsed.rows, plantaSeleccionada)
+    const { rows: csvRowsPlanta, omittedOtherPlanta } = filterCsvRowsForPlantaNombre(
+      parsed.rows,
+      plantaSeleccionada,
+      {
+        colaboradores,
+        catalogo,
+        expedientePlantas: plantasOpciones,
+      },
+    )
 
     const numerosEmpleadoEnCsv = new Set(
       csvRowsPlanta
@@ -677,7 +720,7 @@ export function AttendanceView() {
       catalogo,
       weekIso,
       prefetchImport,
-      { numerosEmpleadoEnCsv },
+      { numerosEmpleadoEnCsv, reemplazarEmpNos: numerosEmpleadoEnCsv },
     )
     const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(colaboradores)
     const {
@@ -693,6 +736,8 @@ export function AttendanceView() {
       colaboradoresByEmp,
       agregarFilasCsvPorEmpNo: true,
       todosColaboradores: colaboradores,
+      reemplazarSemanaDesdeCsv: true,
+      omitirFiltroPlantaExpediente: true,
     })
     if (updatedCount === 0) {
       setSaveMessage(
@@ -702,17 +747,33 @@ export function AttendanceView() {
       )
       return
     }
-    const ok = await saveAttendanceGrid(weekIso, plantaStorageKey, next, '')
-    setRows(next)
+    const savedAt = new Date().toISOString()
+    const ok = await saveAttendanceGrid(weekIso, plantaStorageKey, next, '', {
+      savedAt,
+      forceReplace: true,
+    })
+    startGridTransition(() => setRows(next))
     if (ok) {
-      setLastSavedAt(new Date().toISOString())
+      setLastSavedAt(savedAt)
       setLegacyRecoveredHint(null)
     }
+    const filasCsv = parsed.filasLeidas ?? parsed.rows.length
+    const empleadosCsv = parsed.rows.length
     const parts: string[] = [
       ok
-        ? `Importación (una planta): ${updatedCount} de ${gridEmployeeCount} empleado(s) — «${plantaSeleccionada}», ${weekRangeLabel}. Ya guardado en esta planta. Para el resto use CSV con columna PLANTA o «Guardar todas las plantas». Separador: ${delimHint}.`
-        : `Importación: ${updatedCount} de ${gridEmployeeCount} en pantalla; no se pudo guardar en localStorage. Separador: ${delimHint}.`,
+        ? `Importación (una planta): ${updatedCount} de ${gridEmployeeCount} empleado(s) actualizados — «${plantaSeleccionada}», ${weekRangeLabel}. CSV: ${empleadosCsv} N.º con asistencia (${filasCsv} fila(s) leídas). Separador: ${delimHint}.`
+        : `Importación: ${updatedCount} de ${gridEmployeeCount} en pantalla; no se pudo guardar. CSV: ${empleadosCsv} N.º (${filasCsv} filas). Separador: ${delimHint}.`,
     ]
+    if ((parsed.filasSinCodigos ?? 0) > 0) {
+      parts.push(
+        `${parsed.filasSinCodigos} fila(s) con N.º de empleado pero sin códigos reconocibles (revise columnas de asistencia).`,
+      )
+    }
+    if (omittedOtherPlanta > 0) {
+      parts.push(
+        `${omittedOtherPlanta} fila(s) omitidas (planta distinta a «${plantaSeleccionada}» o empleado de otra planta).`,
+      )
+    }
     if (csvEmployeesNotInGrid.length > 0) {
       parts.push(
         `En CSV pero no en esta planta (${csvEmployeesNotInGrid.length}): ${csvEmployeesNotInGrid.slice(0, 10).join(', ')}${csvEmployeesNotInGrid.length > 10 ? '…' : ''}.`,
@@ -720,7 +781,7 @@ export function AttendanceView() {
     }
     if (gridEmployeesNotInCsv.length > 0) {
       parts.push(
-        `En cuadrícula sin fila en CSV (${gridEmployeesNotInCsv.length}): ${gridEmployeesNotInCsv.slice(0, 10).join(', ')}${gridEmployeesNotInCsv.length > 10 ? '…' : ''} (conservan lo que tenían).`,
+        `En cuadrícula sin fila en CSV (${gridEmployeesNotInCsv.length}): ${gridEmployeesNotInCsv.slice(0, 10).join(', ')}${gridEmployeesNotInCsv.length > 10 ? '…' : ''} (conservan la semana anterior).`,
       )
     }
     if (csvEmployeesNotInGrid.length > 0) {
@@ -729,31 +790,33 @@ export function AttendanceView() {
     setSaveMessage(parts.join(' '))
   }
 
-  function updateCell(
-    rowId: string,
-    dayIndex: number,
-    turn: Turn,
-    next: string,
-  ) {
-    if (!puedeEditar) return
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== rowId) return r
+  const updateCell = useCallback(
+    (rowId: string, dayIndex: number, turn: Turn, next: string) => {
+      if (!puedeEditar) return
+      setRows((prev) => {
+        const idx = prev.findIndex((r) => r.id === rowId)
+        if (idx < 0) return prev
+        const r = prev[idx]!
         const shiftsRaw = r.shifts.map((day, i) =>
           i === dayIndex ? { ...day, [turn]: next } : day,
         )
         const shifts = reassignFaltaSequence(shiftsRaw)
-        return withComputedTotals({ ...r, shifts }, gridRowServiceNo(r))
-      }),
-    )
-  }
+        const updated = withComputedTotals({ ...r, shifts }, gridRowServiceNo(r))
+        if (updated === r) return prev
+        const nextRows = prev.slice()
+        nextRows[idx] = updated
+        return nextRows
+      })
+    },
+    [puedeEditar],
+  )
 
   /** Semana en pantalla: todas las plantas → navegador + servidor. */
   async function guardarSemanaActualTodasPlantas(): Promise<{
     guardadas: number
     fallidas: number
   }> {
-    const plantas = listarPlantasDeColaboradores(colaboradores)
+    const plantas = listarPlantasCapturaAsistencia(colaboradores, catalogo)
     if (plantas.length === 0) {
       return { guardadas: 0, fallidas: 0 }
     }
@@ -763,27 +826,42 @@ export function AttendanceView() {
     const plantaActualNorm = esVistaTodasPlantas
       ? ''
       : plantaSeleccionada.trim().toUpperCase()
-    const batchItems: { scopeKey: string; rows: GridRow[] }[] = []
-    for (const planta of plantas) {
-      const scopeKey = plantaToStorageKey(planta)
-      if (!scopeKey) continue
-      const norm = planta.trim().toUpperCase()
-      let filas: GridRow[]
-      if (porPlantaEnPantalla) {
-        filas =
-          porPlantaEnPantalla.get(norm) ??
-          (await mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso))
-      } else {
-        const esPlantaEnPantalla =
-          norm === plantaActualNorm && Boolean(plantaStorageKey)
-        filas = esPlantaEnPantalla
-          ? rows
-          : await mergeGridRowsForPlantaWeek(colaboradores, planta, catalogo, weekIso)
-      }
-      if (filas.length > 0) {
-        batchItems.push({ scopeKey, rows: filas })
-      }
-    }
+    const prefetch = await getAttendanceWeekPrefetch(weekIso)
+    const mergeResults = await Promise.all(
+      plantas.map(async (planta) => {
+        const scopeKey = plantaToStorageKey(planta)
+        if (!scopeKey) return null
+        const norm = planta.trim().toUpperCase()
+        let filas: GridRow[]
+        if (porPlantaEnPantalla) {
+          filas =
+            porPlantaEnPantalla.get(norm) ??
+            (await mergeGridRowsForPlantaWeek(
+              colaboradores,
+              planta,
+              catalogo,
+              weekIso,
+              prefetch,
+            ))
+        } else {
+          const esPlantaEnPantalla =
+            norm === plantaActualNorm && Boolean(plantaStorageKey)
+          filas = esPlantaEnPantalla
+            ? rows
+            : await mergeGridRowsForPlantaWeek(
+                colaboradores,
+                planta,
+                catalogo,
+                weekIso,
+                prefetch,
+              )
+        }
+        return filas.length > 0 ? { scopeKey, rows: filas } : null
+      }),
+    )
+    const batchItems = mergeResults.filter(
+      (item): item is { scopeKey: string; rows: GridRow[] } => item != null,
+    )
     if (batchItems.length > 0) {
       const batch = await saveManyAttendanceGrids(weekIso, batchItems)
       guardadas = batch.saved
@@ -859,7 +937,10 @@ export function AttendanceView() {
     }
   }
 
-  const latest = loadLatestPointer()
+  const latest = useMemo(
+    () => loadLatestPointer(),
+    [lastSavedAt, importRefresh],
+  )
   const latestDifferent =
     latest &&
     (latest.weekStartIso !== weekIso || latest.serviceCatalogId !== plantaStorageKey)
@@ -1109,7 +1190,7 @@ export function AttendanceView() {
                 <strong>Importación por CSV</strong> — semana en pantalla ({weekRangeLabel}). Se detecta la columna{' '}
                 <strong>NO. DE EMPLEADO</strong> (o CLAVE) y se cargan los códigos <strong>día por día</strong> (Lun–Dom) y{' '}
                 <strong>turno por turno</strong> (D, T, N). Mismo formato de hoja (8 columnas + D/T/N×7) u otras columnas extra; el emparejamiento es{' '}
-                <strong>solo por N.º de empleado</strong> (no por posición, servicio ni planta en expediente). Quienes aún no tienen planta o servicio en Altas se incluyen en la planta que tenga seleccionada arriba.
+                <strong>solo por N.º de empleado</strong>. SERVICIO, N.º SERVICIO, PLANTA y POSICIÓN de cada fila salen del expediente en <strong>Colaboradores</strong> (el catálogo Servicios solo completa si falta algún dato). En importación de una planta se omiten filas con PLANTA distinta en el CSV o empleados de otra planta en expediente.
                 Con columna <strong>PLANTA</strong> en el CSV un archivo puede actualizar todas las plantas. Incluye colaboradores en <strong>baja</strong> al importar.
               </p>
               <div className="persistRow__csvActions">
@@ -1342,6 +1423,13 @@ export function AttendanceView() {
             )}
           </p>
         ) : null}
+        {!mostrarSoloResumenMensual &&
+        rowsRender.length > 0 &&
+        rowsRender.length < displayRows.length ? (
+          <p className="hint" style={{ padding: '0.5rem 1rem' }}>
+            Cargando lista: {rowsRender.length} de {displayRows.length} colaboradores activos…
+          </p>
+        ) : null}
         {mostrarSoloResumenMensual ? (
           <ColaboradorAsistenciaResumenPanel
             titulo={`Resumen mensual — ${nombreFocoColaborador}`}
@@ -1420,56 +1508,16 @@ export function AttendanceView() {
             </tr>
           </thead>
           <tbody>
-            {displayRows.map((row) => {
-              const rowNo = gridRowServiceNo(row)
-              const plantaFb = esVistaTodasPlantas ? '' : plantaSeleccionada
-              const idCells = celdasIdentificacionAsistencia(row, plantaFb)
-              return (
-              <tr key={row.id} className="tr" data-vacant={row.vacant}>
-                {idCells.map((val, i) => (
-                  <td
-                    key={`${row.id}-id-${i}`}
-                    className={claseCeldaIdentificacionAsistencia(i)}
-                    title={i === 0 ? (row.servicioLinea || undefined) : undefined}
-                  >
-                    {val}
-                  </td>
-                ))}
-                {row.shifts.map((day, dayIndex) =>
-                  TURNS.map((turn) => {
-                    const locked = dayLocked[dayIndex] ?? false
-                    const cellReadOnly = !puedeEditar
-                    const disabled = row.vacant || locked || cellReadOnly
-                    return (
-                      <td key={`${row.id}-${dayIndex}-${turn}`} className="td td--cell">
-                        <input
-                          className={`${cellClass(day[turn], rowNo)}${locked && !row.vacant ? ' cell--future' : ''}${cellReadOnly ? ' cell--readonly' : ''}`}
-                          value={day[turn]}
-                          onChange={(e) =>
-                            updateCell(row.id, dayIndex, turn, e.target.value)
-                          }
-                          aria-label={`${row.position} ${WEEK_COLUMNS[dayIndex]?.weekday} ${turn}`}
-                          disabled={disabled}
-                          readOnly={cellReadOnly && !row.vacant && !locked}
-                          list={puedeEditar ? 'attendanceCodes' : undefined}
-                          maxLength={12}
-                          title={cellInputTitle(day[turn], rowNo, locked, row.vacant, cellReadOnly)}
-                        />
-                      </td>
-                    )
-                  }),
-                )}
-                <td className="td td--total">{row.totals.asist}</td>
-                <td className="td td--total">{row.totals.extra}</td>
-                <td className="td td--total">{row.totals.desc}</td>
-                <td className="td td--total">{row.totals.falta}</td>
-                <td className="td td--total">{row.totals.inc}</td>
-                <td className="td td--total">{row.totals.pcgs}</td>
-                <td className="td td--total">{row.totals.psgs}</td>
-                <td className="td td--total">{row.totals.vac}</td>
-                <td className="td td--total">{row.totals.cap}</td>
-              </tr>
-            )})}
+            {rowsRender.map((row) => (
+              <AttendanceGridRow
+                key={row.id}
+                row={row}
+                plantaFallback={esVistaTodasPlantas ? '' : plantaSeleccionada}
+                dayLocked={dayLocked}
+                puedeEditar={puedeEditar}
+                onCellChange={updateCell}
+              />
+            ))}
           </tbody>
         </table>
         ) : null}

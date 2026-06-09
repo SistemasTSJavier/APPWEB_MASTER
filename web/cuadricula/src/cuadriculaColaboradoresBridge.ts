@@ -1,9 +1,12 @@
+import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import {
   nombreServicioCatalogoColaborador,
   noServicioColaborador,
+  plantaColaborador,
   plantaExpedienteColaborador,
   posicionLaboralColaborador,
+  reconcileRowServiceNo,
 } from "@/lib/colaboradores-catalogo-display";
 
 export { plantaExpedienteColaborador } from "@/lib/colaboradores-catalogo-display";
@@ -74,6 +77,28 @@ export function coincideColaboradorPlantaExpediente(c: ColaboradorCompleto, plan
 /** Activos con la misma planta en expediente. */
 export function colaboradoresActivosPorPlanta(lista: ColaboradorCompleto[], planta: string): ColaboradorCompleto[] {
   return lista.filter((c) => !colaboradorTieneBaja(c) && coincideColaboradorPlantaExpediente(c, planta));
+}
+
+/**
+ * Lista estable para captura semanal: activos de la planta (expediente o catálogo), orden por N.º.
+ * Misma base en todas las semanas; solo cambian los códigos guardados por semana.
+ */
+export function colaboradoresActivosParaCapturaPlanta(
+  lista: ColaboradorCompleto[],
+  planta: string,
+  catalogo: CatalogoServicioItem[] = [],
+): ColaboradorCompleto[] {
+  const p = normTxt(planta);
+  if (!p) return [];
+  return lista
+    .filter((c) => {
+      if (!colaboradorEstaActivoEnOperacion(c)) return false;
+      const pl = normTxt(plantaColaborador(c, catalogo));
+      if (pl === p) return true;
+      const exp = normTxt(plantaExpedienteColaborador(c));
+      return exp === p;
+    })
+    .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
 }
 
 /** Activos y dados de baja con la misma planta (lista de asistencia con historial). */
@@ -180,6 +205,20 @@ export function listarPlantasDeColaboradores(lista: ColaboradorCompleto[]): stri
   return [...set].sort((a, b) => a.localeCompare(b, "es"));
 }
 
+/** Plantas para captura semanal (expediente + catálogo de servicios). */
+export function listarPlantasCapturaAsistencia(
+  lista: ColaboradorCompleto[],
+  catalogo: CatalogoServicioItem[] = [],
+): string[] {
+  const set = new Set<string>();
+  for (const c of lista) {
+    if (!colaboradorEstaActivoEnOperacion(c)) continue;
+    const p = normTxt(plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c));
+    if (p) set.add(p);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "es"));
+}
+
 /** @deprecated Use listarPlantasDeColaboradores */
 export function listarPlantasDistintas(lista: ColaboradorCompleto[], _catalogo: CatalogoServicioItem[] = []): string[] {
   return listarPlantasDeColaboradores(lista);
@@ -187,6 +226,20 @@ export function listarPlantasDistintas(lista: ColaboradorCompleto[], _catalogo: 
 
 export function gridRowServiceNo(row: GridRow): string {
   return (row.rowServiceNo ?? "").trim();
+}
+
+/** Busca colaborador por N.º canónico (expediente o form.noEmpleado1). */
+export function buscarColaboradorPorClaveAsistencia(
+  lista: ColaboradorCompleto[],
+  employeeKey: string,
+): ColaboradorCompleto | undefined {
+  const key = canonicalEmpNoAttendance(employeeKey);
+  if (!key) return undefined;
+  for (const c of lista) {
+    if (canonicalEmpNoAttendance(c.noEmpleado) === key) return c;
+    if (canonicalEmpNoAttendance(String(c.form?.noEmpleado1 ?? "")) === key) return c;
+  }
+  return undefined;
 }
 
 export function colaboradoresConBajaPorServicioCatalogo(
@@ -214,27 +267,49 @@ export function colaboradoresConBajaPorServiciosCatalogo(
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
 }
 
+/**
+ * Fila de cuadrícula desde expediente Colaboradores + catálogo Servicios
+ * (misma lógica que la pantalla Colaboradores: N.º servicio, posición, planta).
+ */
 export function colaboradorToGridRow(
   c: ColaboradorCompleto,
   catalogo: CatalogoServicioItem[] = [],
   plantaContexto?: string,
 ): GridRow {
-  const n = fechaIngresoNormalizadaColaborador(c);
-  const hire =
-    n ? formatoDesdeYyyyMmDd(n) : String(c.fechaIngreso ?? c.form?.fechaIngreso ?? "").trim().toUpperCase() || "—";
-  const plantaCtx = plantaContexto?.trim() || plantaExpedienteColaborador(c);
+  const plantaCtx = plantaContexto?.trim() || undefined;
   const catalogoOpts = plantaCtx ? { plantaContexto: plantaCtx } : undefined;
-  const linea = nombreServicioCatalogoColaborador(c, catalogo, catalogoOpts);
+  const n = fechaIngresoNormalizadaColaborador(c);
+  const hireRaw = n
+    ? formatoDesdeYyyyMmDd(n)
+    : String(c.fechaIngreso ?? c.form?.fechaIngreso ?? "").trim();
+  const noEmp = canonicalEmpNoAttendance(String(c.noEmpleado || c.form?.noEmpleado1 || ""));
+
+  const servicioLinea = nombreServicioCatalogoColaborador(c, catalogo, catalogoOpts);
+  const position = posicionLaboralColaborador(c, catalogo);
+  const plantaLinea = normTxt(
+    plantaCtx || plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c),
+  );
+
+  const rowServiceNo = reconcileRowServiceNo(
+    {
+      rowServiceNo: noServicioColaborador(c, catalogo, catalogoOpts),
+      servicioLinea,
+    },
+    c,
+    catalogo,
+    plantaCtx ?? plantaLinea,
+  );
+
   return {
-    id: c.noEmpleado,
-    position: (posicionLaboralColaborador(c, catalogo) || "").trim().toUpperCase() || "—",
-    role: (c.puesto || "").trim().toUpperCase() || "—",
-    hireDate: hire,
-    employeeNo: c.noEmpleado,
-    name: (c.nombreCompleto || "").trim().toUpperCase() || "—",
-    rowServiceNo: noServicioColaborador(c, catalogo, catalogoOpts),
-    servicioLinea: linea || "—",
-    plantaLinea: normTxt(plantaCtx) || undefined,
+    id: noEmp || c.noEmpleado,
+    position: normTxt(position),
+    role: normTxt(String(c.form?.puesto ?? c.puesto ?? c.moperActual?.puesto ?? "")),
+    hireDate: hireRaw.trim().toUpperCase(),
+    employeeNo: noEmp || c.noEmpleado,
+    name: normTxt(String(c.form?.nombreCompleto ?? c.nombreCompleto ?? "")),
+    rowServiceNo: rowServiceNo || undefined,
+    servicioLinea: servicioLinea || undefined,
+    plantaLinea: plantaLinea || undefined,
     vacant: false,
     shifts: emptyShifts(WEEK_COLUMNS.length),
     totals: { ...ZERO_TOTALS },

@@ -41,13 +41,22 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
-  const items = (body as { items?: SyncItem[] })?.items;
+  const parsed = body as { items?: SyncItem[]; forceReplace?: boolean };
+  const items = parsed?.items;
+  const forceReplace = parsed?.forceReplace === true;
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "items[] vacío" }, { status: 400 });
   }
 
-  let uploaded = 0;
-  let skipped = 0;
+  type ValidSyncItem = {
+    weekStartIso: string;
+    scopeKey: string;
+    grid: NonNullable<SyncItem["grid"]>;
+    incomingSavedAt: string;
+    serviceNo: string;
+  };
+
+  const valid: ValidSyncItem[] = [];
   let failed = 0;
 
   for (const item of items) {
@@ -58,50 +67,74 @@ export async function POST(req: Request) {
       failed++;
       continue;
     }
-    const incomingSavedAt =
-      typeof grid.savedAt === "string" ? grid.savedAt : new Date().toISOString();
-    const serviceNo =
-      (typeof item.serviceNo === "string" ? item.serviceNo : grid.serviceNo) ?? "";
+    valid.push({
+      weekStartIso,
+      scopeKey,
+      grid,
+      incomingSavedAt:
+        typeof grid.savedAt === "string" ? grid.savedAt : new Date().toISOString(),
+      serviceNo:
+        (typeof item.serviceNo === "string" ? item.serviceNo : grid.serviceNo) ?? "",
+    });
+  }
 
-    const { data: existing } = await admin
+  const weekKeys = [...new Set(valid.map((v) => v.weekStartIso))];
+  const scopeKeys = [...new Set(valid.map((v) => v.scopeKey))];
+  const existingMap = new Map<string, { savedAt?: string }>();
+
+  if (valid.length > 0) {
+    const { data: existingRows } = await admin
       .from("cuadricula_asistencia")
-      .select("payload")
-      .eq("week_start_iso", weekStartIso)
-      .eq("scope_key", scopeKey)
-      .maybeSingle();
+      .select("week_start_iso, scope_key, payload")
+      .in("week_start_iso", weekKeys)
+      .in("scope_key", scopeKeys);
 
-    if (existing?.payload) {
-      const prev = existing.payload as { savedAt?: string };
-      const prevAt = typeof prev.savedAt === "string" ? prev.savedAt : "";
-      if (prevAt && prevAt > incomingSavedAt) {
-        skipped++;
-        continue;
+    for (const row of existingRows ?? []) {
+      const payload = row.payload as { savedAt?: string } | null;
+      existingMap.set(`${row.week_start_iso}|${row.scope_key}`, payload ?? {});
+    }
+  }
+
+  let uploaded = 0;
+  let skipped = 0;
+
+  const upsertResults = await Promise.all(
+    valid.map(async (item) => {
+      const cacheKey = `${item.weekStartIso}|${item.scopeKey}`;
+      const prev = existingMap.get(cacheKey);
+      if (!forceReplace) {
+        const prevAt = typeof prev?.savedAt === "string" ? prev.savedAt : "";
+        if (prevAt && prevAt > item.incomingSavedAt) {
+          return "skipped" as const;
+        }
       }
-    }
 
-    const payload = {
-      ...grid,
-      savedAt: incomingSavedAt,
-      version: grid.version === 1 ? 1 : 2,
-    };
+      const payload = {
+        ...item.grid,
+        savedAt: item.incomingSavedAt,
+        version: item.grid.version === 1 ? 1 : 2,
+      };
 
-    const { error } = await admin.from("cuadricula_asistencia").upsert(
-      {
-        week_start_iso: weekStartIso,
-        scope_key: scopeKey,
-        payload,
-        service_no: serviceNo || null,
-        saved_at: incomingSavedAt,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "week_start_iso,scope_key" },
-    );
+      const { error } = await admin.from("cuadricula_asistencia").upsert(
+        {
+          week_start_iso: item.weekStartIso,
+          scope_key: item.scopeKey,
+          payload,
+          service_no: item.serviceNo || null,
+          saved_at: item.incomingSavedAt,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "week_start_iso,scope_key" },
+      );
 
-    if (error) {
-      failed++;
-    } else {
-      uploaded++;
-    }
+      return error ? ("failed" as const) : ("uploaded" as const);
+    }),
+  );
+
+  for (const r of upsertResults) {
+    if (r === "uploaded") uploaded++;
+    else if (r === "skipped") skipped++;
+    else failed++;
   }
 
   return NextResponse.json({ ok: true, uploaded, skipped, failed, total: items.length });

@@ -82,7 +82,7 @@ export default async function Home() {
             TACTICAL SUPPORT
           </h1>
           <p className="mt-1 text-[clamp(1rem,4vw,1.75rem)] font-semibold uppercase tracking-[0.1em] text-slate-200 sm:tracking-[0.14em]">
-            MASTER
+            INTRANET
           </p>
           <div className="mx-auto mt-5 h-px w-20 bg-slate-500/60 sm:mt-7 sm:w-28 md:mt-8" />
           <p className="mt-4 text-[clamp(1rem,4vw,1.375rem)] font-semibold leading-snug text-white sm:mt-6 md:text-2xl">

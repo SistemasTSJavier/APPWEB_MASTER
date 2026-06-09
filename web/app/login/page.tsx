@@ -87,10 +87,12 @@ function LoginForm() {
             />
           </div>
 
-          <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-blue-200/90 sm:text-[11px] sm:tracking-[0.35em] [@media(max-height:640px)]:hidden">
-            Tactical Support
+          <h1 className="mt-1 text-2xl font-extrabold uppercase tracking-[0.08em] text-white sm:text-3xl sm:tracking-[0.1em] lg:text-4xl">
+            TACTICAL SUPPORT
+          </h1>
+          <p className="mt-1 text-lg font-semibold uppercase tracking-[0.2em] text-slate-200 sm:text-xl sm:tracking-[0.28em] lg:text-2xl">
+            INTRANET
           </p>
-          <h1 className="mt-0.5 text-2xl font-extrabold tracking-[0.1em] text-white sm:text-3xl lg:text-4xl">MASTER</h1>
 
           <p className="mx-auto mt-2 max-w-xl px-1 text-[9px] font-semibold italic uppercase leading-snug tracking-[0.12em] text-blue-100/95 sm:mt-3 sm:text-[10px] sm:tracking-[0.2em] md:text-xs md:tracking-[0.22em]">
             VIVE EL HABITO DE LA EXCELENCIA
@@ -151,7 +153,7 @@ function LoginForm() {
         </div>
 
         <p className="mt-3 shrink-0 pb-1 text-center text-[9px] uppercase tracking-wider text-slate-500 sm:mt-5 sm:text-[10px]">
-          Uso interno · Tactical Support Master
+          Uso interno · Tactical Support Intranet
         </p>
       </div>
     </div>

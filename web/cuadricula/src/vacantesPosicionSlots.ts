@@ -8,7 +8,7 @@ import {
 } from "@/lib/colaboradores-catalogo-display";
 import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import { colaboradorEstaActivoEnOperacion, colaboradorTieneBaja } from "@/lib/colaboradores-baja";
-import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
+import { servicioExpedienteColaborador } from "@/lib/servicio-agrupacion";
 import type { VacanteRegistro } from "@/lib/vacantes-catalog";
 import {
   reconciliarServicioVacante,
@@ -119,7 +119,7 @@ export function colaboradorCoincideSlot(
   if (normPosicionKey(posicionLaboralColaborador(c, catalogo)) !== normPosicionKey(slot.posicion)) {
     return false;
   }
-  const lineaExp = servicioLineaColaborador(c);
+  const lineaExp = servicioExpedienteColaborador(c);
   const noExp = canonicalNoServicioCatalogo(String(c.form?.noServicio ?? ""));
   const col = reconciliarServicioVacante(
     { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },
@@ -175,7 +175,7 @@ function slotDesdeColaborador(
   if (plantaExpedienteColaborador(c).trim().toUpperCase() !== p) return null;
   const posicion = normPosicionKey(posicionLaboralColaborador(c, catalogo));
   if (!posicion) return null;
-  const lineaExp = servicioLineaColaborador(c);
+  const lineaExp = servicioExpedienteColaborador(c);
   const noExp = canonicalNoServicioCatalogo(String(c.form?.noServicio ?? ""));
   const { servicioLinea, rowServiceNo } = reconciliarServicioVacante(
     { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },
@@ -223,7 +223,7 @@ export function resolverDatosSlot(
     if (!colaboradorCoincideSlot(c, slot, catalogo)) continue;
     if (!colaboradorTieneBaja(c)) {
       const p = slot.planta.trim().toUpperCase();
-      const lineaExp = servicioLineaColaborador(c);
+      const lineaExp = servicioExpedienteColaborador(c);
       const noExp = canonicalNoServicioCatalogo(String(c.form?.noServicio ?? ""));
       const svc = reconciliarServicioVacante(
         { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },
@@ -242,7 +242,7 @@ export function resolverDatosSlot(
 
   if (fallback) {
     const p = slot.planta.trim().toUpperCase();
-    const lineaExp = servicioLineaColaborador(fallback);
+    const lineaExp = servicioExpedienteColaborador(fallback);
     const noExp = canonicalNoServicioCatalogo(String(fallback.form?.noServicio ?? ""));
     const svc = reconciliarServicioVacante(
       { planta: p, servicioLinea: lineaExp, rowServiceNo: noExp },

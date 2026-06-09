@@ -15,6 +15,23 @@ export const ATTENDANCE_GRID_ID_HEADERS = [
 
 export const ATTENDANCE_GRID_ID_COL_COUNT = ATTENDANCE_GRID_ID_HEADERS.length
 
+/** Vacío o marcador de celda sin dato en cuadrícula. */
+export function valorIdentificacionAsistenciaVacio(v: string | undefined | null): boolean {
+  const t = String(v ?? '').trim()
+  return !t || t === '—' || t === '-'
+}
+
+/** Elige el primer valor útil (expediente, catálogo o guardado). */
+export function elegirValorIdentificacionAsistencia(
+  ...candidatos: (string | undefined | null)[]
+): string {
+  for (const c of candidatos) {
+    const t = String(c ?? '').trim()
+    if (!valorIdentificacionAsistenciaVacio(t)) return t
+  }
+  return ''
+}
+
 /** Clases por columna de identificación (índice 0–7). */
 export function claseCeldaIdentificacionAsistencia(index: number): string {
   const base = 'td td--sticky'
@@ -46,14 +63,20 @@ export function celdasIdentificacionAsistencia(
   row: GridRow,
   plantaFallback = '',
 ): string[] {
+  const servicio = elegirValorIdentificacionAsistencia(row.servicioLinea).toUpperCase()
+  const noSrv = elegirValorIdentificacionAsistencia(gridRowServiceNo(row))
+  const posicion = elegirValorIdentificacionAsistencia(row.position).toUpperCase()
+  const puesto = elegirValorIdentificacionAsistencia(row.role).toUpperCase()
+  const ingreso = elegirValorIdentificacionAsistencia(row.hireDate).toUpperCase()
+  const nombre = elegirValorIdentificacionAsistencia(row.name).toUpperCase()
   return [
-    (row.servicioLinea ?? '').trim().toUpperCase() || '—',
-    gridRowServiceNo(row) || '—',
+    servicio || '—',
+    noSrv || '—',
     plantaCeldaFila(row, plantaFallback),
-    row.position,
-    row.role,
-    row.hireDate,
-    row.vacant ? '' : String(row.employeeNo ?? ''),
-    row.vacant ? 'VACANTE' : row.name,
+    posicion || '—',
+    puesto || '—',
+    ingreso || '—',
+    row.vacant ? '' : String(row.employeeNo ?? '').trim(),
+    row.vacant ? 'VACANTE' : nombre || '—',
   ]
 }

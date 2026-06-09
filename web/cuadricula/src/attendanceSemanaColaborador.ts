@@ -10,18 +10,19 @@ import { getAttendanceWeekPrefetch } from "./attendanceWeekPrefetch";
 import type { RemoteAttendanceFetchMeta } from "./attendanceRemote";
 import { injectCatalogVacantes, mergeAttendanceRowsWithStoredAndVacantes } from "./attendanceVacantes";
 import { listVacantesPorPlanta } from "./vacantesStorage";
-import { sortGridRowsByServicioYPosicion } from "./attendanceGridSort";
 import {
   colaboradorToGridRow,
-  colaboradoresActivosPorPlanta,
-  mapaColaboradoresActivosPorPlanta,
+  colaboradoresActivosParaCapturaPlanta,
   colaboradoresParaAsistenciaCsvImport,
   gridRowServiceNo,
+  listarPlantasCapturaAsistencia,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
-import { canonicalEmpNoAttendance, empNoClaveGridRow } from "@/lib/attendance-emp-no";
+import { canonicalEmpNoAttendance, empNoClaveGridRow, indexGridRowsByEmpNo } from "@/lib/attendance-emp-no";
+import { sortGridRowsByPosicion } from "./attendanceGridSort";
+import { elegirValorIdentificacionAsistencia } from "./attendanceGridColumns";
 import { appendFilasGuardadasFueraDeBase } from "./attendancePlantaMerge";
-import type { GridRow } from "./mockData";
+import { emptyShifts, WEEK_COLUMNS, ZERO_TOTALS, type GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
 
 function aplicarTotalesPorFila(rows: GridRow[], base: GridRow[]): GridRow[] {
@@ -31,9 +32,14 @@ function aplicarTotalesPorFila(rows: GridRow[], base: GridRow[]): GridRow[] {
     const br = k ? baseByKey.get(k) : undefined;
     const merged: GridRow = {
       ...r,
-      rowServiceNo: br?.rowServiceNo ?? r.rowServiceNo,
-      servicioLinea: br?.servicioLinea ?? r.servicioLinea,
-      plantaLinea: br?.plantaLinea ?? r.plantaLinea,
+      rowServiceNo: elegirValorIdentificacionAsistencia(br?.rowServiceNo, r.rowServiceNo),
+      servicioLinea: elegirValorIdentificacionAsistencia(br?.servicioLinea, r.servicioLinea),
+      plantaLinea:
+        elegirValorIdentificacionAsistencia(br?.plantaLinea, r.plantaLinea) ||
+        br?.plantaLinea ||
+        r.plantaLinea,
+      position: elegirValorIdentificacionAsistencia(br?.position, r.position),
+      role: elegirValorIdentificacionAsistencia(br?.role, r.role),
     };
     return withComputedTotals(merged, gridRowServiceNo(merged));
   });
@@ -45,6 +51,37 @@ function maxSavedAtIso(a: string | null, b: string | undefined): string | null {
   return b > a ? b : a;
 }
 
+/**
+ * Captura semanal: identidad siempre desde Colaboradores; solo se fusionan turnos guardados de la semana.
+ */
+function fusionarCapturaSemanalDesdeExpediente(
+  base: GridRow[],
+  storedRows: GridRow[],
+): GridRow[] {
+  const storedByEmp = indexGridRowsByEmpNo(storedRows.filter((r) => !r.vacant));
+  const merged = base.map((br) => {
+    const k = empNoClaveGridRow(br);
+    const s = k ? storedByEmp.get(k) : undefined;
+    if (!s?.shifts?.length || s.shifts.length !== br.shifts.length) {
+      return br;
+    }
+    return {
+      ...br,
+      shifts: s.shifts.map((day) => ({
+        D: typeof day?.D === "string" ? day.D : "",
+        T: typeof day?.T === "string" ? day.T : "",
+        N: typeof day?.N === "string" ? day.N : "",
+      })),
+    };
+  });
+  return sortGridRowsByPosicion(merged.map((r) => withComputedTotals(r, gridRowServiceNo(r))));
+}
+
+export type MergePlantaWeekOpts = {
+  /** Captura semanal: solo activos, sin vacantes ni filas de baja guardadas. */
+  soloCapturaActivos?: boolean;
+};
+
 async function mergePlantaWeekBlock(
   activos: ColaboradorCompleto[],
   plantaNombre: string,
@@ -52,37 +89,50 @@ async function mergePlantaWeekBlock(
   weekStartIso: string,
   prefetchedWeek: AttendanceWeekPrefetch | null,
   todosColaboradores: ColaboradorCompleto[] = activos,
+  opts?: MergePlantaWeekOpts,
 ): Promise<{ rows: GridRow[]; savedAt: string | null }> {
+  const soloCaptura = opts?.soloCapturaActivos !== false;
   const scopeId = plantaToStorageKey(plantaNombre);
   if (!scopeId || activos.length === 0) {
     return { rows: [], savedAt: null };
   }
 
   const base = activos.map((c) => colaboradorToGridRow(c, catalogo, plantaNombre));
-  const empKeys = activos.map((c) => c.noEmpleado);
+  const empKeys = activos
+    .map((c) => canonicalEmpNoAttendance(c.noEmpleado))
+    .filter(Boolean);
   const stored = prefetchedWeek
     ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, empKeys, prefetchedWeek)
     : (await loadAttendanceGridForPlantaWithMeta(weekStartIso, scopeId, empKeys, null)).grid;
 
-  let merged = base;
   const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];
-  if (normStored.length) {
-    merged = mergeAttendanceRowsWithStoredAndVacantes(base, normStored);
-    merged = appendFilasGuardadasFueraDeBase(
-      merged,
-      normStored,
-      todosColaboradores,
-      plantaNombre,
-      catalogo,
-    );
+  let rows: GridRow[];
+
+  if (soloCaptura) {
+    rows =
+      normStored.length > 0
+        ? fusionarCapturaSemanalDesdeExpediente(base, normStored)
+        : sortGridRowsByPosicion(
+            base.map((r) => withComputedTotals(r, gridRowServiceNo(r))),
+          );
   } else {
-    merged = mergeAttendanceRowsWithStoredAndVacantes(base, []);
+    let merged = base;
+    if (normStored.length) {
+      merged = mergeAttendanceRowsWithStoredAndVacantes(base, normStored);
+      merged = appendFilasGuardadasFueraDeBase(
+        merged,
+        normStored,
+        todosColaboradores,
+        plantaNombre,
+        catalogo,
+      );
+    }
+    merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaNombre));
+    rows = aplicarTotalesPorFila(merged, base);
   }
 
-  merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaNombre));
-
   return {
-    rows: aplicarTotalesPorFila(merged, base),
+    rows,
     savedAt: stored?.savedAt ?? null,
   };
 }
@@ -94,6 +144,7 @@ async function mergePlantaWeekBlockForCsvImport(
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
   prefetchedWeek: AttendanceWeekPrefetch | null,
+  reemplazarEmpNos?: Set<string>,
 ): Promise<{ rows: GridRow[]; savedAt: string | null }> {
   const scopeId = plantaToStorageKey(plantaNombre);
   if (!scopeId || colaboradoresPlanta.length === 0) {
@@ -122,6 +173,18 @@ async function mergePlantaWeekBlockForCsvImport(
   }
 
   merged = injectCatalogVacantes(merged, listVacantesPorPlanta(plantaNombre));
+
+  if (reemplazarEmpNos?.size) {
+    merged = merged.map((r) => {
+      const k = empNoClaveGridRow(r);
+      if (!k || !reemplazarEmpNos.has(k)) return r;
+      return {
+        ...r,
+        shifts: emptyShifts(WEEK_COLUMNS.length),
+        totals: { ...ZERO_TOTALS },
+      };
+    });
+  }
 
   return {
     rows: aplicarTotalesPorFila(merged, base),
@@ -158,8 +221,7 @@ export async function mergeGridRowsForPlantaWeek(
   weekStartIso: string,
   prefetchedWeek?: AttendanceWeekPrefetch | null,
 ): Promise<GridRow[]> {
-  const mapa = mapaColaboradoresActivosPorPlanta(colaboradores);
-  const activos = mapa.get(plantaNombre.trim().toUpperCase()) ?? [];
+  const activos = colaboradoresActivosParaCapturaPlanta(colaboradores, plantaNombre, catalogo);
   const { rows } = await mergePlantaWeekBlock(
     activos,
     plantaNombre,
@@ -167,6 +229,7 @@ export async function mergeGridRowsForPlantaWeek(
     weekStartIso,
     prefetchedWeek ?? null,
     colaboradores,
+    { soloCapturaActivos: true },
   );
   return rows;
 }
@@ -180,7 +243,7 @@ export async function mergeGridRowsForPlantaWeekForCsvImport(
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
   prefetchedWeek?: AttendanceWeekPrefetch | null,
-  opts?: { numerosEmpleadoEnCsv?: Set<string> },
+  opts?: { numerosEmpleadoEnCsv?: Set<string>; reemplazarEmpNos?: Set<string> },
 ): Promise<GridRow[]> {
   const enPlanta = colaboradoresParaAsistenciaCsvImport(colaboradores, plantaNombre);
   if (opts?.numerosEmpleadoEnCsv?.size) {
@@ -202,6 +265,7 @@ export async function mergeGridRowsForPlantaWeekForCsvImport(
     catalogo,
     weekStartIso,
     prefetchedWeek ?? null,
+    opts?.reemplazarEmpNos,
   );
   return rows;
 }
@@ -220,18 +284,17 @@ export async function mergeGridRowsTodasPlantasWeek(
   catalogo: CatalogoServicioItem[],
   weekStartIso: string,
 ): Promise<TodasPlantasWeekResult> {
-  const mapa = mapaColaboradoresActivosPorPlanta(colaboradores);
-  const plantas = [...mapa.keys()].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+  const plantasCaptura = listarPlantasCapturaAsistencia(colaboradores, catalogo);
 
-  if (plantas.length === 0) {
+  if (plantasCaptura.length === 0) {
     return { rows: [], remote: { status: "empty" }, lastSavedAt: null };
   }
 
   const prefetch = await getAttendanceWeekPrefetch(weekStartIso);
 
   const blocks = await Promise.all(
-    plantas.map((planta) => {
-      const activos = mapa.get(planta) ?? [];
+    plantasCaptura.map((planta) => {
+      const activos = colaboradoresActivosParaCapturaPlanta(colaboradores, planta, catalogo);
       return mergePlantaWeekBlock(
         activos,
         planta,
@@ -239,6 +302,7 @@ export async function mergeGridRowsTodasPlantasWeek(
         weekStartIso,
         prefetch,
         colaboradores,
+        { soloCapturaActivos: true },
       );
     }),
   );
@@ -250,8 +314,16 @@ export async function mergeGridRowsTodasPlantasWeek(
     lastSavedAt = maxSavedAtIso(lastSavedAt, block.savedAt ?? undefined);
   }
 
+  allRows.sort((a, b) =>
+    String(a.employeeNo ?? a.id ?? "").localeCompare(
+      String(b.employeeNo ?? b.id ?? ""),
+      "es",
+      { numeric: true },
+    ),
+  );
+
   return {
-    rows: sortGridRowsByServicioYPosicion(allRows),
+    rows: allRows,
     remote: prefetch.meta,
     lastSavedAt,
   };

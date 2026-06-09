@@ -79,6 +79,25 @@
   border-color: #c6dafc;
 }
 
+.shellNav__item--inactive {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.shellNav__item--inactive:hover {
+  background: transparent;
+}
+
+.shellNav__itemBadge {
+  margin-left: 0.35rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9aa0a6;
+  vertical-align: middle;
+}
+
 .shellNav__itemLabel {
   display: block;
   font-size: 0.78rem;

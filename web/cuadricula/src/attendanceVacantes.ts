@@ -1,3 +1,4 @@
+import { elegirValorIdentificacionAsistencia } from './attendanceGridColumns'
 import { emptyShifts, WEEK_COLUMNS, ZERO_TOTALS, type GridRow } from './mockData'
 import { plantaToStorageKey } from './cuadriculaColaboradoresBridge'
 import { empNoClaveGridRow, indexGridRowsByEmpNo } from '@/lib/attendance-emp-no'
@@ -99,13 +100,13 @@ export function mergeAttendanceRowsWithStoredAndVacantes(
       shifts: s.shifts,
       employeeNo: br.employeeNo ?? s.employeeNo ?? k,
       id: br.id,
-      rowServiceNo: br.rowServiceNo ?? s.rowServiceNo,
-      servicioLinea: br.servicioLinea ?? s.servicioLinea,
-      plantaLinea: br.plantaLinea ?? s.plantaLinea,
-      position: br.position,
-      role: br.role,
-      name: br.name,
-      hireDate: br.hireDate,
+      rowServiceNo: elegirValorIdentificacionAsistencia(br.rowServiceNo, s.rowServiceNo),
+      servicioLinea: elegirValorIdentificacionAsistencia(br.servicioLinea, s.servicioLinea),
+      plantaLinea: elegirValorIdentificacionAsistencia(br.plantaLinea, s.plantaLinea) || br.plantaLinea || s.plantaLinea,
+      position: elegirValorIdentificacionAsistencia(br.position, s.position),
+      role: elegirValorIdentificacionAsistencia(br.role, s.role),
+      name: elegirValorIdentificacionAsistencia(br.name, s.name),
+      hireDate: elegirValorIdentificacionAsistencia(br.hireDate, s.hireDate),
     }
   })
 

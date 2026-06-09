@@ -1,6 +1,20 @@
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 
 /**
+ * Servicio capturado en **Colaboradores** (expediente / form).
+ * Prioridad: `form.servicioFinal` → `form.servicio` → snapshot → MOPER.
+ * La cuadrícula y altas deben reflejar lo guardado en esa sección.
+ */
+export function servicioExpedienteColaborador(c: ColaboradorCompleto): string {
+  const fFinal = String(c.form?.servicioFinal ?? "").trim();
+  const fSrv = String(c.form?.servicio ?? "").trim();
+  const asignado = String(c.servicioAsignado ?? "").trim();
+  const ultimo = String(c.ultimoServicio ?? "").trim();
+  const moper = String(c.moperActual?.servicio ?? "").trim();
+  return fFinal || fSrv || asignado || ultimo || moper;
+}
+
+/**
  * Línea de servicio **vigente** (post-MOPER): primero MOPER actual, luego último movimiento,
  * después alta (`servicioAsignado`) y expediente. Así la lista y filtros reflejan el servicio actual.
  */

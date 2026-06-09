@@ -125,19 +125,22 @@ export async function POST(req: Request) {
 
   const incomingSavedAt = typeof grid.savedAt === "string" ? grid.savedAt : new Date().toISOString();
   const serviceNo = typeof o.serviceNo === "string" ? o.serviceNo : (grid.serviceNo ?? "");
+  const forceReplace = o.forceReplace === true;
 
-  const { data: existing } = await admin
-    .from("cuadricula_asistencia")
-    .select("payload")
-    .eq("week_start_iso", weekStartIso)
-    .eq("scope_key", scopeKey)
-    .maybeSingle();
+  if (!forceReplace) {
+    const { data: existing } = await admin
+      .from("cuadricula_asistencia")
+      .select("payload")
+      .eq("week_start_iso", weekStartIso)
+      .eq("scope_key", scopeKey)
+      .maybeSingle();
 
-  if (existing?.payload) {
-    const prev = existing.payload as StoredPayload;
-    const prevAt = typeof prev.savedAt === "string" ? prev.savedAt : "";
-    if (prevAt && prevAt > incomingSavedAt) {
-      return NextResponse.json({ ok: true, skipped: true, reason: "older_than_server" });
+    if (existing?.payload) {
+      const prev = existing.payload as StoredPayload;
+      const prevAt = typeof prev.savedAt === "string" ? prev.savedAt : "";
+      if (prevAt && prevAt > incomingSavedAt) {
+        return NextResponse.json({ ok: true, skipped: true, reason: "older_than_server" });
+      }
     }
   }
 

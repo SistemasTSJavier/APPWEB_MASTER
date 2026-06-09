@@ -196,6 +196,7 @@ export async function pushAttendanceGridRemote(
   scopeKey: string,
   grid: StoredAttendanceGrid,
   serviceNo: string,
+  opts?: { forceReplace?: boolean },
 ): Promise<boolean> {
   try {
     const r = await fetch('/api/asistencia', {
@@ -207,6 +208,7 @@ export async function pushAttendanceGridRemote(
         scopeKey: scopeKey.trim(),
         grid,
         serviceNo: serviceNo.trim(),
+        forceReplace: opts?.forceReplace === true,
       }),
     })
     if (r.status === 503) return false
@@ -219,6 +221,7 @@ export async function pushAttendanceGridRemote(
 /** Sube todo lo que haya en localStorage (migración local → Supabase). */
 export async function syncAllLocalAttendanceToRemote(
   items: { weekStartIso: string; scopeKey: string; grid: StoredAttendanceGrid; serviceNo?: string }[],
+  opts?: { forceReplace?: boolean },
 ): Promise<{ uploaded: number; skipped: number; failed: number } | null> {
   if (items.length === 0) return { uploaded: 0, skipped: 0, failed: 0 }
   try {
@@ -226,7 +229,7 @@ export async function syncAllLocalAttendanceToRemote(
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({ items, forceReplace: opts?.forceReplace === true }),
     })
     if (r.status === 503) return null
     if (!r.ok) return null

@@ -7,10 +7,12 @@ import {
   weekStartToIso,
 } from "./attendanceStorage";
 import {
+  buscarColaboradorPorClaveAsistencia,
   colaboradorToGridRow,
   gridRowServiceNo,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
+import { canonicalEmpNoAttendance, empNoClaveGridRow } from "@/lib/attendance-emp-no";
 import type { GridRow } from "./mockData";
 import { WEEK_COLUMNS } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
@@ -36,7 +38,7 @@ export async function loadFilaAsistenciaColaboradorSemana(
   const planta = plantaNombre.trim();
   if (!key || !planta) return null;
 
-  const c = colaboradores.find((x) => x.noEmpleado.trim() === key);
+  const c = buscarColaboradorPorClaveAsistencia(colaboradores, key);
   if (!c) return null;
 
   const scopeId = plantaToStorageKey(planta);
@@ -45,7 +47,7 @@ export async function loadFilaAsistenciaColaboradorSemana(
   const base = colaboradorToGridRow(c, catalogo, planta);
   const { grid } = await loadAttendanceGridForPlantaWithMeta(weekStartIso, scopeId, [key]);
   const norm = grid?.rows?.length ? normalizeStoredRows(grid.rows, grid.serviceNo) : [];
-  const stored = norm.find((r) => String(r.employeeNo ?? r.id ?? "").trim() === key);
+  const stored = norm.find((r) => empNoClaveGridRow(r) === canonicalEmpNoAttendance(key));
 
   if (!stored?.shifts?.length || stored.shifts.length !== WEEK_COLUMNS.length) {
     return withComputedTotals(base, gridRowServiceNo(base));

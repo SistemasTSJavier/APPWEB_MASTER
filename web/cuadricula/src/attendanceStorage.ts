@@ -167,7 +167,7 @@ export async function saveAttendanceGrid(
   serviceCatalogId: string,
   rows: GridRow[],
   serviceNo: string,
-  opts?: { savedAt?: string },
+  opts?: { savedAt?: string; forceReplace?: boolean },
 ): Promise<boolean> {
   const id = serviceCatalogId.trim()
   if (!id) return false
@@ -176,29 +176,34 @@ export async function saveAttendanceGrid(
   invalidateAttendanceStorageWeekCache(weekStartIso)
   const { invalidateAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
   invalidateAttendanceWeekPrefetch(weekStartIso)
-  const remoteOk = await pushAttendanceGridRemote(weekStartIso, id, payload, serviceNo)
+  const remoteOk = await pushAttendanceGridRemote(weekStartIso, id, payload, serviceNo, {
+    forceReplace: opts?.forceReplace,
+  })
   return remoteOk || localOk
 }
 
 const SYNC_BATCH_SIZE = 6
 
 /**
- * Guarda varias plantas de la misma semana: local primero, luego subida al servidor por lotes
- * (evita saturar el navegador con decenas de POST en paralelo).
+ * Guarda varias plantas de la misma semana. El servidor es la fuente de verdad:
+ * SIEMPRE se sube cada planta por lotes, aunque la copia local falle (cuota llena,
+ * modo privado). La copia en localStorage es solo un respaldo.
  */
 export async function saveManyAttendanceGrids(
   weekStartIso: string,
   items: { scopeKey: string; rows: GridRow[]; serviceNo?: string }[],
+  opts?: { forceReplace?: boolean },
 ): Promise<{ saved: number; failed: number }> {
   if (items.length === 0) return { saved: 0, failed: 0 }
 
   const { syncAllLocalAttendanceToRemote } = await import('./attendanceRemote')
   const baseMs = Date.now()
-  const syncPayload: {
+  const entries: {
     weekStartIso: string
     scopeKey: string
     grid: StoredAttendanceGrid
     serviceNo?: string
+    localOk: boolean
   }[] = []
 
   for (let i = 0; i < items.length; i++) {
@@ -207,31 +212,39 @@ export async function saveManyAttendanceGrids(
     if (!id || rows.length === 0) continue
     const savedAt = new Date(baseMs + i).toISOString()
     const payload = buildAttendanceGridPayload(rows, serviceNo, savedAt)
-    if (saveAttendanceGridLocal(weekStartIso, id, payload)) {
-      syncPayload.push({ weekStartIso, scopeKey: id, grid: payload, serviceNo })
-    }
+    const localOk = saveAttendanceGridLocal(weekStartIso, id, payload)
+    entries.push({ weekStartIso, scopeKey: id, grid: payload, serviceNo, localOk })
   }
 
   invalidateAttendanceStorageWeekCache(weekStartIso)
   const { invalidateAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
   invalidateAttendanceWeekPrefetch(weekStartIso)
 
-  if (syncPayload.length === 0) {
+  if (entries.length === 0) {
     return { saved: 0, failed: items.length }
   }
 
   let saved = 0
   let failed = 0
 
-  for (let i = 0; i < syncPayload.length; i += SYNC_BATCH_SIZE) {
-    const chunk = syncPayload.slice(i, i + SYNC_BATCH_SIZE)
-    const res = await syncAllLocalAttendanceToRemote(chunk)
+  for (let i = 0; i < entries.length; i += SYNC_BATCH_SIZE) {
+    const chunk = entries.slice(i, i + SYNC_BATCH_SIZE)
+    const localOkCount = chunk.filter((e) => e.localOk).length
+    const res = await syncAllLocalAttendanceToRemote(
+      chunk.map(({ localOk: _omit, ...rest }) => rest),
+      { forceReplace: opts?.forceReplace },
+    )
     if (!res) {
-      failed += chunk.length
+      /* Servidor inaccesible: la copia local cuenta como guardado. */
+      saved += localOkCount
+      failed += chunk.length - localOkCount
       continue
     }
-    saved += (res.uploaded ?? 0) + (res.skipped ?? 0)
-    failed += res.failed ?? 0
+    const remoteOk = (res.uploaded ?? 0) + (res.skipped ?? 0)
+    const remoteFailed = res.failed ?? 0
+    const rescatadasPorLocal = Math.min(remoteFailed, localOkCount)
+    saved += remoteOk + rescatadasPorLocal
+    failed += Math.max(0, remoteFailed - rescatadasPorLocal)
   }
 
   return { saved, failed }
