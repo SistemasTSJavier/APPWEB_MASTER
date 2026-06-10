@@ -6,7 +6,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * Resumen:
  * - admin: acceso total.
  * - rh: acceso total operativo (incl. MOPER).
- * - aux_rh: todas las secciones excepto MOPER; puede registrar/editar (no solo ver). Incluye Cuadrícula.
+ * - aux_rh: inicio, Altas y Bajas únicamente; puede registrar, editar y guardar en ambos módulos.
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura), MOPER (registra/edita) y Gestores proceso. Sin altas, expedientes legal, servicios ni ficha técnica.
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC igual que admin (subir/eliminar, todos los departamentos).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
@@ -135,10 +135,10 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   ],
   "/altas": ["admin", "rh", "aux_rh"],
   "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "editor_cuadricula"],
-  "/colaboradores": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
-  "/cuadricula": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
-  "/expedientes-legal": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
-  "/ds3": ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"],
+  "/colaboradores": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
+  "/cuadricula": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
+  "/expedientes-legal": ["admin", "rh", "aux_legal", "gerente_legal"],
+  "/ds3": ["admin", "rh", "aux_legal", "gerente_legal"],
   "/gerente-legal": ["admin", "gerente_legal"],
   "/moper": [
     "admin",
@@ -151,9 +151,9 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
     "editor_cuadricula",
     "relaciones_laborales",
   ],
-  "/servicios": ["admin", "rh", "aux_rh"],
+  "/servicios": ["admin", "rh"],
   "/sgc": ["admin", "mejora_continua"],
-  "/gestores-proceso": ["admin", "rh", "aux_rh", "gerente_rh"],
+  "/gestores-proceso": ["admin", "rh", "gerente_rh"],
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
 };
 
@@ -161,7 +161,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
 export const FICHA_TECNICA_AUX_RH_EMAIL = "auxrh@tacticalsupport.com.mx";
 
 export function mayAccessFichaTecnica(role: AppRole, email: string | null | undefined): boolean {
-  if (role === "admin" || role === "aux_rh") return true;
+  if (role === "admin") return true;
   const e = (email ?? "").trim().toLowerCase();
   if (role === "rh" && e === FICHA_TECNICA_AUX_RH_EMAIL.toLowerCase()) return true;
   return false;
@@ -198,7 +198,7 @@ export function roleMayAccessGerenteLegalContratos(role: AppRole): boolean {
   return role === "admin" || role === "gerente_legal";
 }
 
-/** Modulo DS3 (consulta y subida de archivos por colaborador). */
+/** Modulo DC-3 (consulta y subida de archivos por colaborador). */
 export function roleMayAccessDs3(role: AppRole): boolean {
   return roleMayAccessExpedientesLegal(role);
 }
@@ -212,7 +212,6 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
   return (
     role === "admin" ||
     role === "rh" ||
-    role === "aux_rh" ||
     role === "aux_legal" ||
     role === "gerente_legal" ||
     role === "editor_cuadricula"
@@ -222,6 +221,7 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
 /** Tras login o acceso denegado. */
 export function defaultHomeForRole(role: AppRole): string {
   if (role === "relaciones_laborales") return "/moper";
+  if (role === "aux_rh") return "/altas";
   return "/";
 }
 
@@ -235,9 +235,14 @@ export function roleMayWriteAltas(role: AppRole): boolean {
   return role === "admin" || role === "aux_rh";
 }
 
-/** Expediente Colaboradores: editar expediente y vacantes (Cuadrícula). Solo Admin y Aux RH. */
+/** Expediente Colaboradores (módulo UI): editar expediente. Solo administrador. */
 export function roleMayEditColaboradores(role: AppRole): boolean {
-  return role === "admin" || role === "aux_rh";
+  return role === "admin";
+}
+
+/** Guardar expediente vía API (Altas, Bajas e importaciones masivas). Admin, RH y Aux RH. */
+export function roleMayWriteExpedienteColaborador(role: AppRole): boolean {
+  return role === "admin" || role === "rh" || role === "aux_rh";
 }
 
 /** Misma regla que edición de expediente (import CSV columna, vacantes en editor). */
@@ -245,9 +250,14 @@ export function roleMayEditColaboradoresVacantes(role: AppRole): boolean {
   return roleMayEditColaboradores(role);
 }
 
-/** Otros módulos que antes compartían edición de colaboradores (Bajas, legal). */
-export function roleMayEditColaboradoresLegacyRh(role: AppRole): boolean {
+/** Bajas: registrar y editar bajas (módulo UI). */
+export function roleMayWriteBajas(role: AppRole): boolean {
   return role === "admin" || role === "rh" || role === "aux_rh";
+}
+
+/** Expedientes legal (edición de PDFs). Admin y RH. */
+export function roleMayEditColaboradoresLegacyRh(role: AppRole): boolean {
+  return role === "admin" || role === "rh";
 }
 
 /** Filtro por rango de fecha de baja (módulo Bajas y cuadrícula → Bajas). */
@@ -271,7 +281,7 @@ export function roleMayReadColaboradoresApi(role: AppRole): boolean {
 
 /** Exportar CSV desde Colaboradores (filtros y selección); sin edición de expediente. */
 export function roleMayExportColaboradoresCsv(role: AppRole): boolean {
-  return role === "admin" || role === "rh" || role === "aux_rh" || role === "mejora_continua";
+  return role === "admin" || role === "rh" || role === "mejora_continua";
 }
 
 export function roleMayWriteMoperHistorial(role: AppRole): boolean {
@@ -301,7 +311,6 @@ export function roleMayReadServiciosCatalogo(role: AppRole): boolean {
   return (
     role === "admin" ||
     role === "rh" ||
-    role === "aux_rh" ||
     role === "gerente_rh" ||
     role === "mejora_continua" ||
     role === "nominas" ||
@@ -310,7 +319,7 @@ export function roleMayReadServiciosCatalogo(role: AppRole): boolean {
 }
 
 export function roleMayEditServiciosCatalogo(role: AppRole): boolean {
-  return role === "admin" || role === "rh" || role === "aux_rh";
+  return role === "admin" || role === "rh";
 }
 
 /** Importación CSV del catálogo (2 col: nombre + N.º; 3 col: + planta); solo administrador. */
@@ -364,7 +373,7 @@ export function sgcDepartamentoFijoPorRol(_role: AppRole): SgcDepartamentoId | n
 
 /** Comparativa de gestores del proceso (altas / expediente). */
 export function roleMayAccessGestoresProceso(role: AppRole): boolean {
-  return role === "admin" || role === "rh" || role === "aux_rh" || role === "gerente_rh";
+  return role === "admin" || role === "rh" || role === "gerente_rh";
 }
 
 /** Enlaces del panel lateral en la página de inicio (según rol). */
@@ -378,26 +387,26 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
 
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
-    { href: "/servicios", label: "Servicios", roles: ["admin", "rh", "aux_rh"] },
+    { href: "/servicios", label: "Servicios", roles: ["admin", "rh"] },
     { href: "/bajas", label: "Bajas", roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "editor_cuadricula"] },
     {
       href: "/cuadricula",
       label: "Cuadrícula",
-      roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
+      roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
     },
     {
       href: "/colaboradores",
       label: "Colaboradores",
-      roles: ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
+      roles: ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
     },
-    { href: "/expedientes-legal", label: "Expedientes legal", roles: ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"] },
-    { href: "/ds3", label: "DS3", roles: ["admin", "rh", "aux_rh", "aux_legal", "gerente_legal"] },
+    { href: "/expedientes-legal", label: "Expedientes legal", roles: ["admin", "rh", "aux_legal", "gerente_legal"] },
+    { href: "/ds3", label: "DC-3", roles: ["admin", "rh", "aux_legal", "gerente_legal"] },
     {
       href: "/gerente-legal/contratos",
       label: "Alertas contrato",
       roles: ["admin", "gerente_legal"],
     },
-    { href: "/ficha-tecnica", label: "Ficha técnica", roles: ["admin", "rh", "aux_rh"] },
+    { href: "/ficha-tecnica", label: "Ficha técnica", roles: ["admin", "rh"] },
     {
       href: "/moper",
       label: "Moper",
@@ -421,7 +430,7 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     {
       href: "/gestores-proceso",
       label: "Gestores proceso",
-      roles: ["admin", "rh", "aux_rh", "gerente_rh"],
+      roles: ["admin", "rh", "gerente_rh"],
     },
     {
       href: "/categorizacion",

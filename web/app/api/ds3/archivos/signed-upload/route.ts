@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
   if (!roleMayEditDs3(auth.role)) {
-    return NextResponse.json({ error: "No autorizado para subir archivos DS3" }, { status: 403 });
+    return NextResponse.json({ error: "No autorizado para subir archivos DC-3" }, { status: 403 });
   }
 
   if (!isSupabaseServerConfigured()) {
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     const msg = hintSupabaseClientError(signErr.message);
     if (/bucket|not found|Bucket/i.test(msg)) {
       return NextResponse.json(
-        { error: "Falta el bucket DS3. Ejecuta web/supabase/migrations/020_ds3_storage.sql.", detail: msg },
+        { error: "Falta el bucket DC-3. Ejecuta web/supabase/migrations/020_ds3_storage.sql.", detail: msg },
         { status: 503 },
       );
     }

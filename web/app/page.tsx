@@ -128,8 +128,10 @@ export default async function Home() {
               </>
             ) : auth.role === "aux_rh" ? (
               <>
-                <span className="hidden sm:inline">TIENES TODOS LOS MODULOS EXCEPTO MOPER; PUEDES REGISTRAR Y EDITAR EN ALTAS, BAJAS, COLABORADORES, ETC.</span>
-                <span className="sm:hidden">SIN MOPER: REGISTRAR Y EDITAR EN EL RESTO.</span>
+                <span className="hidden sm:inline">
+                  ACCESO A <strong>ALTAS</strong> Y <strong>BAJAS</strong>: PUEDES REGISTRAR, EDITAR Y GUARDAR EXPEDIENTES EN AMBOS MODULOS.
+                </span>
+                <span className="sm:hidden">SOLO ALTAS Y BAJAS: REGISTRAR Y EDITAR.</span>
               </>
             ) : auth.role === "gerente_rh" ? (
               <>

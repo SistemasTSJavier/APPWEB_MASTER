@@ -7,7 +7,7 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayEditColaboradores } from "@/lib/app-role";
+import { roleMayWriteExpedienteColaborador } from "@/lib/app-role";
 import {
   mapaColaboradoresPorNo,
   procesarCorreccionCsvDosColumnasEnMemoria,
@@ -48,7 +48,7 @@ function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
 export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
-  if (!roleMayEditColaboradores(auth.role)) {
+  if (!roleMayWriteExpedienteColaborador(auth.role)) {
     return NextResponse.json({ error: "No autorizado para importar correccion CSV" }, { status: 403 });
   }
 

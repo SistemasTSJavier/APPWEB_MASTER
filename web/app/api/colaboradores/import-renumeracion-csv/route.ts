@@ -5,7 +5,7 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayEditColaboradores } from "@/lib/app-role";
+import { roleMayWriteExpedienteColaborador } from "@/lib/app-role";
 import { ejecutarRenumeracionCsv } from "@/lib/colaboradores-renumeracion-server";
 import { fetchAllColaboradoresDbRows } from "@/lib/colaboradores-supabase-fetch-all";
 
@@ -17,7 +17,7 @@ const MAX_CSV_CHARS = 2 * 1024 * 1024;
 export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
-  if (!roleMayEditColaboradores(auth.role)) {
+  if (!roleMayWriteExpedienteColaborador(auth.role)) {
     return NextResponse.json({ error: "No autorizado para renumerar expedientes" }, { status: 403 });
   }
 

@@ -7,7 +7,7 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayEditColaboradores, roleMayReadColaboradoresApi } from "@/lib/app-role";
+import { roleMayReadColaboradoresApi, roleMayWriteExpedienteColaborador } from "@/lib/app-role";
 import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
 import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
@@ -57,7 +57,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
-  if (!roleMayEditColaboradores(auth.role)) {
+  if (!roleMayWriteExpedienteColaborador(auth.role)) {
     return NextResponse.json({ error: "No autorizado para guardar expedientes" }, { status: 403 });
   }
 

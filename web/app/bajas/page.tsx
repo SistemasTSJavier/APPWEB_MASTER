@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
-import { roleMayEditColaboradoresLegacyRh } from "@/lib/app-role";
+import { roleMayWriteBajas } from "@/lib/app-role";
 import { BajasPageClient } from "@/app/bajas/BajasPageClient";
 
 export default async function BajasPage() {
@@ -8,7 +8,7 @@ export default async function BajasPage() {
   if (!auth) redirect("/login");
   return (
     <BajasPageClient
-      readOnly={!roleMayEditColaboradoresLegacyRh(auth.role)}
+      readOnly={!roleMayWriteBajas(auth.role)}
       appRole={auth.role}
     />
   );

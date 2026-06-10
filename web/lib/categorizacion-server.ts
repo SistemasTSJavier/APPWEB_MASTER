@@ -1,8 +1,15 @@
 import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
 import { camposPorModulo } from "@/lib/categorizacion-campos";
 import {
+  normalizarSubmoduloOperaciones,
+  rolOperacionesDesdePuesto,
+  submoduloOperaciones,
+  type CatOperacionesRolId,
+} from "@/lib/categorizacion-operaciones-roles";
+import {
   etiquetaNivel,
   etiquetaPaquete,
+  promedioAcumuladoEvaluaciones,
   promedioDeScores,
   promedioGeneralCategorizacion,
 } from "@/lib/categorizacion-calificaciones";
@@ -210,50 +217,83 @@ function parseScores(raw: unknown): Record<string, number> {
   return out;
 }
 
-export async function getCatEvaluacion(
-  noEmpleado: string,
-  modulo: CatEvalModuloId,
-  admin?: SupabaseClient | null,
-): Promise<CatEvaluacionRow | null> {
-  const client = admin ?? db();
-  if (!client) return null;
-  const { data, error } = await client
-    .from("cat_evaluacion")
-    .select("*")
-    .eq("no_empleado", noEmpleado.trim().toUpperCase())
-    .eq("modulo", modulo)
-    .maybeSingle();
-  if (error) throw new Error(hintSupabaseClientError(error.message));
-  if (!data) return null;
-  const r = data as Record<string, unknown>;
+function submoduloDbParaModulo(modulo: CatEvalModuloId, submodulo?: string): string {
+  if (modulo !== "operaciones") return "";
+  return submoduloOperaciones(normalizarSubmoduloOperaciones(submodulo));
+}
+
+function rowToCatEvaluacion(r: Record<string, unknown>, modulo: CatEvalModuloId): CatEvaluacionRow {
   const scores = parseScores(r.scores);
+  const subRaw = String(r.submodulo ?? "");
+  const submodulo =
+    modulo === "operaciones" ? submoduloOperaciones(normalizarSubmoduloOperaciones(subRaw || "oficial")) : "";
   return {
     noEmpleado: normalizarNoEmpleado(String(r.no_empleado)),
     modulo,
+    submodulo,
+    calificadoPor: normalizarNoEmpleado(String(r.calificado_por ?? "")),
     scores,
     comentarios: String(r.comentarios ?? ""),
     promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(scores),
   };
 }
 
+/** Promedio operaciones jefe de turno = media de los promedios de cada oficial. */
+export function mapaPromedioOperacionesJefeTurno(rows: CatEvaluacionRow[]): Map<string, number | null> {
+  const porJefe = new Map<string, number[]>();
+  for (const r of rows) {
+    if (r.submodulo !== "jefe_turno" || r.promedio == null || !Number.isFinite(r.promedio)) continue;
+    const list = porJefe.get(r.noEmpleado) ?? [];
+    list.push(r.promedio);
+    porJefe.set(r.noEmpleado, list);
+  }
+  const out = new Map<string, number | null>();
+  for (const [no, proms] of porJefe) {
+    out.set(no, promedioAcumuladoEvaluaciones(proms));
+  }
+  return out;
+}
+
+export async function getCatEvaluacion(
+  noEmpleado: string,
+  modulo: CatEvalModuloId,
+  admin?: SupabaseClient | null,
+  opts?: { submodulo?: string; calificadoPor?: string },
+): Promise<CatEvaluacionRow | null> {
+  const client = admin ?? db();
+  if (!client) return null;
+  const sub = submoduloDbParaModulo(modulo, opts?.submodulo);
+  const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
+  let q = client
+    .from("cat_evaluacion")
+    .select("*")
+    .eq("no_empleado", noEmpleado.trim().toUpperCase())
+    .eq("modulo", modulo)
+    .eq("submodulo", sub)
+    .eq("calificado_por", calificadoPor);
+  const { data, error } = await q.maybeSingle();
+  if (error) throw new Error(hintSupabaseClientError(error.message));
+  if (!data) return null;
+  return rowToCatEvaluacion(data as Record<string, unknown>, modulo);
+}
+
 export async function listCatEvaluacionesModulo(
   modulo: CatEvalModuloId,
   admin?: SupabaseClient | null,
+  opts?: { submodulo?: string },
 ): Promise<CatEvaluacionRow[]> {
   const client = admin ?? db();
   if (!client) return [];
-  const { data, error } = await client.from("cat_evaluacion").select("*").eq("modulo", modulo);
+  let q = client.from("cat_evaluacion").select("*").eq("modulo", modulo);
+  if (modulo === "operaciones" && opts?.submodulo != null) {
+    const sub = submoduloDbParaModulo(modulo, opts.submodulo);
+    q = q.eq("submodulo", sub);
+    if (sub === "oficial") q = q.eq("calificado_por", "");
+    if (sub === "jefe_turno") q = q.neq("calificado_por", "");
+  }
+  const { data, error } = await q;
   if (error) throw new Error(hintSupabaseClientError(error.message));
-  return (data ?? []).map((row) => {
-    const r = row as Record<string, unknown>;
-    return {
-      noEmpleado: normalizarNoEmpleado(String(r.no_empleado)),
-      modulo,
-      scores: parseScores(r.scores),
-      comentarios: String(r.comentarios ?? ""),
-      promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(parseScores(r.scores)),
-    };
-  });
+  return (data ?? []).map((row) => rowToCatEvaluacion(row as Record<string, unknown>, modulo));
 }
 
 export async function upsertCatEvaluacion(
@@ -262,10 +302,20 @@ export async function upsertCatEvaluacion(
   scores: Record<string, number>,
   comentarios: string,
   admin?: SupabaseClient | null,
+  opts?: { submodulo?: string; rolOperaciones?: CatOperacionesRolId; calificadoPor?: string },
 ): Promise<CatEvaluacionRow> {
   const client = admin ?? db();
   if (!client) throw new Error("Supabase no configurado");
-  const campos = camposPorModulo(modulo);
+  const rolOp = opts?.rolOperaciones ?? normalizarSubmoduloOperaciones(opts?.submodulo);
+  const sub = submoduloDbParaModulo(modulo, opts?.submodulo ?? rolOp);
+  const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
+  if (sub === "jefe_turno" && !calificadoPor) {
+    throw new Error("Indique el N.º del oficial (calificado por) para jefe de turno.");
+  }
+  if (sub === "oficial" && calificadoPor) {
+    throw new Error("El perfil oficial no usa calificado por.");
+  }
+  const campos = camposPorModulo(modulo, modulo === "operaciones" ? { rolOperaciones: rolOp } : undefined);
   const filtered: Record<string, number> = {};
   for (const c of campos) {
     const v = scores[c.key];
@@ -276,17 +326,21 @@ export async function upsertCatEvaluacion(
     {
       no_empleado: noEmpleado.trim().toUpperCase(),
       modulo,
+      submodulo: sub,
+      calificado_por: calificadoPor,
       scores: filtered,
       comentarios: comentarios.trim(),
       promedio,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "no_empleado,modulo" },
+    { onConflict: "no_empleado,modulo,submodulo,calificado_por" },
   );
   if (error) throw new Error(hintSupabaseClientError(error.message));
   return {
     noEmpleado: noEmpleado.trim().toUpperCase(),
     modulo,
+    submodulo: sub,
+    calificadoPor,
     scores: filtered,
     comentarios: comentarios.trim(),
     promedio,
@@ -313,13 +367,15 @@ export async function promedioCapacitacionEmpleado(
 
 export async function buildResumenCategorizacion(admin?: SupabaseClient | null): Promise<CatResumenEmpleado[]> {
   const personal = await listCatPersonal(admin);
-  const [rhList, opList, enList] = await Promise.all([
+  const [rhList, opOficialList, opJefeList, enList] = await Promise.all([
     listCatEvaluacionesModulo("recursos_humanos", admin),
-    listCatEvaluacionesModulo("operaciones", admin),
+    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "oficial" }),
+    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "jefe_turno" }),
     listCatEvaluacionesModulo("enfoque_cliente", admin),
   ]);
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado, r.promedio]));
-  const opMap = new Map(opList.map((r) => [r.noEmpleado, r.promedio]));
+  const opOficialMap = new Map(opOficialList.map((r) => [r.noEmpleado, r.promedio]));
+  const opJefeMap = mapaPromedioOperacionesJefeTurno(opJefeList);
   const enMap = new Map(enList.map((r) => [r.noEmpleado, r.promedio]));
 
   const client = admin ?? db();
@@ -333,7 +389,9 @@ export async function buildResumenCategorizacion(admin?: SupabaseClient | null):
   return personal.map((p) => {
     const promedioRh = rhMap.get(p.noEmpleado) ?? null;
     const promedioCapacitacion = capProms.get(p.noEmpleado) ?? null;
-    const promedioOperaciones = opMap.get(p.noEmpleado) ?? null;
+    const rolOp = rolOperacionesDesdePuesto(p.puesto);
+    const promedioOperaciones =
+      (rolOp === "jefe_turno" ? opJefeMap : opOficialMap).get(p.noEmpleado) ?? null;
     const promedioEnfoque = enMap.get(p.noEmpleado) ?? null;
     const promedioGeneral = promedioGeneralCategorizacion([
       promedioRh,

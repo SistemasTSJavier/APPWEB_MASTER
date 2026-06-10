@@ -34,7 +34,7 @@ async function colaboradorExiste(admin: ReturnType<typeof createSupabaseServiceR
   return !!data?.no_empleado;
 }
 
-/** GET ?no_empleado= — lista archivos DS3 del colaborador */
+/** GET ?no_empleado= — lista archivos DC-3 del colaborador */
 export async function GET(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
@@ -65,7 +65,7 @@ export async function GET(req: Request) {
     if (/bucket|not found|Bucket/i.test(msg)) {
       return NextResponse.json(
         {
-          error: "Falta el bucket DS3 en Supabase. Ejecuta web/supabase/migrations/020_ds3_storage.sql.",
+          error: "Falta el bucket DC-3 en Supabase. Ejecuta web/supabase/migrations/020_ds3_storage.sql.",
           detail: msg,
         },
         { status: 503 },
@@ -102,7 +102,7 @@ export async function DELETE(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
   if (!roleMayEditDs3(auth.role)) {
-    return NextResponse.json({ error: "No autorizado para eliminar archivos DS3" }, { status: 403 });
+    return NextResponse.json({ error: "No autorizado para eliminar archivos DC-3" }, { status: 403 });
   }
 
   if (!isSupabaseServerConfigured()) {

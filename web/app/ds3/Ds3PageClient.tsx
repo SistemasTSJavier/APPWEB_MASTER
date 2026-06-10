@@ -201,7 +201,7 @@ export function Ds3PageClient({ appRole }: { appRole: AppRole }) {
     <div className="w-full">
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Módulo</p>
-        <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">DS3</h1>
+        <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">DC-3</h1>
         <p className="mt-1 max-w-3xl text-base font-medium leading-relaxed text-slate-800">
           Consulta y sube archivos por colaborador (PDF e imágenes). Puede seleccionar varios a la vez; cada uno se
           optimiza para no superar <strong>{DS3_MAX_MB} MB</strong>. Luego puede verlos en la página o descargarlos.
@@ -382,7 +382,7 @@ export function Ds3PageClient({ appRole }: { appRole: AppRole }) {
         </section>
       ) : (
         <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm font-semibold uppercase text-slate-600">
-          Selecciona un colaborador para consultar o subir archivos DS3.
+          Selecciona un colaborador para consultar o subir archivos DC-3.
         </p>
       )}
     </div>

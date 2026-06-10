@@ -22,14 +22,20 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const modulo = parseModulo(url.searchParams.get("modulo"));
   const no = url.searchParams.get("no_empleado")?.trim().toUpperCase();
+  const submodulo = url.searchParams.get("submodulo")?.trim() || undefined;
+  const calificadoPor = url.searchParams.get("calificado_por")?.trim() || undefined;
 
   try {
     if (modulo && no) {
-      const row = await getCatEvaluacion(no, modulo);
+      const row = await getCatEvaluacion(no, modulo, null, { submodulo, calificadoPor });
       return NextResponse.json({ ok: true, row });
     }
     if (modulo) {
-      const rows = await listCatEvaluacionesModulo(modulo);
+      const rows = await listCatEvaluacionesModulo(
+        modulo,
+        null,
+        modulo === "operaciones" ? { submodulo: submodulo ?? "oficial" } : undefined,
+      );
       return NextResponse.json({ ok: true, rows });
     }
     return NextResponse.json({ error: "Parametro modulo requerido" }, { status: 400 });
@@ -47,6 +53,8 @@ export async function POST(req: Request) {
   let body: {
     noEmpleado?: string;
     modulo?: string;
+    submodulo?: string;
+    calificadoPor?: string;
     scores?: Record<string, number>;
     comentarios?: string;
   };
@@ -61,7 +69,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "noEmpleado y modulo validos requeridos" }, { status: 400 });
   }
   try {
-    const row = await upsertCatEvaluacion(no, modulo, body.scores ?? {}, String(body.comentarios ?? ""));
+    const row = await upsertCatEvaluacion(no, modulo, body.scores ?? {}, String(body.comentarios ?? ""), null, {
+      submodulo: body.submodulo,
+      calificadoPor: body.calificadoPor,
+    });
     return NextResponse.json({ ok: true, row });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 });

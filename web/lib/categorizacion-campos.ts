@@ -1,5 +1,10 @@
 /** Definición de criterios calificables (1–5) por módulo. */
 
+import {
+  CAT_OPERACIONES_JEFE_TURNO_CAMPOS,
+  type CatOperacionesRolId,
+} from "@/lib/categorizacion-operaciones-roles";
+
 export type CatEvalModuloId = "recursos_humanos" | "operaciones" | "enfoque_cliente";
 
 export type CatCampoDef = { key: string; label: string };
@@ -39,9 +44,16 @@ export const CAT_ENFOQUE_CAMPOS: CatCampoDef[] = [
   { key: "confiable_cliente", label: "Es percibido por el cliente como persona confiable" },
 ];
 
-export function camposPorModulo(modulo: CatEvalModuloId): CatCampoDef[] {
+export function camposOperacionesPorRol(rol: CatOperacionesRolId): CatCampoDef[] {
+  return rol === "jefe_turno" ? CAT_OPERACIONES_JEFE_TURNO_CAMPOS : CAT_OPERACIONES_CAMPOS;
+}
+
+export function camposPorModulo(
+  modulo: CatEvalModuloId,
+  opts?: { rolOperaciones?: CatOperacionesRolId },
+): CatCampoDef[] {
   if (modulo === "recursos_humanos") return CAT_RH_CAMPOS;
-  if (modulo === "operaciones") return CAT_OPERACIONES_CAMPOS;
+  if (modulo === "operaciones") return camposOperacionesPorRol(opts?.rolOperaciones ?? "oficial");
   return CAT_ENFOQUE_CAMPOS;
 }
 
