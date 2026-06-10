@@ -68,16 +68,10 @@ export function CatRatingGrid({
   );
 }
 
-export function CatPromedioBadge({
-  promedio,
-  label = "Promedio",
-}: {
-  promedio: number | null;
-  label?: string;
-}) {
+export function CatPromedioBadge({ promedio }: { promedio: number | null }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
-      <span className="text-xs font-bold uppercase text-violet-900">{label}</span>
+      <span className="text-xs font-bold uppercase text-violet-900">Promedio</span>
       <span className="text-lg font-extrabold text-violet-950">{promedio != null ? promedio.toFixed(2) : "—"}</span>
       <span className="text-[10px] font-semibold text-slate-600">(escala 1–5)</span>
     </div>

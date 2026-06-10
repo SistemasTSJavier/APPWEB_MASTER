@@ -18,10 +18,6 @@ export type CatPersonalRow = {
 export type CatEvaluacionRow = {
   noEmpleado: string;
   modulo: CatEvalModuloId;
-  /** En operaciones: oficial | jefe_turno. Vacío en RH y enfoque al cliente. */
-  submodulo: string;
-  /** Jefe de turno: N.º del oficial que califica. Vacío en los demás casos. */
-  calificadoPor: string;
   scores: Record<string, number>;
   comentarios: string;
   promedio: number | null;
