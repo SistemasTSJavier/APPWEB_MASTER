@@ -105,6 +105,7 @@ export function mapRegistroToApi(r: MoperRegistroRow): MoperRegistroApi {
     sueldo_actual: r.sueldo_actual,
     sueldo_nuevo: r.sueldo_nuevo,
     motivo: r.motivo,
+    razon: r.razon ?? "",
     creado_por: r.creado_por,
     solicitado_por: r.solicitado_por,
     fecha_llenado: r.created_at,
@@ -195,6 +196,7 @@ export async function crearRegistroMoper(
     sueldo_actual: body.sueldo_actual != null ? Number(body.sueldo_actual) : null,
     sueldo_nuevo: Number(body.sueldo_nuevo) || 0,
     motivo: String(body.motivo ?? "").trim(),
+    razon: String(body.razon ?? "").trim(),
     creado_por: body.creado_por?.trim() || null,
     solicitado_por: body.solicitado_por?.trim() || null,
     estado: "pendiente",
@@ -233,6 +235,7 @@ export async function actualizarRegistroMoper(
   if (body.sueldo_actual !== undefined) patch.sueldo_actual = body.sueldo_actual != null ? Number(body.sueldo_actual) : null;
   if (body.sueldo_nuevo !== undefined) patch.sueldo_nuevo = Number(body.sueldo_nuevo) || 0;
   if (body.motivo !== undefined) patch.motivo = String(body.motivo).trim();
+  if (body.razon !== undefined) patch.razon = String(body.razon).trim();
   if (body.creado_por !== undefined) patch.creado_por = body.creado_por?.trim() || null;
   if (body.solicitado_por !== undefined) patch.solicitado_por = body.solicitado_por?.trim() || null;
 

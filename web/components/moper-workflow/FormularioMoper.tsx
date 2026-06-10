@@ -41,6 +41,7 @@ export function FormularioMoper({ onGuardar, registroId, registro, puedeEditar =
   const [sueldoActual, setSueldoActual] = useState<string>('')
   const [sueldoNuevo, setSueldoNuevo] = useState<string>('')
   const [motivo, setMotivo] = useState('')
+  const [razon, setRazon] = useState('')
   const [creadoPor, setCreadoPor] = useState('')
   const [solicitadoPor, setSolicitadoPor] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -65,6 +66,7 @@ export function FormularioMoper({ onGuardar, registroId, registro, puedeEditar =
       setSueldoActual(registro.sueldo_actual != null ? String(registro.sueldo_actual) : '')
       setSueldoNuevo(registro.sueldo_nuevo != null ? String(registro.sueldo_nuevo) : '')
       setMotivo(registro.motivo ?? '')
+      setRazon(registro.razon ?? '')
       setCreadoPor(registro.creado_por ?? '')
       setSolicitadoPor(registro.solicitado_por ?? '')
     }
@@ -82,6 +84,7 @@ export function FormularioMoper({ onGuardar, registroId, registro, puedeEditar =
     sueldo_actual: sueldoActual ? Number(sueldoActual) : null,
     sueldo_nuevo: Number(sueldoNuevo) || 0,
     motivo: motivo.trim(),
+    razon: razon.trim(),
     creado_por: creadoPor.trim() || undefined,
     solicitado_por: solicitadoPor.trim() || undefined,
   }
@@ -322,6 +325,19 @@ export function FormularioMoper({ onGuardar, registroId, registro, puedeEditar =
                     onChange={(e) => setMotivo(e.target.value)}
                     placeholder="Texto libre..."
                     className="w-full border border-oxford-300 rounded px-2 py-1"
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td className="py-2 px-2 border border-oxford-300 font-medium align-top">Razón</td>
+                <td className="py-2 px-2 border border-oxford-300 bg-oxford-50 align-top">-</td>
+                <td className="py-2 px-2 border border-oxford-300 align-top">
+                  <textarea
+                    value={razon}
+                    onChange={(e) => setRazon(e.target.value)}
+                    placeholder="Texto libre..."
+                    rows={3}
+                    className="w-full min-h-[4.5rem] resize-y border border-oxford-300 rounded px-2 py-1"
                   />
                 </td>
               </tr>

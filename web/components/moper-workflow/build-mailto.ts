@@ -32,6 +32,7 @@ export function buildMailtoBody(registro: MoperRegistroApi): string {
     ),
     line("Sueldo", sueldoActual !== "-" || sueldoNuevo !== "-" ? `${sueldoActual} → ${sueldoNuevo}` : null),
     line("Motivo", registro.motivo),
+    line("Razon", registro.razon),
     line("Quien solicita", registro.solicitado_por),
     registro.codigo_acceso ? `\nCodigo de acceso: ${registro.codigo_acceso}` : null,
     firmaUrl ? `\nEnlace para firmar (sin login): ${firmaUrl}` : null,

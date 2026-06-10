@@ -23,7 +23,7 @@ export function moperWorkflowPuedeFirmarRh(role: AppRole): boolean {
 }
 
 export function moperWorkflowPuedeFirmarGerente(role: AppRole): boolean {
-  return role === "admin" || role === "gerente_rh";
+  return role === "admin" || role === "gerente_rh" || role === "gerente_operaciones";
 }
 
 export function moperWorkflowPuedeFirmarControl(role: AppRole): boolean {

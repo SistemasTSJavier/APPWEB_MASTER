@@ -15,6 +15,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - editor_cuadricula: inicio, Bajas, Colaboradores y MOPER solo consulta; Cuadrícula con captura/guardado e import CSV.
  * - capacitacion: inicio y sección Categorización únicamente.
  * - relaciones_laborales: inicio y MOPER (registrar, editar y guardar); sin otros módulos.
+ * - gerente_operaciones: solo MOPER; firma como Gerente de Operaciones (gerenteoperaciones@tacticalsupport.com.mx).
  */
 export type AppRole =
   | "admin"
@@ -27,7 +28,8 @@ export type AppRole =
   | "gerente_legal"
   | "editor_cuadricula"
   | "capacitacion"
-  | "relaciones_laborales";
+  | "relaciones_laborales"
+  | "gerente_operaciones";
 
 /** Correos previstos para usuarios legales (referencia al crear usuarios en Supabase). */
 export const AUX_LEGAL_EMAIL = "auxlegal@tacticalsupport.com.mx";
@@ -44,6 +46,9 @@ export const RELACIONES_LABORALES_EMAIL = "relacioneslaborales@tacticalsupport.c
 
 /** Aux RH: solo Altas y Bajas (metadata app_role: aux_rh o este correo). */
 export const AUX_RH_EMAIL = "auxrh@tacticalsupport.com.mx";
+
+/** Gerente de operaciones: solo MOPER y firma gerente (metadata app_role: gerente_operaciones o este correo). */
+export const GERENTE_OPERACIONES_EMAIL = "gerenteoperaciones@tacticalsupport.com.mx";
 
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -79,6 +84,9 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   relaciones_laborales: "relaciones_laborales",
   "relaciones laborales": "relaciones_laborales",
   relacioneslaborales: "relaciones_laborales",
+  gerente_operaciones: "gerente_operaciones",
+  "gerente operaciones": "gerente_operaciones",
+  gerenteoperaciones: "gerente_operaciones",
 };
 
 export function parseAppRole(raw: unknown): AppRole | null {
@@ -99,6 +107,7 @@ export const APP_ROLE_LABEL: Record<AppRole, string> = {
   editor_cuadricula: "Editor cuadrícula",
   capacitacion: "Capacitación",
   relaciones_laborales: "Relaciones laborales",
+  gerente_operaciones: "Gerente operaciones",
 };
 
 /** Rol efectivo: metadata `app_role` o correos corporativos conocidos. */
@@ -109,6 +118,7 @@ export function resolveAppRoleFromUser(user: {
 }): AppRole | null {
   const e = (user.email ?? "").trim().toLowerCase();
   if (e === AUX_RH_EMAIL.toLowerCase()) return "aux_rh";
+  if (e === GERENTE_OPERACIONES_EMAIL.toLowerCase()) return "gerente_operaciones";
   const fromMeta = parseAppRole(user.user_metadata?.app_role ?? user.app_metadata?.app_role);
   if (fromMeta) return fromMeta;
   if (e === RELACIONES_LABORALES_EMAIL.toLowerCase()) return "relaciones_laborales";
@@ -153,6 +163,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
     "gerente_legal",
     "editor_cuadricula",
     "relaciones_laborales",
+    "gerente_operaciones",
   ],
   "/servicios": ["admin", "rh"],
   "/sgc": ["admin", "mejora_continua"],
@@ -217,13 +228,13 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
 
 /** Tras login o acceso denegado. */
 export function defaultHomeForRole(role: AppRole): string {
-  if (role === "relaciones_laborales") return "/moper";
+  if (role === "relaciones_laborales" || role === "gerente_operaciones") return "/moper";
   if (role === "aux_rh") return "/altas";
   return "/";
 }
 
 export function inicioHrefParaRol(role: AppRole): string {
-  if (role === "relaciones_laborales") return "/moper";
+  if (role === "relaciones_laborales" || role === "gerente_operaciones") return "/moper";
   if (role === "aux_rh") return "/altas";
   return "/";
 }
@@ -236,12 +247,15 @@ export function appSidebarModuleLinks(role: AppRole, userEmail?: string | null):
       { href: "/bajas", label: "Bajas" },
     ];
   }
+  if (role === "gerente_operaciones") {
+    return [{ href: "/moper", label: "Moper" }];
+  }
   return homeSidebarLinks(role, userEmail);
 }
 
 /** Muestra enlace «Inicio» en la barra lateral. */
 export function roleShowsInicioNav(role: AppRole): boolean {
-  return role !== "aux_rh";
+  return role !== "aux_rh" && role !== "gerente_operaciones";
 }
 
 /** Altas: importar / guardar expediente nuevo. Administrador y Aux RH (Gerente RH solo consulta en Altas). */
@@ -316,7 +330,8 @@ export function roleMayReadMoperHistorialApi(role: AppRole): boolean {
     role === "aux_legal" ||
     role === "gerente_legal" ||
     role === "editor_cuadricula" ||
-    role === "relaciones_laborales"
+    role === "relaciones_laborales" ||
+    role === "gerente_operaciones"
   );
 }
 
@@ -404,6 +419,9 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
   if (role === "relaciones_laborales") {
     return [{ href: "/moper", label: "Moper" }];
   }
+  if (role === "gerente_operaciones") {
+    return [{ href: "/moper", label: "Moper" }];
+  }
 
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
@@ -440,6 +458,7 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
         "gerente_legal",
         "editor_cuadricula",
         "relaciones_laborales",
+        "gerente_operaciones",
       ],
     },
     {

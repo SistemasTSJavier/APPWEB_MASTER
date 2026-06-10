@@ -51,6 +51,8 @@ import {
   partesNombreDesdeCompleto,
   valorCampoAltaMayusculas,
 } from "@/lib/altas-form-catalogo";
+import type { CurpPdfParseResult } from "@/lib/curp-pdf-parse";
+import { CurpPdfImportModal } from "@/components/altas/CurpPdfImportModal";
 
 type Familiar = {
   nombreFamiliar: string;
@@ -88,6 +90,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     origen?: string;
   } | null>(null);
   const [step, setStep] = useState(0);
+  const [curpPdfOpen, setCurpPdfOpen] = useState(false);
+  const [curpPdfMsg, setCurpPdfMsg] = useState<string | null>(null);
   const [siguienteNoSugerido, setSiguienteNoSugerido] = useState("");
   const [secuenciasCargadas, setSecuenciasCargadas] = useState(false);
   const [form, setForm] = useState({
@@ -370,6 +374,40 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
 
       return next;
     });
+  }
+
+  function aplicarCurpDesdePdf(result: CurpPdfParseResult) {
+    setForm((prev) => {
+      let next = { ...prev, curp: valorCampoAltaMayusculas("curp", result.curp) };
+      if (result.nombreCompleto.trim()) {
+        const nc = valorCampoAltaMayusculas("nombreCompleto", result.nombreCompleto);
+        const partes = partesNombreDesdeCompleto(nc);
+        next = {
+          ...next,
+          nombreCompleto: nc,
+          apellidoPaterno: valorCampoAltaMayusculas("apellidoPaterno", partes.apellidoPaterno),
+          apellidoMaterno: valorCampoAltaMayusculas("apellidoMaterno", partes.apellidoMaterno),
+          nombres: valorCampoAltaMayusculas("nombres", partes.nombres),
+        };
+      }
+      if (result.fechaNacimiento && !prev.fechaNacimiento.trim()) {
+        const fn = normalizarFechaParaInputDate(result.fechaNacimiento);
+        const ed = fn ? edadAniosAlaFecha(fn) : null;
+        next = {
+          ...next,
+          fechaNacimiento: fn,
+          edad: ed != null ? String(ed) : "",
+        };
+      }
+      if (result.estadoNatal && !prev.estadoNatal.trim()) {
+        next.estadoNatal = valorCampoAltaMayusculas("estadoNatal", result.estadoNatal);
+      }
+      return next;
+    });
+    const extras: string[] = ["nombre completo"];
+    if (result.fechaNacimiento) extras.push("fecha de nacimiento");
+    if (result.estadoNatal) extras.push("estado natal");
+    setCurpPdfMsg(`PDF leído: CURP ${result.curp} y ${extras.join(", ")}.`);
   }
 
   function addFamiliar() {
@@ -1364,7 +1402,38 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                   allowEmpty
                   onChange={(v) => updateField("estadoCivil", v)}
                 />
-                <Field label="CURP" value={form.curp} onChange={(v) => updateField("curp", v)} />
+                <label className="space-y-1">
+                  <span className="form-label uppercase">CURP</span>
+                  <div className="flex gap-2">
+                    <input
+                      className="form-control min-w-0 flex-1 uppercase"
+                      value={form.curp}
+                      onChange={(e) => updateField("curp", e.target.value)}
+                      placeholder="18 CARACTERES"
+                      readOnly={!puedeEditarAltas}
+                    />
+                    {puedeEditarAltas ? (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-bold uppercase text-violet-900 hover:bg-violet-100"
+                        onClick={() => {
+                          setCurpPdfMsg(null);
+                          setCurpPdfOpen(true);
+                        }}
+                        title="Leer PDF de constancia CURP (gob.mx)"
+                      >
+                        PDF
+                      </button>
+                    ) : null}
+                  </div>
+                  {curpPdfMsg ? (
+                    <span className="text-[10px] font-medium uppercase text-emerald-700">{curpPdfMsg}</span>
+                  ) : (
+                    <span className="text-[10px] font-medium uppercase text-slate-500">
+                      Suba el PDF oficial de la constancia CURP para llenar CURP y nombre
+                    </span>
+                  )}
+                </label>
                 <Field label="RFC" value={form.rfc} onChange={(v) => updateField("rfc", v)} />
                 <Field
                   label="NO. INE / IFE"
@@ -1517,6 +1586,12 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
             </div>
           </div>
         </form>
+
+      <CurpPdfImportModal
+        open={curpPdfOpen}
+        onClose={() => setCurpPdfOpen(false)}
+        onParsed={aplicarCurpDesdePdf}
+      />
     </div>
   );
 }

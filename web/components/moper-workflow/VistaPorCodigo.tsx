@@ -57,6 +57,7 @@ export function VistaPorCodigo() {
           <p><span className="text-oxford-600 font-medium">Puesto actual → nuevo:</span> {registro.puesto_actual_nombre || '—'} → {registro.puesto_nuevo_nombre || '—'}</p>
           <p><span className="text-oxford-600 font-medium">Sueldo actual → nuevo:</span> {registro.sueldo_actual != null ? `$ ${Number(registro.sueldo_actual).toLocaleString('es-MX')}` : '—'} → {registro.sueldo_nuevo != null ? `$ ${Number(registro.sueldo_nuevo).toLocaleString('es-MX')}` : '—'}</p>
           <p><span className="text-oxford-600 font-medium">Motivo:</span> {registro.motivo || '—'}</p>
+          <p><span className="text-oxford-600 font-medium">Razón:</span> {registro.razon || '—'}</p>
           {registro.created_at && (
             <p><span className="text-oxford-600 font-medium">Fecha de llenado:</span> {format(new Date(registro.created_at), "d 'de' MMMM yyyy", { locale: es })}</p>
           )}

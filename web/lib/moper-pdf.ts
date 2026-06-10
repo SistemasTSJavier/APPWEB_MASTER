@@ -214,6 +214,7 @@ export function generarPDF(
       registro.sueldo_nuevo != null ? `$ ${Number(registro.sueldo_nuevo).toLocaleString("es-MX")}` : "-",
     ],
     ["Motivo", "-", registro.motivo || "-"],
+    ["Razón", "-", registro.razon || "-"],
   ];
   rows.forEach(([campo, actual, nuevo]) => {
     doc.text(campo, margin + pad, y + 4);

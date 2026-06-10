@@ -18,6 +18,7 @@ interface RegistroCompleto {
   sueldo_actual: number | null
   sueldo_nuevo: number | null
   motivo: string | null
+  razon: string | null
   creado_por: string | null
   solicitado_por: string | null
   fecha_llenado: string | null
@@ -357,6 +358,7 @@ export function PanelLateral({ registroIdActual, onSeleccionarRegistro, onNuevoR
                         <tr><td className="border px-2 py-1">Puesto</td><td className="border px-2 py-1">{previewRegistro.puesto_actual_nombre || '—'}</td><td className="border px-2 py-1">{previewRegistro.puesto_nuevo_nombre || '—'}</td></tr>
                         <tr><td className="border px-2 py-1">Sueldo</td><td className="border px-2 py-1">{previewRegistro.sueldo_actual != null ? `$ ${Number(previewRegistro.sueldo_actual).toLocaleString('es-MX')}` : '—'}</td><td className="border px-2 py-1">{previewRegistro.sueldo_nuevo != null ? `$ ${Number(previewRegistro.sueldo_nuevo).toLocaleString('es-MX')}` : '—'}</td></tr>
                         <tr><td className="border px-2 py-1">Motivo</td><td className="border px-2 py-1">—</td><td className="border px-2 py-1">{previewRegistro.motivo || '—'}</td></tr>
+                        <tr><td className="border px-2 py-1">Razón</td><td className="border px-2 py-1">—</td><td className="border px-2 py-1 whitespace-pre-wrap">{previewRegistro.razon || '—'}</td></tr>
                       </tbody>
                     </table>
                   </div>

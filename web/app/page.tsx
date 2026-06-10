@@ -148,6 +148,13 @@ export default async function Home() {
                 </span>
                 <span className="sm:hidden">SOLO MOPER: REGISTRAR Y EDITAR.</span>
               </>
+            ) : auth.role === "gerente_operaciones" ? (
+              <>
+                <span className="hidden sm:inline">
+                  ACCESO EXCLUSIVO A <strong>MOPER</strong>: CONSULTA MOVIMIENTOS Y FIRMA COMO <strong>GERENTE DE OPERACIONES</strong>.
+                </span>
+                <span className="sm:hidden">SOLO MOPER: FIRMA GERENTE OPERACIONES.</span>
+              </>
             ) : auth.role === "gerente_legal" ? (
               <>
                 <span className="hidden sm:inline">

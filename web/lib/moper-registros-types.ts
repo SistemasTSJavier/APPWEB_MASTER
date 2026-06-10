@@ -15,6 +15,7 @@ export type MoperRegistroRow = {
   sueldo_actual: number | null;
   sueldo_nuevo: number;
   motivo: string;
+  razon: string;
   creado_por: string | null;
   solicitado_por: string | null;
   firma_conformidad_at: string | null;
@@ -49,6 +50,7 @@ export type MoperRegistroApi = {
   sueldo_actual?: number | null;
   sueldo_nuevo?: number | null;
   motivo?: string;
+  razon?: string;
   creado_por?: string | null;
   solicitado_por?: string | null;
   fecha_llenado?: string | null;
@@ -100,6 +102,7 @@ export type MoperRegistroCreateBody = {
   sueldo_actual?: number | null;
   sueldo_nuevo?: number;
   motivo?: string;
+  razon?: string;
   creado_por?: string;
   solicitado_por?: string;
 };
