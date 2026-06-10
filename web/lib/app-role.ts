@@ -6,7 +6,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * Resumen:
  * - admin: acceso total.
  * - rh: acceso total operativo (incl. MOPER).
- * - aux_rh: inicio, Altas y Bajas únicamente; puede registrar, editar y guardar en ambos módulos.
+ * - aux_rh: solo Altas y Bajas; puede registrar, editar y guardar en ambos módulos (auxrh@tacticalsupport.com.mx).
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura), MOPER (registra/edita) y Gestores proceso. Sin altas, expedientes legal, servicios ni ficha técnica.
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC igual que admin (subir/eliminar, todos los departamentos).
  * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
@@ -41,6 +41,9 @@ export const CAPACITACION_EMAIL = "capacitacion@tacticalsupport.com.mx";
 
 /** Relaciones laborales: solo MOPER con edición (metadata app_role: relaciones_laborales o este correo). */
 export const RELACIONES_LABORALES_EMAIL = "relacioneslaborales@tacticalsupport.com.mx";
+
+/** Aux RH: solo Altas y Bajas (metadata app_role: aux_rh o este correo). */
+export const AUX_RH_EMAIL = "auxrh@tacticalsupport.com.mx";
 
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -104,9 +107,10 @@ export function resolveAppRoleFromUser(user: {
   user_metadata?: Record<string, unknown> | null;
   app_metadata?: Record<string, unknown> | null;
 }): AppRole | null {
+  const e = (user.email ?? "").trim().toLowerCase();
+  if (e === AUX_RH_EMAIL.toLowerCase()) return "aux_rh";
   const fromMeta = parseAppRole(user.user_metadata?.app_role ?? user.app_metadata?.app_role);
   if (fromMeta) return fromMeta;
-  const e = (user.email ?? "").trim().toLowerCase();
   if (e === RELACIONES_LABORALES_EMAIL.toLowerCase()) return "relaciones_laborales";
   return null;
 }
@@ -123,7 +127,6 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/": [
     "admin",
     "rh",
-    "aux_rh",
     "gerente_rh",
     "mejora_continua",
     "nominas",
@@ -157,14 +160,8 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
 };
 
-/** Único usuario RRHH con acceso legacy a Ficha técnica por correo (además de admin y roles ampliados). */
-export const FICHA_TECNICA_AUX_RH_EMAIL = "auxrh@tacticalsupport.com.mx";
-
-export function mayAccessFichaTecnica(role: AppRole, email: string | null | undefined): boolean {
-  if (role === "admin") return true;
-  const e = (email ?? "").trim().toLowerCase();
-  if (role === "rh" && e === FICHA_TECNICA_AUX_RH_EMAIL.toLowerCase()) return true;
-  return false;
+export function mayAccessFichaTecnica(role: AppRole, _email?: string | null): boolean {
+  return role === "admin";
 }
 
 /** Categorización: admin, gerente RH, rol capacitacion o correo capacitacion@tacticalsupport.com.mx */
@@ -227,7 +224,24 @@ export function defaultHomeForRole(role: AppRole): string {
 
 export function inicioHrefParaRol(role: AppRole): string {
   if (role === "relaciones_laborales") return "/moper";
+  if (role === "aux_rh") return "/altas";
   return "/";
+}
+
+/** Enlaces del menú lateral (sin página de inicio). */
+export function appSidebarModuleLinks(role: AppRole, userEmail?: string | null): { href: string; label: string }[] {
+  if (role === "aux_rh") {
+    return [
+      { href: "/altas", label: "Altas" },
+      { href: "/bajas", label: "Bajas" },
+    ];
+  }
+  return homeSidebarLinks(role, userEmail);
+}
+
+/** Muestra enlace «Inicio» en la barra lateral. */
+export function roleShowsInicioNav(role: AppRole): boolean {
+  return role !== "aux_rh";
 }
 
 /** Altas: importar / guardar expediente nuevo. Administrador y Aux RH (Gerente RH solo consulta en Altas). */
@@ -378,6 +392,12 @@ export function roleMayAccessGestoresProceso(role: AppRole): boolean {
 
 /** Enlaces del panel lateral en la página de inicio (según rol). */
 export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { href: string; label: string }[] {
+  if (role === "aux_rh") {
+    return [
+      { href: "/altas", label: "Altas" },
+      { href: "/bajas", label: "Bajas" },
+    ];
+  }
   if (role === "capacitacion") {
     return [{ href: "/categorizacion", label: "Categorización" }];
   }

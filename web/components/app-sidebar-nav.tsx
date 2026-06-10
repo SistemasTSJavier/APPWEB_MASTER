@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { APP_ROLE_LABEL, homeSidebarLinks, type AppRole } from "@/lib/app-role";
+import { APP_ROLE_LABEL, appSidebarModuleLinks, roleShowsInicioNav, type AppRole } from "@/lib/app-role";
 
 function normPath(p: string): string {
   const x = (p || "/").replace(/\/$/, "") || "/";
@@ -23,8 +23,8 @@ export function AppSidebarNav({
   currentPath: string;
 }) {
   const cur = normPath(currentPath);
-  const modules = homeSidebarLinks(role, email);
-  const navItems = [{ href: "/", label: "Inicio" }, ...modules];
+  const modules = appSidebarModuleLinks(role, email);
+  const navItems = roleShowsInicioNav(role) ? [{ href: "/", label: "Inicio" }, ...modules] : modules;
 
   return (
     <aside className="print:hidden rounded-2xl border border-slate-800 bg-gradient-to-b from-slate-950 via-slate-950 to-blue-950 p-3 text-white shadow-xl sm:p-4 md:sticky md:top-4 md:z-10 md:flex md:h-fit md:max-h-[calc(100dvh-2rem)] md:flex-col md:overflow-y-auto md:self-start md:p-5">
