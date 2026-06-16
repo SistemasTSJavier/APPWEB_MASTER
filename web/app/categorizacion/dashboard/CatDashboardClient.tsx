@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppModuleShell } from "@/components/app-module-shell";
-import { CatEmpleadoBuscador } from "@/components/categorizacion/CatEmpleadoBuscador";
+import { CatEmpleadoBuscador, conteoActivosPorServicio, serviciosCoincidenCat } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatDashboardView } from "@/components/categorizacion/CatDashboardView";
 import { CategorizacionHero } from "@/components/categorizacion/categorizacion-ui";
 import type { CatDashboardEmpleado, CatDashboardPayload } from "@/lib/categorizacion-dashboard-types";
@@ -83,8 +83,13 @@ export function CatDashboardClient({
   const empleadosServicio = useMemo(() => {
     if (!data) return [];
     if (!servicio) return data.empleados;
-    return data.empleados.filter((e) => e.servicio === servicio);
+    return data.empleados.filter((e) => serviciosCoincidenCat(e.servicio, servicio));
   }, [data, servicio]);
+
+  const conteosServicio = useMemo(
+    () => (data ? conteoActivosPorServicio(data.empleados) : []),
+    [data],
+  );
 
   const opciones = useMemo(
     () => empleadosServicio.map((e) => ({ noEmpleado: e.noEmpleado, nombre: e.nombre })),
@@ -255,6 +260,26 @@ export function CatDashboardClient({
 
         <section className="card space-y-4">
           <h2 className="text-sm font-bold uppercase text-slate-900">Filtros</h2>
+          {conteosServicio.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {conteosServicio.map(({ servicio: s, count }) => (
+                <span
+                  key={s}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase ${
+                    servicio && serviciosCoincidenCat(servicio, s)
+                      ? "border-violet-300 bg-violet-100 text-violet-950"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  <span className="max-w-[12rem] truncate">{s}</span>
+                  <span className="font-mono font-bold tabular-nums">{count}</span>
+                </span>
+              ))}
+              <span className="self-center text-[10px] font-semibold text-slate-500">
+                {data?.empleados.length ?? 0} activos total
+              </span>
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <label className="space-y-1">
               <span className="form-label">Servicio</span>
@@ -268,14 +293,16 @@ export function CatDashboardClient({
                   detenerLoop();
                 }}
               >
-                <option value="">Todos los servicios</option>
+                <option value="">Todos los servicios ({data?.empleados.length ?? 0})</option>
                 {(data?.servicios ?? []).map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {s} ({conteosServicio.find((c) => serviciosCoincidenCat(c.servicio, s))?.count ?? 0})
                   </option>
                 ))}
               </select>
-              <p className="text-[11px] text-slate-500">{empleadosServicio.length} colaborador(es) en el filtro</p>
+              <p className="text-[11px] text-slate-500">
+                {empleadosServicio.length} colaborador(es) activo(s) en el filtro
+              </p>
             </label>
             <CatEmpleadoBuscador
               label="Colaborador (opcional en loop)"

@@ -1,34 +1,59 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CatListaFiltro, filtrarEmpleados } from "@/components/categorizacion/CatEmpleadoBuscador";
+import {
+  CatFiltroServicio,
+  CatListaFiltro,
+  CatResumenServicios,
+  filtrarEmpleados,
+  filtrarPorServicio,
+} from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
-import type { CatResumenEmpleado } from "@/lib/categorizacion-types";
+import type { CatPersonalRow, CatResumenEmpleado } from "@/lib/categorizacion-types";
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
+import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
+
+type ResumenConServicio = CatResumenEmpleado & { servicio: string };
 
 export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestaciones" }) {
-  const [rows, setRows] = useState<CatResumenEmpleado[]>([]);
+  const [rows, setRows] = useState<ResumenConServicio[]>([]);
   const [nota, setNota] = useState("");
   const [busy, setBusy] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [filtroTabla, setFiltroTabla] = useState("");
+  const [filtroServicio, setFiltroServicio] = useState("");
 
-  const rowsFiltrados = useMemo(
-    () =>
-      filtrarEmpleados(
-        rows.map((r) => ({ noEmpleado: r.noEmpleado, nombre: r.nombre })),
-        filtroTabla,
-      ).map((f) => rows.find((r) => r.noEmpleado === f.noEmpleado)!),
-    [rows, filtroTabla],
+  const rowsPorServicio = useMemo(
+    () => filtrarPorServicio(rows, filtroServicio),
+    [rows, filtroServicio],
   );
+
+  const rowsFiltrados = useMemo(() => {
+    const base = filtrarEmpleados(
+      rowsPorServicio.map((r) => ({ noEmpleado: r.noEmpleado, nombre: r.nombre })),
+      filtroTabla,
+    );
+    const keys = new Set(base.map((f) => f.noEmpleado));
+    return rowsPorServicio.filter((r) => keys.has(r.noEmpleado));
+  }, [rows, rowsPorServicio, filtroTabla]);
 
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const r = await fetch("/api/categorizacion/resumen", { cache: "no-store" });
+      const [r, personalRows] = await Promise.all([
+        fetch("/api/categorizacion/resumen", { cache: "no-store" }),
+        fetchCatPersonalList({ forceRefresh: true }),
+      ]);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
-      setRows(j.rows ?? []);
+      const servicioPorNo = new Map(
+        personalRows.map((p: CatPersonalRow) => [p.noEmpleado.trim().toUpperCase(), p.servicio ?? ""]),
+      );
+      const merged: ResumenConServicio[] = (j.rows ?? []).map((row: CatResumenEmpleado) => ({
+        ...row,
+        servicio: servicioPorNo.get(row.noEmpleado.trim().toUpperCase()) ?? "",
+      }));
+      setRows(merged);
       setNota(String(j.nota ?? ""));
     } catch (e) {
       setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR.");
@@ -61,19 +86,36 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
       <section className="card overflow-x-auto">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase">
-            {tipo === "nivel" ? "Nivel por empleado" : "Paquete de prestaciones"} ({rows.length})
+            {tipo === "nivel" ? "Nivel por empleado" : "Paquete de prestaciones"} ({rowsFiltrados.length}
+            {rowsPorServicio.length !== rowsFiltrados.length ? ` de ${rowsPorServicio.length}` : ""}
+            {filtroServicio && rows.length !== rowsPorServicio.length ? ` · ${rows.length} en catálogo` : ""})
           </h2>
           <button type="button" className="text-xs font-bold uppercase text-violet-800" onClick={() => void load()}>
             Actualizar
           </button>
         </div>
         {busy ? <p className="text-sm text-slate-500">Cargando…</p> : null}
-        <CatListaFiltro
-          value={filtroTabla}
-          onChange={setFiltroTabla}
-          total={rows.length}
-          filtrados={rowsFiltrados.length}
+        <CatResumenServicios
+          personal={rows.map((r) => ({ servicio: r.servicio }))}
+          servicioFiltro={filtroServicio}
+          className="mb-3"
         />
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <CatFiltroServicio
+            value={filtroServicio}
+            onChange={setFiltroServicio}
+            personal={rows.map((r) => ({ servicio: r.servicio }))}
+          />
+          <div className="sm:col-span-2">
+            <CatListaFiltro
+              value={filtroTabla}
+              onChange={setFiltroTabla}
+              total={rowsPorServicio.length}
+              filtrados={rowsFiltrados.length}
+              totalCatalogo={filtroServicio ? rows.length : undefined}
+            />
+          </div>
+        </div>
         <table className="w-full min-w-[720px] text-xs">
           <thead>
             <tr className="border-b text-[10px] font-bold uppercase text-slate-600">

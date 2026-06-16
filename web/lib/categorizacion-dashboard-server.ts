@@ -20,6 +20,7 @@ import {
   listCatPersonal,
 } from "@/lib/categorizacion-server";
 import { fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
+import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
@@ -64,7 +65,10 @@ function enriquecerDesdeColaborador(p: CatPersonalRow, colab: ColaboradorComplet
     ...p,
     fechaIngreso: fechaIngresoEfectiva(p, colab),
     nombre: p.nombre || String(colab.nombreCompleto ?? "").trim(),
-    servicio: p.servicio || String(colab.servicioAsignado ?? f.servicio ?? colab.ultimoServicio ?? "").trim(),
+    servicio:
+      p.servicio ||
+      servicioLineaColaborador(colab) ||
+      String(colab.servicioAsignado ?? f.servicio ?? colab.ultimoServicio ?? "").trim(),
     puesto: p.puesto || String(colab.puesto ?? f.puesto ?? "").trim(),
     edad: p.edad || textoEdadDesdeExpediente(f.fechaNacimiento, f.edad) || String(f.edad ?? "").trim(),
     escolaridad: p.escolaridad || String(f.escolaridad ?? "").trim(),

@@ -8,7 +8,8 @@ import {
   CatEmpleadoBuscador,
   CatFiltroServicio,
   CatListaFiltro,
-  filtrarPersonalListado,
+  CatResumenServicios,
+  filtrarPorServicio,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg, CatPromedioBadge, CatRatingSelect } from "@/components/categorizacion/cat-form-ui";
 import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
@@ -28,7 +29,7 @@ export function CatCapacitacionPanel() {
   const [filtroServicio, setFiltroServicio] = useState("");
 
   const personalVisible = useMemo(
-    () => filtrarPersonalListado(personal, "", filtroServicio),
+    () => filtrarPorServicio(personal, filtroServicio),
     [personal, filtroServicio],
   );
 
@@ -39,9 +40,13 @@ export function CatCapacitacionPanel() {
 
   const personalPorNo = useMemo(() => new Map(personal.map((p) => [p.noEmpleado, p])), [personal]);
 
-  const registrosFiltrados = useMemo(() => {
+  const registrosPorServicio = useMemo(() => {
     const visibles = new Set(personalVisible.map((p) => p.noEmpleado));
-    let list = registros.filter((r) => visibles.has(r.noEmpleado));
+    return registros.filter((r) => visibles.has(r.noEmpleado));
+  }, [registros, personalVisible]);
+
+  const registrosFiltrados = useMemo(() => {
+    let list = registrosPorServicio;
     const q = filtroHistorial.trim().toLowerCase();
     if (!q) return list;
     return list.filter((r) => {
@@ -56,13 +61,13 @@ export function CatCapacitacionPanel() {
         curso.includes(q)
       );
     });
-  }, [registros, filtroHistorial, personalVisible, personalPorNo]);
+  }, [registrosPorServicio, filtroHistorial, personalPorNo]);
 
   const load = useCallback(async () => {
     setBusy(true);
     try {
       const [personalRows, rc] = await Promise.all([
-        fetchCatPersonalList(),
+        fetchCatPersonalList({ forceRefresh: true }),
         fetch("/api/categorizacion/capacitacion", { cache: "no-store" }),
       ]);
       const jc = await rc.json();
@@ -133,6 +138,7 @@ export function CatCapacitacionPanel() {
 
       <section className="card space-y-3">
         <h2 className="text-sm font-bold uppercase">Registrar colaborador a capacitación</h2>
+        <CatResumenServicios personal={personal} servicioFiltro={filtroServicio} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={personal} />
           <div className="sm:col-span-2 lg:col-span-2">
@@ -181,13 +187,15 @@ export function CatCapacitacionPanel() {
       <section className="card overflow-hidden">
         <h2 className="mb-2 px-1 text-sm font-bold uppercase">
           Historial ({registrosFiltrados.length}
-          {registros.length !== registrosFiltrados.length ? ` de ${registros.length}` : ""})
+          {registrosPorServicio.length !== registrosFiltrados.length ? ` de ${registrosPorServicio.length}` : ""}
+          {filtroServicio && registros.length !== registrosPorServicio.length ? ` · ${registros.length} total` : ""})
         </h2>
         <CatListaFiltro
           value={filtroHistorial}
           onChange={setFiltroHistorial}
-          total={registros.length}
+          total={registrosPorServicio.length}
           filtrados={registrosFiltrados.length}
+          totalCatalogo={filtroServicio ? registros.length : undefined}
         />
         <div className="max-h-[min(70vh,32rem)] overflow-auto rounded-lg border border-slate-100">
           <table className="w-full min-w-[520px] text-xs">

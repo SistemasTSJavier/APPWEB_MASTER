@@ -19,6 +19,7 @@ import {
   fechaIngresoNormalizadaColaborador,
   servicioAsignadoDesdeExpediente,
 } from "@/lib/colaboradores-baja";
+import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
 import {
@@ -66,11 +67,19 @@ export function colaboradorActivoParaCatPersonal(c: ColaboradorCompleto): boolea
   return colaboradorEstaActivoEnOperacion(c);
 }
 
+/** Servicio operativo vigente (MOPER / línea actual) para categorización. */
+export function servicioVigenteColaboradorCategorizacion(c: ColaboradorCompleto): string {
+  return (
+    servicioLineaColaborador(c) ||
+    servicioAsignadoDesdeExpediente(c) ||
+    String(c.ultimoServicio ?? "").trim()
+  );
+}
+
 /** Activo en expediente y asignado a un servicio que sí se califica en categorización. */
 export function colaboradorCalificableEnCategorizacion(c: ColaboradorCompleto): boolean {
   if (!colaboradorActivoParaCatPersonal(c)) return false;
-  const svc = servicioAsignadoDesdeExpediente(c) || String(c.ultimoServicio ?? "").trim();
-  return servicioCatPersonalEsCalificable(svc);
+  return servicioCatPersonalEsCalificable(servicioVigenteColaboradorCategorizacion(c));
 }
 
 export function colaboradorToCatPersonal(
@@ -86,7 +95,7 @@ export function colaboradorToCatPersonal(
     periodoEvaluacion: periodoEvaluacion.trim(),
     fechaIngreso: fechaIngresoNormalizadaColaborador(c) || parseFechaIngresoYmd(String(c.fechaIngreso ?? f.fechaIngreso ?? "")),
     nombre: String(c.nombreCompleto ?? f.nombreCompleto ?? "").trim(),
-    servicio: servicioAsignadoDesdeExpediente(c) || String(c.ultimoServicio ?? "").trim(),
+    servicio: servicioVigenteColaboradorCategorizacion(c),
     puesto: String(c.puesto ?? f.puesto ?? "").trim(),
     fechaNacimiento: String(f.fechaNacimiento ?? "").trim(),
     edad: textoEdadDesdeExpediente(f.fechaNacimiento, f.edad) || String(f.edad ?? "").trim(),

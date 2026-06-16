@@ -177,11 +177,14 @@ export function CatListaFiltro({
   onChange,
   total,
   filtrados,
+  totalCatalogo,
 }: {
   value: string;
   onChange: (v: string) => void;
   total: number;
   filtrados: number;
+  /** Total en catálogo completo (si difiere del alcance por servicio). */
+  totalCatalogo?: number;
 }) {
   return (
     <div className="mb-3 flex flex-wrap items-end gap-3">
@@ -199,6 +202,7 @@ export function CatListaFiltro({
       </label>
       <p className="pb-2 text-[11px] font-semibold text-slate-600">
         {filtrados} de {total}
+        {totalCatalogo != null && totalCatalogo !== total ? ` · ${totalCatalogo} en catálogo` : ""}
       </p>
     </div>
   );
@@ -212,6 +216,35 @@ export function filtrarEmpleados<T extends CatEmpleadoOpcion>(rows: T[], q: stri
 
 function normServicioFiltro(s: string): string {
   return s.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+export function normalizarServicioCatFiltro(s: string): string {
+  return normServicioFiltro(s);
+}
+
+export function serviciosCoincidenCat(a: string, b: string): boolean {
+  return normServicioFiltro(a) === normServicioFiltro(b);
+}
+
+export function conteoActivosPorServicio<T extends { servicio?: string }>(
+  rows: T[],
+): { servicio: string; count: number }[] {
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const s = normServicioFiltro(String(r.servicio ?? ""));
+    const key = s || "SIN SERVICIO";
+    map.set(key, (map.get(key) ?? 0) + 1);
+  }
+  return [...map.entries()]
+    .map(([servicio, count]) => ({ servicio, count }))
+    .sort((a, b) => a.servicio.localeCompare(b.servicio, "es", { numeric: true }));
+}
+
+/** Filtra solo por servicio (sin texto de búsqueda). */
+export function filtrarPorServicio<T extends { servicio?: string }>(rows: T[], servicioFiltro: string): T[] {
+  const srv = normServicioFiltro(servicioFiltro);
+  if (!srv) return rows;
+  return rows.filter((r) => normServicioFiltro(String(r.servicio ?? "")) === srv);
 }
 
 /** Filtro por servicio (exacto) y texto (N°, nombre o servicio). */
@@ -245,6 +278,47 @@ export function serviciosUnicosDesdePersonal<T extends { servicio?: string }>(ro
   return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
 }
 
+/** Resumen compacto: activos por servicio. */
+export function CatResumenServicios({
+  personal,
+  servicioFiltro = "",
+  className = "",
+}: {
+  personal: { servicio?: string }[];
+  servicioFiltro?: string;
+  className?: string;
+}) {
+  const conteos = useMemo(() => conteoActivosPorServicio(personal), [personal]);
+  const srvActivo = normServicioFiltro(servicioFiltro);
+  if (conteos.length === 0) return null;
+
+  return (
+    <div className={`space-y-1.5 ${className}`.trim()}>
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+        Activos por servicio ({personal.length} total)
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {conteos.map(({ servicio, count }) => {
+          const activo = srvActivo && serviciosCoincidenCat(servicioFiltro, servicio);
+          return (
+            <span
+              key={servicio}
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase ${
+                activo
+                  ? "border-violet-300 bg-violet-100 text-violet-950"
+                  : "border-slate-200 bg-slate-50 text-slate-700"
+              }`}
+            >
+              <span className="max-w-[12rem] truncate">{servicio}</span>
+              <span className="font-mono font-bold tabular-nums">{count}</span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Selector de servicio (mismo criterio que Personal). */
 export function CatFiltroServicio({
   value,
@@ -257,15 +331,17 @@ export function CatFiltroServicio({
   personal: { servicio?: string }[];
   className?: string;
 }) {
+  const conteos = useMemo(() => conteoActivosPorServicio(personal), [personal]);
+  const mapConteo = useMemo(() => new Map(conteos.map((c) => [c.servicio, c.count])), [conteos]);
   const opciones = useMemo(() => serviciosUnicosDesdePersonal(personal), [personal]);
   return (
     <label className={`space-y-1 ${className}`.trim()}>
       <span className="form-label">Filtrar por servicio</span>
       <select className="form-control uppercase" value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Todos los servicios</option>
+        <option value="">Todos los servicios ({personal.length})</option>
         {opciones.map((s) => (
           <option key={s} value={s}>
-            {s}
+            {s} ({mapConteo.get(s) ?? 0})
           </option>
         ))}
       </select>

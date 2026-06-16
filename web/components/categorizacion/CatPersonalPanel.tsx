@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CatPersonalRow } from "@/lib/categorizacion-types";
 import {
+  CatFiltroServicio,
   CatListaFiltro,
+  CatResumenServicios,
   filtrarPersonalListado,
-  serviciosUnicosDesdePersonal,
+  filtrarPorServicio,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
 import {
@@ -31,7 +33,10 @@ export function CatPersonalPanel() {
   const [filtroTabla, setFiltroTabla] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
 
-  const serviciosOpciones = useMemo(() => serviciosUnicosDesdePersonal(rows), [rows]);
+  const personalPorServicio = useMemo(
+    () => filtrarPorServicio(rows, filtroServicio),
+    [rows, filtroServicio],
+  );
 
   const rowsFiltrados = useMemo(
     () => filtrarPersonalListado(rows, filtroTabla, filtroServicio),
@@ -60,6 +65,7 @@ export function CatPersonalPanel() {
         if (stats) {
           const partes = [
             `${stats.sincronizados} activo(s) en catálogo`,
+            `${stats.totalActivos} calificable(s) en expedientes`,
             stats.eliminados > 0 ? `${stats.eliminados} quitado(s) (baja/inactivo)` : null,
           ].filter(Boolean);
           setMsg(`SINCRONIZADO DESDE COLABORADORES: ${partes.join(" · ")}.`);
@@ -164,31 +170,21 @@ export function CatPersonalPanel() {
         {busy && rows.length === 0 ? <p className="mb-2 text-sm text-slate-500">Cargando catálogo…</p> : null}
         <h2 className="mb-3 text-sm font-bold uppercase text-slate-900">
           Personal en categorización ({rowsFiltrados.length}
-          {rows.length !== rowsFiltrados.length ? ` de ${rows.length}` : ""})
+          {personalPorServicio.length !== rowsFiltrados.length ? ` de ${personalPorServicio.length}` : ""}
+          {filtroServicio && rows.length !== personalPorServicio.length ? ` · ${rows.length} en catálogo` : ""})
         </h2>
 
+        <CatResumenServicios personal={rows} servicioFiltro={filtroServicio} className="mb-3" />
+
         <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <label className="space-y-1">
-            <span className="form-label">Filtrar por servicio</span>
-            <select
-              className="form-control uppercase"
-              value={filtroServicio}
-              onChange={(e) => setFiltroServicio(e.target.value)}
-            >
-              <option value="">Todos los servicios</option>
-              {serviciosOpciones.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
+          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={rows} />
           <div className="sm:col-span-2">
             <CatListaFiltro
               value={filtroTabla}
               onChange={setFiltroTabla}
-              total={rows.length}
+              total={personalPorServicio.length}
               filtrados={rowsFiltrados.length}
+              totalCatalogo={filtroServicio ? rows.length : undefined}
             />
           </div>
         </div>
