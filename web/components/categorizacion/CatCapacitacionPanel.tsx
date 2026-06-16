@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CatCapacitacionCurso, CatCapacitacionRegistro, CatPersonalRow } from "@/lib/categorizacion-types";
+import type { CatCapacitacionCurso, CatCapacitacionRegistro, CatColaboradorActivoOpcion } from "@/lib/categorizacion-types";
 import { cursoDisponibleParaRegistro } from "@/lib/categorizacion-capacitacion-curso";
 import {
   CatEmpleadoBuscador,
@@ -12,10 +12,10 @@ import {
   filtrarPorServicio,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg, CatPromedioBadge, CatRatingSelect } from "@/components/categorizacion/cat-form-ui";
-import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
+import { fetchColaboradoresActivosCat } from "@/lib/categorizacion-colaboradores-client";
 
 export function CatCapacitacionPanel() {
-  const [personal, setPersonal] = useState<CatPersonalRow[]>([]);
+  const [activos, setActivos] = useState<CatColaboradorActivoOpcion[]>([]);
   const [cursos, setCursos] = useState<CatCapacitacionCurso[]>([]);
   const [registros, setRegistros] = useState<CatCapacitacionRegistro[]>([]);
   const [busy, setBusy] = useState(false);
@@ -29,8 +29,8 @@ export function CatCapacitacionPanel() {
   const [filtroServicio, setFiltroServicio] = useState("");
 
   const personalVisible = useMemo(
-    () => filtrarPorServicio(personal, filtroServicio),
-    [personal, filtroServicio],
+    () => filtrarPorServicio(activos, filtroServicio),
+    [activos, filtroServicio],
   );
 
   const opcionesPersonal = useMemo(
@@ -38,7 +38,7 @@ export function CatCapacitacionPanel() {
     [personalVisible],
   );
 
-  const personalPorNo = useMemo(() => new Map(personal.map((p) => [p.noEmpleado, p])), [personal]);
+  const personalPorNo = useMemo(() => new Map(activos.map((p) => [p.noEmpleado, p])), [activos]);
 
   const registrosPorServicio = useMemo(() => {
     const visibles = new Set(personalVisible.map((p) => p.noEmpleado));
@@ -66,14 +66,14 @@ export function CatCapacitacionPanel() {
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const [personalRows, rc] = await Promise.all([
-        fetchCatPersonalList({ forceRefresh: true }),
+      const [activosRows, rc] = await Promise.all([
+        fetchColaboradoresActivosCat({ forceRefresh: true }),
         fetch("/api/categorizacion/capacitacion", { cache: "no-store" }),
       ]);
       const jc = await rc.json();
       if (!rc.ok) throw new Error(jc.error);
       if (!jc.ok) throw new Error(jc.error);
-      setPersonal(personalRows);
+      setActivos(activosRows);
       setCursos(jc.cursos ?? []);
       setRegistros(jc.registros ?? []);
     } catch (e) {
@@ -138,12 +138,13 @@ export function CatCapacitacionPanel() {
 
       <section className="card space-y-3">
         <h2 className="text-sm font-bold uppercase">Registrar colaborador a capacitación</h2>
-        <CatResumenServicios personal={personal} servicioFiltro={filtroServicio} />
+        <CatResumenServicios personal={activos} servicioFiltro={filtroServicio} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={personal} />
+          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activos} />
           <div className="sm:col-span-2 lg:col-span-2">
             <CatEmpleadoBuscador
-              label="Empleado"
+              label="Empleado (activo en Colaboradores)"
+              hint="Datos en vivo desde expedientes activos. Escribe N° o nombre."
               value={regNo}
               onChange={setRegNo}
               opciones={opcionesPersonal}

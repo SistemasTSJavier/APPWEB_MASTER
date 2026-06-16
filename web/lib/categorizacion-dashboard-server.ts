@@ -17,7 +17,7 @@ import {
 import {
   buildResumenCategorizacion,
   listCatEvaluacionesModulo,
-  listCatPersonal,
+  listColaboradoresActivosParaCategorizacion,
 } from "@/lib/categorizacion-server";
 import { fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
@@ -81,8 +81,8 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
 
   const mesYm = mesCalendarioActualYm();
 
-  const [personal, resumen, rhList, colaboradores, faltasMes] = await Promise.all([
-    listCatPersonal(client),
+  const [activos, resumen, rhList, colaboradores, faltasMes] = await Promise.all([
+    listColaboradoresActivosParaCategorizacion(undefined, client),
     buildResumenCategorizacion(client),
     listCatEvaluacionesModulo("recursos_humanos", client),
     client ? fetchAllColaboradoresCompletos(client).catch(() => [] as ColaboradorCompleto[]) : Promise.resolve([]),
@@ -91,6 +91,19 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       : Promise.resolve({ mesYm, faltas: {} as Record<string, never> }),
   ]);
 
+  const personal: CatPersonalRow[] = activos.map((a) => ({
+    noEmpleado: a.noEmpleado,
+    periodoEvaluacion: "",
+    fechaIngreso: "",
+    nombre: a.nombre,
+    servicio: a.servicio,
+    puesto: a.puesto,
+    fechaNacimiento: "",
+    edad: "",
+    escolaridad: "",
+    estatus: "ACTIVO",
+    fechaBaja: "",
+  }));
   const colabMap = new Map(colaboradores.map((c) => [c.noEmpleado.trim().toUpperCase(), c]));
   const resumenMap = new Map(resumen.map((r) => [r.noEmpleado.trim().toUpperCase(), r]));
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado.trim().toUpperCase(), r.scores]));

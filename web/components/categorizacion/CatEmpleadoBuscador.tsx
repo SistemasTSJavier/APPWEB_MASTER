@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export type CatEmpleadoOpcion = { noEmpleado: string; nombre: string };
+export type CatEmpleadoOpcion = { noEmpleado: string; nombre: string; servicio?: string };
 
 const MAX_SUGERENCIAS = 60;
+const MAX_SUGERENCIAS_BUSQUEDA = 120;
 
 export function etiquetaEmpleado(o: CatEmpleadoOpcion): string {
   return `${o.noEmpleado} — ${o.nombre.trim() || "(SIN NOMBRE)"}`;
@@ -13,7 +14,10 @@ export function etiquetaEmpleado(o: CatEmpleadoOpcion): string {
 export function coincideBusquedaEmpleado(o: CatEmpleadoOpcion, q: string): boolean {
   const n = q.trim().toLowerCase();
   if (!n) return true;
-  return o.noEmpleado.toLowerCase().includes(n) || o.nombre.toLowerCase().includes(n);
+  const hay = `${o.noEmpleado} ${o.nombre}`.toLowerCase();
+  const tokens = n.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1) return tokens.every((t) => hay.includes(t));
+  return hay.includes(n);
 }
 
 export function CatEmpleadoBuscador({
@@ -54,7 +58,8 @@ export function CatEmpleadoBuscador({
 
   const sugerencias = useMemo(() => {
     const filtradas = ordenadas.filter((o) => coincideBusquedaEmpleado(o, busqueda));
-    return filtradas.slice(0, MAX_SUGERENCIAS);
+    const limite = busqueda.trim() ? MAX_SUGERENCIAS_BUSQUEDA : MAX_SUGERENCIAS;
+    return filtradas.slice(0, limite);
   }, [ordenadas, busqueda]);
 
   useEffect(() => {
@@ -164,8 +169,11 @@ export function CatEmpleadoBuscador({
       </div>
       {ordenadas.length > MAX_SUGERENCIAS && !busqueda.trim() ? (
         <p className="text-[11px] text-slate-500">
-          Mostrando los primeros {MAX_SUGERENCIAS} por N°. Escribe para acotar.
+          {ordenadas.length} activo(s) en Colaboradores. Escribe N° o nombre para acotar.
         </p>
+      ) : null}
+      {busqueda.trim() && sugerencias.length >= MAX_SUGERENCIAS_BUSQUEDA ? (
+        <p className="text-[11px] text-amber-800">Muchas coincidencias; refine la búsqueda.</p>
       ) : null}
     </div>
   );

@@ -15,6 +15,14 @@ export type CatPersonalRow = {
   updatedAt?: string;
 };
 
+/** Colaborador activo desde expedientes (fuente: sección Colaboradores). */
+export type CatColaboradorActivoOpcion = {
+  noEmpleado: string;
+  nombre: string;
+  servicio: string;
+  puesto: string;
+};
+
 export type CatEvaluacionRow = {
   noEmpleado: string;
   modulo: CatEvalModuloId;

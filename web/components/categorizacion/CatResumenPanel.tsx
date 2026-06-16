@@ -11,7 +11,7 @@ import {
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
 import type { CatPersonalRow, CatResumenEmpleado } from "@/lib/categorizacion-types";
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
-import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
+import { fetchColaboradoresActivosCat } from "@/lib/categorizacion-colaboradores-client";
 
 type ResumenConServicio = CatResumenEmpleado & { servicio: string };
 
@@ -40,14 +40,14 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const [r, personalRows] = await Promise.all([
+      const [r, activosRows] = await Promise.all([
         fetch("/api/categorizacion/resumen", { cache: "no-store" }),
-        fetchCatPersonalList({ forceRefresh: true }),
+        fetchColaboradoresActivosCat({ forceRefresh: true }),
       ]);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       const servicioPorNo = new Map(
-        personalRows.map((p: CatPersonalRow) => [p.noEmpleado.trim().toUpperCase(), p.servicio ?? ""]),
+        activosRows.map((p) => [p.noEmpleado.trim().toUpperCase(), p.servicio ?? ""]),
       );
       const merged: ResumenConServicio[] = (j.rows ?? []).map((row: CatResumenEmpleado) => ({
         ...row,

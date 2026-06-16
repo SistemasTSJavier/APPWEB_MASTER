@@ -7,7 +7,7 @@ import { CAT_RH_AUSENTISMOS_LABEL, camposPorModulo, labelModuloEval } from "@/li
 import type { FaltasMesMap } from "@/lib/categorizacion-faltas-cuadricula";
 import { faltasMesParaEmpleado } from "@/lib/categorizacion-faltas-cuadricula";
 import { promedioDeScores, promedioEvaluacionModulo } from "@/lib/categorizacion-calificaciones";
-import type { CatPersonalRow } from "@/lib/categorizacion-types";
+import type { CatColaboradorActivoOpcion } from "@/lib/categorizacion-types";
 import {
   CatEmpleadoBuscador,
   CatFiltroServicio,
@@ -17,7 +17,7 @@ import {
   filtrarPorServicio,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg, CatPromedioBadge, CatRatingGrid } from "@/components/categorizacion/cat-form-ui";
-import { fetchCatPersonalList } from "@/lib/categorizacion-personal-client";
+import { fetchColaboradoresActivosCat } from "@/lib/categorizacion-colaboradores-client";
 
 type EvalRow = {
   scores: Record<string, number>;
@@ -32,7 +32,7 @@ function noKey(no: string): string {
 export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
   const esRh = modulo === "recursos_humanos";
   const campos = useMemo(() => camposPorModulo(modulo), [modulo]);
-  const [personal, setPersonal] = useState<CatPersonalRow[]>([]);
+  const [activos, setActivos] = useState<CatColaboradorActivoOpcion[]>([]);
   const [evalMap, setEvalMap] = useState<Map<string, EvalRow>>(new Map());
   const [faltasMap, setFaltasMap] = useState<FaltasMesMap>({});
   const [faltasMesYm, setFaltasMesYm] = useState("");
@@ -45,13 +45,13 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
   const [filtroServicio, setFiltroServicio] = useState("");
 
   const personalPorServicio = useMemo(
-    () => filtrarPorServicio(personal, filtroServicio),
-    [personal, filtroServicio],
+    () => filtrarPorServicio(activos, filtroServicio),
+    [activos, filtroServicio],
   );
 
   const personalFiltrado = useMemo(
-    () => filtrarPersonalListado(personal, filtroTabla, filtroServicio),
-    [personal, filtroTabla, filtroServicio],
+    () => filtrarPersonalListado(activos, filtroTabla, filtroServicio),
+    [activos, filtroTabla, filtroServicio],
   );
   const opciones = useMemo(
     () => personalFiltrado.map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre })),
@@ -91,14 +91,14 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
       const faltasReq = esRh
         ? fetch("/api/categorizacion/faltas-mes", { cache: "no-store" })
         : Promise.resolve(null);
-      const [personalRows, re, rf] = await Promise.all([
-        fetchCatPersonalList({ forceRefresh: true }),
+      const [activosRows, re, rf] = await Promise.all([
+        fetchColaboradoresActivosCat({ forceRefresh: true }),
         fetch(`/api/categorizacion/evaluaciones?modulo=${modulo}`, { cache: "no-store" }),
         faltasReq,
       ]);
       const je = await re.json();
       if (!re.ok) throw new Error(je.error);
-      setPersonal(personalRows);
+      setActivos(activosRows);
       const m = new Map<string, EvalRow>();
       for (const row of je.rows ?? []) {
         const key = noKey(row.noEmpleado);
@@ -202,12 +202,13 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
 
       <section className="card space-y-3">
         <h2 className="text-sm font-bold uppercase">{labelModuloEval(modulo)} — evaluar empleado</h2>
-        <CatResumenServicios personal={personal} servicioFiltro={filtroServicio} />
+        <CatResumenServicios personal={activos} servicioFiltro={filtroServicio} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={personal} />
+          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activos} />
           <div className="sm:col-span-2">
             <CatEmpleadoBuscador
-              label="Empleado (registrado en Personal)"
+              label="Empleado (activo en Colaboradores)"
+              hint="Datos en vivo desde expedientes activos. Escribe N° o nombre."
               value={noSel}
               onChange={seleccionarEmpleado}
               opciones={opciones}
@@ -217,7 +218,7 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
           </div>
         </div>
         {opciones.length === 0 ? (
-          <p className="text-xs font-medium text-amber-800">Sincroniza colaboradores activos en el módulo Personal primero.</p>
+          <p className="text-xs font-medium text-amber-800">No hay colaboradores activos en expedientes.</p>
         ) : null}
         {!noSel ? (
           <p className="rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2 text-xs font-medium text-violet-900">
@@ -280,17 +281,17 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
       <section className="card overflow-hidden">
         <h2 className="mb-2 px-1 text-sm font-bold uppercase">
           Resumen — {labelModuloEval(modulo)} ({evaluadosCount} evaluado(s) de {personalPorServicio.length} activo(s)
-          {filtroServicio && personal.length !== personalPorServicio.length ? ` · ${personal.length} en catálogo` : ""})
+          {filtroServicio && activos.length !== personalPorServicio.length ? ` · ${activos.length} en Colaboradores` : ""})
         </h2>
         <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={personal} />
+          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activos} />
           <div className="sm:col-span-2">
             <CatListaFiltro
               value={filtroTabla}
               onChange={setFiltroTabla}
               total={personalPorServicio.length}
               filtrados={personalFiltrado.length}
-              totalCatalogo={filtroServicio ? personal.length : undefined}
+              totalCatalogo={filtroServicio ? activos.length : undefined}
             />
           </div>
         </div>

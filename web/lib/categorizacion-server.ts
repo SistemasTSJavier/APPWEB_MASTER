@@ -9,6 +9,7 @@ import {
 import type {
   CatCapacitacionCurso,
   CatCapacitacionRegistro,
+  CatColaboradorActivoOpcion,
   CatEvaluacionRow,
   CatPersonalRow,
   CatResumenEmpleado,
@@ -19,8 +20,8 @@ import {
   fechaIngresoNormalizadaColaborador,
   servicioAsignadoDesdeExpediente,
 } from "@/lib/colaboradores-baja";
-import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
+import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
 import {
   filtrarCatPersonalCalificable,
@@ -103,6 +104,52 @@ export function colaboradorToCatPersonal(
     estatus,
     fechaBaja: String(f.fechaBaja ?? "").trim(),
   };
+}
+
+export function mapColaboradorActivoCategorizacion(c: ColaboradorCompleto): CatColaboradorActivoOpcion {
+  const f = c.form ?? {};
+  return {
+    noEmpleado: c.noEmpleado.trim().toUpperCase(),
+    nombre: String(c.nombreCompleto ?? f.nombreCompleto ?? "").trim(),
+    servicio: servicioVigenteColaboradorCategorizacion(c),
+    puesto: String(c.puesto ?? f.puesto ?? "").trim(),
+  };
+}
+
+function filtrarColaboradoresActivosPorBusqueda(
+  rows: CatColaboradorActivoOpcion[],
+  busqueda?: string,
+): CatColaboradorActivoOpcion[] {
+  const q = busqueda?.trim().toLowerCase();
+  if (!q) return rows;
+  const tokens = q.split(/\s+/).filter(Boolean);
+  return rows.filter((o) => {
+    const hay = `${o.noEmpleado} ${o.nombre} ${o.servicio}`.toLowerCase();
+    return (
+      o.noEmpleado.toLowerCase().includes(q) ||
+      o.nombre.toLowerCase().includes(q) ||
+      tokens.every((t) => hay.includes(t))
+    );
+  });
+}
+
+/**
+ * Lista colaboradores activos en expedientes (misma fuente que la sección Colaboradores).
+ * Sin depender de cat_personal sincronizado.
+ */
+export async function listColaboradoresActivosParaCategorizacion(
+  busqueda?: string,
+  admin?: SupabaseClient | null,
+): Promise<CatColaboradorActivoOpcion[]> {
+  const client = admin ?? db();
+  if (!client) return [];
+  const colaboradores = await fetchAllColaboradoresCompletos(client);
+  const activos = colaboradores
+    .filter(colaboradorEstaActivoEnOperacion)
+    .map(mapColaboradorActivoCategorizacion);
+  const filtrados = filtrarColaboradoresActivosPorBusqueda(activos, busqueda);
+  filtrados.sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
+  return filtrados;
 }
 
 export async function listCatPersonal(admin?: SupabaseClient | null): Promise<CatPersonalRow[]> {

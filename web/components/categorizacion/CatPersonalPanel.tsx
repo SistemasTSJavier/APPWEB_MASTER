@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CatPersonalRow } from "@/lib/categorizacion-types";
+import type { CatColaboradorActivoOpcion, CatPersonalRow } from "@/lib/categorizacion-types";
 import {
   CatFiltroServicio,
   CatListaFiltro,
@@ -10,6 +10,10 @@ import {
   filtrarPorServicio,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
+import {
+  fetchColaboradoresActivosCat,
+  invalidateColaboradoresActivosCatCache,
+} from "@/lib/categorizacion-colaboradores-client";
 import {
   fetchCatPersonalList,
   patchCatPersonalCache,
@@ -24,7 +28,8 @@ type SyncStats = {
 };
 
 export function CatPersonalPanel() {
-  const [rows, setRows] = useState<CatPersonalRow[]>([]);
+  const [activos, setActivos] = useState<CatColaboradorActivoOpcion[]>([]);
+  const [catRows, setCatRows] = useState<CatPersonalRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -32,6 +37,35 @@ export function CatPersonalPanel() {
   const [edit, setEdit] = useState<CatPersonalRow | null>(null);
   const [filtroTabla, setFiltroTabla] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
+
+  const rows = useMemo(() => {
+    const catMap = new Map(catRows.map((p) => [p.noEmpleado, p]));
+    return activos.map((a) => {
+      const prev = catMap.get(a.noEmpleado);
+      if (prev) {
+        return {
+          ...prev,
+          nombre: prev.nombre || a.nombre,
+          servicio: a.servicio || prev.servicio,
+          puesto: prev.puesto || a.puesto,
+          estatus: prev.estatus || "ACTIVO",
+        };
+      }
+      return {
+        noEmpleado: a.noEmpleado,
+        periodoEvaluacion: "",
+        fechaIngreso: "",
+        nombre: a.nombre,
+        servicio: a.servicio,
+        puesto: a.puesto,
+        fechaNacimiento: "",
+        edad: "",
+        escolaridad: "",
+        estatus: "ACTIVO",
+        fechaBaja: "",
+      } satisfies CatPersonalRow;
+    });
+  }, [activos, catRows]);
 
   const personalPorServicio = useMemo(
     () => filtrarPorServicio(rows, filtroServicio),
@@ -60,7 +94,10 @@ export function CatPersonalPanel() {
         if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
         const list = Array.isArray(j.rows) ? (j.rows as CatPersonalRow[]) : [];
         setCatPersonalCache(list);
-        setRows(list);
+        setCatRows(list);
+        invalidateColaboradoresActivosCatCache();
+        const activosList = await fetchColaboradoresActivosCat({ forceRefresh: true });
+        setActivos(activosList);
         const stats = j.stats as SyncStats | undefined;
         if (stats) {
           const partes = [
@@ -87,8 +124,12 @@ export function CatPersonalPanel() {
     setBusy(true);
     setMsg(null);
     try {
-      const list = await fetchCatPersonalList();
-      setRows(list);
+      const [activosList, catList] = await Promise.all([
+        fetchColaboradoresActivosCat({ forceRefresh: true }),
+        fetchCatPersonalList({ forceRefresh: true }),
+      ]);
+      setActivos(activosList);
+      setCatRows(catList);
     } catch (e) {
       setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL CARGAR.");
     } finally {
@@ -116,7 +157,7 @@ export function CatPersonalPanel() {
       setEdit(null);
       const saved = (j.row as CatPersonalRow) ?? edit;
       patchCatPersonalCache(saved);
-      setRows((prev) => prev.map((p) => (p.noEmpleado === edit.noEmpleado ? saved : p)));
+      setCatRows((prev) => prev.map((p) => (p.noEmpleado === edit.noEmpleado ? saved : p)));
     } catch (e) {
       setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL GUARDAR.");
     } finally {
@@ -131,9 +172,9 @@ export function CatPersonalPanel() {
       <section className="card space-y-3 border border-violet-100 bg-violet-50/40">
         <h2 className="text-sm font-bold uppercase text-slate-900">Colaboradores activos (automático)</h2>
         <p className="text-xs font-medium leading-relaxed text-slate-700">
-          Al abrir se muestra el catálogo guardado (rápido). Use <strong>Actualizar desde Colaboradores</strong> para traer
-          expedientes <strong>activos</strong> en servicios operativos calificables (sin baja ni estatus inactivo). No se
-          incluyen áreas corporativas (Comercial, RH, Dirección, Sistemas, Spacelab, Operaciones corporativo, etc.).
+          El listado muestra <strong>colaboradores activos</strong> en expedientes (sección Colaboradores), en vivo.
+          Use <strong>Actualizar desde Colaboradores</strong> para guardar periodo de evaluación y campos en el catálogo
+          de categorización.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="space-y-1 sm:col-span-2">
@@ -174,17 +215,17 @@ export function CatPersonalPanel() {
           {filtroServicio && rows.length !== personalPorServicio.length ? ` · ${rows.length} en catálogo` : ""})
         </h2>
 
-        <CatResumenServicios personal={rows} servicioFiltro={filtroServicio} className="mb-3" />
+        <CatResumenServicios personal={activos} servicioFiltro={filtroServicio} className="mb-3" />
 
         <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={rows} />
+          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activos} />
           <div className="sm:col-span-2">
             <CatListaFiltro
               value={filtroTabla}
               onChange={setFiltroTabla}
               total={personalPorServicio.length}
               filtrados={rowsFiltrados.length}
-              totalCatalogo={filtroServicio ? rows.length : undefined}
+              totalCatalogo={filtroServicio ? activos.length : undefined}
             />
           </div>
         </div>
@@ -233,9 +274,9 @@ export function CatPersonalPanel() {
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && !busy && !syncing ? (
+        {activos.length === 0 && !busy && !syncing ? (
           <p className="py-6 text-center text-sm text-slate-500">
-            Catálogo vacío. Pulse <strong>Actualizar desde Colaboradores</strong> para sincronizar activos.
+            No hay colaboradores activos en expedientes.
           </p>
         ) : null}
         {rows.length > 0 && rowsFiltrados.length === 0 ? (
