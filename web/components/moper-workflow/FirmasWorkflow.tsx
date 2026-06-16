@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { RegistroMoper } from './types'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -21,15 +21,25 @@ interface FirmasWorkflowProps {
   modoCodigo?: boolean
   /** Código de acceso del registro (obligatorio en modoCodigo para conformidad). */
   codigoAcceso?: string
+  /** Destaca y desplaza a la firma indicada (rh, gerente, control) al abrir desde enlace. */
+  firmaDestacada?: string | null
 }
 
 const REQUIERE_CODIGO = 'conformidad' // Firma del oficial del MOPER
 
-export function FirmasWorkflow({ registroId, registro, onFirmaRegistrada, modoCodigo = false, codigoAcceso: codigoAccesoProp = '' }: FirmasWorkflowProps) {
+export function FirmasWorkflow({ registroId, registro, onFirmaRegistrada, modoCodigo = false, codigoAcceso: codigoAccesoProp = '', firmaDestacada = null }: FirmasWorkflowProps) {
   const { authHeaders, puedeFirmarRh, puedeFirmarGerente, puedeFirmarControl } = useMoperWorkflow()
   const [activo, setActivo] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [codigoAcceso, setCodigoAcceso] = useState('')
+  const firmaDestacadaAplicada = useRef(false)
+
+  const puedeFirmar = (key: string) => {
+    if (key === 'rh') return puedeFirmarRh
+    if (key === 'gerente') return puedeFirmarGerente
+    if (key === 'control') return puedeFirmarControl
+    return false
+  }
 
   const registrarFirma = async (tipo: string, imagen: string, codigo?: string) => {
     setEnviando(true)
@@ -68,6 +78,22 @@ export function FirmasWorkflow({ registroId, registro, onFirmaRegistrada, modoCo
     setActivo(key)
   }
 
+  useEffect(() => {
+    if (modoCodigo || !firmaDestacada || firmaDestacadaAplicada.current || !registro) return
+    const key = firmaDestacada
+    if (!['rh', 'gerente', 'control'].includes(key)) return
+    const colAt = FIRMAS.find((f) => f.key === key)?.colAt
+    const firmado = colAt ? !!(registro[colAt as keyof RegistroMoper] as string | null) : false
+    const el = document.getElementById(`firma-moper-${key}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    if (!firmado && puedeFirmar(key)) {
+      setActivo(key)
+    }
+    firmaDestacadaAplicada.current = true
+  }, [firmaDestacada, registro, modoCodigo, puedeFirmarRh, puedeFirmarGerente, puedeFirmarControl])
+
   return (
     <section className="mt-8 border-2 border-oxford-300 rounded-lg p-4 bg-white" id="firmas-pdf">
       <h2 className="text-base font-bold text-black border-b border-oxford-300 pb-2 mb-4">Workflow de Firmas</h2>
@@ -81,7 +107,10 @@ export function FirmasWorkflow({ registroId, registro, onFirmaRegistrada, modoCo
           return (
             <div
               key={key}
-              className="border-2 border-oxford-300 rounded p-3 bg-oxford-50/50"
+              id={`firma-moper-${key}`}
+              className={`border-2 rounded p-3 bg-oxford-50/50 ${
+                firmaDestacada === key ? 'border-sky-500 ring-2 ring-sky-200' : 'border-oxford-300'
+              }`}
             >
               <div className="font-medium text-oxford-800 text-sm mb-2">{label}</div>
               {firmado ? (

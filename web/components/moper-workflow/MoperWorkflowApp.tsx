@@ -13,8 +13,14 @@ import type { RegistroMoper } from "./types";
 import { buildMailtoBody } from "./build-mailto";
 import { moperWorkflowPuedeAjustarFolio } from "@/lib/moper-workflow-role";
 import { EnlaceCodigoOficial } from "./EnlaceCodigoOficial";
+import { EnlacesFirmaInterna } from "./EnlacesFirmaInterna";
 
-export function MoperWorkflowApp() {
+type MoperWorkflowAppProps = {
+  initialRegistroId?: number | null;
+  firmaDestacada?: string | null;
+};
+
+export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = null }: MoperWorkflowAppProps) {
   const { user, authHeaders, puedeEditar, appRole } = useMoperWorkflow();
   const [folioPreview, setFolioPreview] = useState("SPT/No. 0280/MOP");
   const [registroId, setRegistroId] = useState<number | null>(null);
@@ -63,6 +69,12 @@ export function MoperWorkflowApp() {
     },
     [cargarRegistro],
   );
+
+  useEffect(() => {
+    if (initialRegistroId != null && initialRegistroId > 0 && initialRegistroId !== registroId) {
+      onSeleccionarRegistro(initialRegistroId);
+    }
+  }, [initialRegistroId, onSeleccionarRegistro, registroId]);
 
   const onGenerarPDF = useCallback(() => {
     if (!registroCompleto) return;
@@ -161,6 +173,7 @@ export function MoperWorkflowApp() {
                   <span className="font-mono font-semibold text-black">{registroCompleto.codigo_acceso}</span>
                 </p>
                 <EnlaceCodigoOficial codigo={registroCompleto.codigo_acceso} />
+                <EnlacesFirmaInterna registroId={registroCompleto.id} />
               </div>
             ) : null}
           </div>
@@ -176,6 +189,7 @@ export function MoperWorkflowApp() {
                 registroId={registroId}
                 registro={registroCompleto}
                 onFirmaRegistrada={onFirmaRegistrada}
+                firmaDestacada={firmaDestacada}
               />
               {registroCompleto ? (
                 <div className="mt-6 flex flex-wrap gap-3 justify-end">

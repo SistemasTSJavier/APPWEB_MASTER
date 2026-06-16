@@ -12,6 +12,14 @@ function MoperPageContent() {
   const { accesoPorCodigo, loginPorCodigo } = useMoperWorkflow();
   const searchParams = useSearchParams();
   const codigoUrl = searchParams.get("codigo")?.trim().toUpperCase() ?? "";
+  const registroParam = searchParams.get("registro")?.trim() ?? "";
+  const firmaParam = searchParams.get("firma")?.trim().toLowerCase() ?? "";
+  const initialRegistroId = (() => {
+    const id = parseInt(registroParam, 10);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  })();
+  const firmaDestacada =
+    firmaParam === "rh" || firmaParam === "gerente" || firmaParam === "control" ? firmaParam : null;
 
   useEffect(() => {
     if (!codigoUrl || accesoPorCodigo) return;
@@ -34,10 +42,11 @@ function MoperPageContent() {
         <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
           Captura y firmas internas abajo. El oficial firma en{" "}
           <strong className="text-sky-900">/moper/firma</strong> con su codigo — sin iniciar sesion en la plataforma.
+          Gerente RH, Gerente de Operaciones y Centro de Control pueden firmar desde el enlace del correo con su cuenta.
         </p>
       </div>
       <CodigoAccesoPanel />
-      <MoperWorkflowApp />
+      <MoperWorkflowApp initialRegistroId={initialRegistroId} firmaDestacada={firmaDestacada} />
     </div>
   );
 }

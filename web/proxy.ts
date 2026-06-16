@@ -12,6 +12,7 @@ import {
   isMoperPublicApi,
   MOPER_FIRMA_PUBLIC_PATH,
 } from "@/lib/moper-public-paths";
+import { isSafeLoginRedirect, loginUrlWithNext } from "@/lib/login-redirect";
 
 function publicApiPath(pathname: string, method: string): boolean {
   if (pathname === "/api/supabase/status" || pathname === "/api/auth/me") return true;
@@ -75,8 +76,7 @@ export async function proxy(request: NextRequest) {
         { status: 503 },
       );
     }
-    const login = new URL("/login", request.url);
-    login.searchParams.set("error", "supabase_auth");
+    const login = loginUrlWithNext(request.url, pathname + request.nextUrl.search, { error: "supabase_auth" });
     return NextResponse.redirect(login);
   }
 
@@ -94,7 +94,7 @@ export async function proxy(request: NextRequest) {
       if (codigo) dest.searchParams.set("codigo", codigo);
       return NextResponse.redirect(dest);
     }
-    const login = new URL("/login", request.url);
+    const login = loginUrlWithNext(request.url, pathname + request.nextUrl.search);
     return NextResponse.redirect(login);
   }
 
@@ -115,6 +115,13 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname === "/login") {
+    const nextParam = request.nextUrl.searchParams.get("next");
+    if (isSafeLoginRedirect(nextParam)) {
+      const nextPath = nextParam.split("?")[0] ?? nextParam;
+      if (canAccessPath(role, nextPath, user.email)) {
+        return NextResponse.redirect(new URL(nextParam, request.url));
+      }
+    }
     return NextResponse.redirect(new URL(defaultHomeForRole(role), request.url));
   }
 

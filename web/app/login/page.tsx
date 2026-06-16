@@ -4,11 +4,13 @@ import { useState, FormEvent, Suspense } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isSafeLoginRedirect } from "@/lib/login-redirect";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const errParam = searchParams.get("error");
+  const nextParam = searchParams.get("next");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,7 +40,7 @@ function LoginForm() {
         setPending(false);
         return;
       }
-      router.replace("/");
+      router.replace(isSafeLoginRedirect(nextParam) ? nextParam : "/");
       router.refresh();
     } catch {
       setError("Error de conexion. Revisa la URL de Supabase y vuelve a intentar.");
