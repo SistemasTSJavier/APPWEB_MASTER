@@ -14,6 +14,7 @@ import { buildMailtoBody } from "./build-mailto";
 import { moperWorkflowPuedeAjustarFolio } from "@/lib/moper-workflow-role";
 import { EnlaceCodigoOficial } from "./EnlaceCodigoOficial";
 import { EnlacesFirmaInterna } from "./EnlacesFirmaInterna";
+import { MoperFolioAuditoriaPanel } from "./MoperFolioAuditoriaPanel";
 
 type MoperWorkflowAppProps = {
   initialRegistroId?: number | null;
@@ -166,6 +167,7 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
                 </span>
               ) : null}
             </div>
+            {puedeAjustarFolio ? <MoperFolioAuditoriaPanel authHeaders={authHeaders} /> : null}
             {registroCompleto?.codigo_acceso ? (
               <div className="space-y-2 text-sm uppercase">
                 <p>

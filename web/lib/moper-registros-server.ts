@@ -366,3 +366,132 @@ export async function registrarFirmaMoper(
   }
   return mapRegistroToApi(updated);
 }
+
+export type MoperFolioAuditoriaItem = {
+  id: number;
+  folio: string | null;
+  oficial_nombre: string;
+  created_at: string;
+  firma_conformidad_at: string | null;
+  estado: string;
+};
+
+export type MoperFolioAuditoria = {
+  proximoFolio: string;
+  nextNum: number;
+  maxFolioNum: number | null;
+  totalActivos: number;
+  conFolio: number;
+  sinFolio: number;
+  registros: MoperFolioAuditoriaItem[];
+  sinFolioLista: MoperFolioAuditoriaItem[];
+};
+
+async function maxFolioNumEnRegistros(admin: SupabaseClient): Promise<number | null> {
+  const { data, error } = await admin
+    .from("moper_registros")
+    .select("folio")
+    .neq("estado", "cancelado")
+    .not("folio", "is", null);
+  if (error) failSupabase(error);
+  let max: number | null = null;
+  for (const row of data ?? []) {
+    const n = parseFolioNum(String((row as { folio: string }).folio ?? ""));
+    if (n != null && (max == null || n > max)) max = n;
+  }
+  return max;
+}
+
+/** Estado actual de folios: que tiene cada MOPER y cual es el proximo consecutivo. */
+export async function auditarFoliosMoper(admin: SupabaseClient): Promise<MoperFolioAuditoria> {
+  const [proximoFolio, maxNum, rowsRes] = await Promise.all([
+    leerSiguienteFolioPreview(admin),
+    maxFolioNumEnRegistros(admin),
+    admin
+      .from("moper_registros")
+      .select("id, folio, oficial_nombre, created_at, firma_conformidad_at, estado")
+      .neq("estado", "cancelado")
+      .order("created_at", { ascending: true }),
+  ]);
+  if (rowsRes.error) failSupabase(rowsRes.error);
+  const rows = (rowsRes.data ?? []) as MoperFolioAuditoriaItem[];
+  const sinFolioLista = rows.filter((r) => !r.folio?.trim());
+  const nextNum = parseFolioNum(proximoFolio) ?? 280;
+  return {
+    proximoFolio,
+    nextNum,
+    maxFolioNum: maxNum,
+    totalActivos: rows.length,
+    conFolio: rows.length - sinFolioLista.length,
+    sinFolio: sinFolioLista.length,
+    registros: rows,
+    sinFolioLista,
+  };
+}
+
+export type MoperFolioBackfillResult = {
+  asignados: number;
+  desdeNum: number;
+  hastaNum: number | null;
+  detalle: { id: number; folio: string; oficial_nombre: string }[];
+  proximoFolio: string;
+};
+
+/**
+ * Asigna folio consecutivo a MOPER activos que quedaron sin folio (creados antes del cambio).
+ * Orden: fecha de creacion (el mas antiguo recibe el numero mas bajo disponible).
+ */
+export async function asignarFoliosPendientesMoper(
+  admin: SupabaseClient,
+  desdeNum?: number,
+): Promise<MoperFolioBackfillResult> {
+  const audit = await auditarFoliosMoper(admin);
+  if (audit.sinFolioLista.length === 0) {
+    return {
+      asignados: 0,
+      desdeNum: audit.nextNum,
+      hastaNum: null,
+      detalle: [],
+      proximoFolio: audit.proximoFolio,
+    };
+  }
+
+  const maxExistente = audit.maxFolioNum ?? 0;
+  let num =
+    desdeNum != null && Number.isFinite(desdeNum) && desdeNum >= 1
+      ? Math.floor(desdeNum)
+      : Math.max(audit.nextNum, maxExistente + 1);
+
+  const detalle: MoperFolioBackfillResult["detalle"] = [];
+  const inicio = num;
+
+  for (const row of audit.sinFolioLista) {
+    let folio = formatFolio(num);
+    while (await folioYaRegistrado(admin, folio)) {
+      num++;
+      folio = formatFolio(num);
+    }
+    const { error } = await admin
+      .from("moper_registros")
+      .update({ folio, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+    if (error) failSupabase(error);
+    detalle.push({ id: row.id, folio, oficial_nombre: row.oficial_nombre });
+    num++;
+  }
+
+  const nuevoNext = num;
+  const { error: upSeq } = await admin
+    .from("moper_folio_seq")
+    .update({ next_num: nuevoNext, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (upSeq) failSupabase(upSeq);
+
+  return {
+    asignados: detalle.length,
+    desdeNum: inicio,
+    hastaNum: detalle.length > 0 ? parseFolioNum(detalle[detalle.length - 1]!.folio)! : null,
+    detalle,
+    proximoFolio: formatFolio(nuevoNext),
+  };
+}
