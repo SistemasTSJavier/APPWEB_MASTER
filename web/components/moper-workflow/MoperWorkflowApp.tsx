@@ -141,11 +141,11 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
               <span className="text-oxford-600 text-sm font-medium uppercase">Folio: </span>
               <span className="font-mono font-semibold text-black">
                 {registroCompleto?.folio ?? folioPreview}
-                {registroId && !registroCompleto?.folio ? (
-                  <span className="text-oxford-500 font-normal"> (asignado al firmar conformidad)</span>
+                {!registroId ? (
+                  <span className="text-oxford-500 font-normal"> (se asigna al guardar)</span>
                 ) : null}
               </span>
-              {puedeAjustarFolio && !registroCompleto?.folio ? (
+              {puedeAjustarFolio && !registroId ? (
                 <span className="inline-flex items-center gap-0.5 ml-2">
                   <button
                     type="button"
@@ -181,6 +181,7 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
             onGuardar={onGuardar}
             registroId={registroId}
             registro={registroCompleto}
+            folioPreview={folioPreview}
             puedeEditar={puedeEditar}
           />
           {registroId ? (

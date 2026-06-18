@@ -105,6 +105,8 @@ export type MoperRegistroCreateBody = {
   razon?: string;
   creado_por?: string;
   solicitado_por?: string;
+  /** Folio mostrado en pantalla al guardar (SPT/No. NNNN/MOP). */
+  folio?: string;
 };
 
 export type MoperFirmaTipo = "conformidad" | "rh" | "gerente" | "control";

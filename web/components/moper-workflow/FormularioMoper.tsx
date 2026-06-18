@@ -9,6 +9,7 @@ interface FormularioMoperProps {
   onGuardar: (id: number, folio: string | null) => void
   registroId: number | null
   registro: RegistroMoper | null
+  folioPreview: string
   /** Si true (admin o gerente), puede editar el registro: formulario se rellena y permite actualizar. */
   puedeEditar?: boolean
 }
@@ -27,7 +28,7 @@ function toInputDate(val: string | null | undefined): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''
 }
 
-export function FormularioMoper({ onGuardar, registroId, registro, puedeEditar = false }: FormularioMoperProps) {
+export function FormularioMoper({ onGuardar, registroId, registro, folioPreview, puedeEditar = false }: FormularioMoperProps) {
   const { authHeaders } = useMoperWorkflow()
   const [nombreOficial, setNombreOficial] = useState('')
   const [curp, setCurp] = useState('')
@@ -121,11 +122,14 @@ export function FormularioMoper({ onGuardar, registroId, registro, puedeEditar =
         const res = await moperFetch(`/api/moper`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...payload, folio: folioPreview.trim() }),
         })
         const data = await res.json()
         if (!res.ok) {
           const msg = data.detail ? `${data.error || 'Error al guardar'}: ${data.detail}` : (data.error || 'Error al guardar')
+          if (/ya esta registrado|ya está registrado/i.test(msg)) {
+            alert(msg)
+          }
           throw new Error(msg)
         }
         onGuardar(data.id, data.folio ?? null)

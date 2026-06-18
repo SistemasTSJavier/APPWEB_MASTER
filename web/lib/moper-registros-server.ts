@@ -23,6 +23,61 @@ export function formatFolio(num: number): string {
   return `${FOLIO_PREFIX}${padFolioNum(num)}${FOLIO_SUFFIX}`;
 }
 
+/** Extrae el numero consecutivo de un folio SPT/No. NNNN/MOP. */
+export function parseFolioNum(folio: string): number | null {
+  const m = folio.trim().match(/^SPT\/No\.\s*(\d+)\/MOP$/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+}
+
+export function normalizarFolioMoper(folio: string): string {
+  const num = parseFolioNum(folio);
+  if (num == null) throw new Error("Formato de folio invalido (use SPT/No. NNNN/MOP)");
+  return formatFolio(num);
+}
+
+async function folioYaRegistrado(
+  admin: SupabaseClient,
+  folio: string,
+  excludeId?: number,
+): Promise<boolean> {
+  let q = admin.from("moper_registros").select("id").eq("folio", folio).neq("estado", "cancelado");
+  if (excludeId != null) q = q.neq("id", excludeId);
+  const { data, error } = await q.limit(1).maybeSingle();
+  if (error) failSupabase(error);
+  return Boolean(data);
+}
+
+/**
+ * Reserva el folio mostrado al crear el MOPER (no en la firma del oficial).
+ * Si ya existe otro registro con ese folio, lanza error para que el usuario ajuste la secuencia.
+ */
+async function reservarFolioAlCrear(admin: SupabaseClient, folioSolicitado?: string): Promise<string> {
+  const folio = folioSolicitado?.trim()
+    ? normalizarFolioMoper(folioSolicitado)
+    : await leerSiguienteFolioPreview(admin);
+
+  if (await folioYaRegistrado(admin, folio)) {
+    throw new Error(
+      `El folio ${folio} ya esta registrado en otro MOPER. Ajuste el numero de folio y vuelva a guardar.`,
+    );
+  }
+
+  const num = parseFolioNum(folio)!;
+  const { data, error } = await admin.from("moper_folio_seq").select("next_num").eq("id", 1).maybeSingle();
+  if (error) failSupabase(error);
+  let next = Number(data?.next_num ?? 280);
+  if (!Number.isFinite(next)) next = 280;
+  const nuevoNext = Math.max(next, num + 1);
+  const { error: upSeq } = await admin
+    .from("moper_folio_seq")
+    .update({ next_num: nuevoNext, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (upSeq) failSupabase(upSeq);
+  return folio;
+}
+
 function randomCodigoAcceso(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = "";
@@ -63,22 +118,6 @@ export async function ajustarFolioSecuencia(admin: SupabaseClient, delta: number
     .eq("id", 1);
   if (upErr) failSupabase(upErr);
   return formatFolio(next);
-}
-
-async function asignarFolioSiCorresponde(admin: SupabaseClient, row: MoperRegistroRow): Promise<string | null> {
-  if (row.folio) return row.folio;
-  const { data, error } = await admin.from("moper_folio_seq").select("next_num").eq("id", 1).maybeSingle();
-  if (error) failSupabase(error);
-  let num = Number(data?.next_num ?? 280);
-  if (!Number.isFinite(num)) num = 280;
-  const folio = formatFolio(num);
-  const next = num + 1;
-  const { error: upSeq } = await admin
-    .from("moper_folio_seq")
-    .update({ next_num: next, updated_at: new Date().toISOString() })
-    .eq("id", 1);
-  if (upSeq) failSupabase(upSeq);
-  return folio;
 }
 
 function rowCompletado(r: MoperRegistroRow): boolean {
@@ -183,7 +222,9 @@ export async function crearRegistroMoper(
   if (!servicioNuevo || !puestoNuevo) throw new Error("Complete servicio y puesto nuevos");
 
   const codigo = await generarCodigoUnico(admin);
+  const folio = await reservarFolioAlCrear(admin, body.folio);
   const insert = {
+    folio,
     codigo_acceso: codigo,
     oficial_nombre: oficial,
     curp: String(body.curp ?? "").trim(),
@@ -306,9 +347,6 @@ export async function registrarFirmaMoper(
     [cols.imagen]: imagen,
     updated_at: now,
   };
-  if (tipo === "conformidad" && !row.folio) {
-    patch.folio = await asignarFolioSiCorresponde(admin, row);
-  }
 
   const { data, error } = await admin.from("moper_registros").update(patch).eq("id", id).select("*").single();
   if (error) failSupabase(error);
