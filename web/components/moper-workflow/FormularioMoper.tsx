@@ -1,9 +1,8 @@
 import { useState, useCallback, useEffect } from 'react'
-import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
 import { useMoperWorkflow } from './MoperWorkflowContext'
 import { moperFetch } from '@/lib/moper-fetch'
 import type { RegistroMoper } from './types'
+import { MoperResumenRegistro } from './MoperResumenRegistro'
 
 interface FormularioMoperProps {
   onGuardar: (id: number, folio: string | null) => void
@@ -55,23 +54,31 @@ export function FormularioMoper({ onGuardar, registroId, registro, folioPreview,
   }, [actualizarFechaHora])
 
   useEffect(() => {
-    if (registro && registroId && puedeEditar) {
-      setNombreOficial(registro.oficial_nombre ?? '')
-      setCurp(registro.curp ?? '')
-      setFechaIngreso(toInputDate(registro.fecha_ingreso))
-      setFechaInicioEfectiva(toInputDate(registro.fecha_inicio_efectiva))
-      setServicioActual(registro.servicio_actual_nombre ?? '')
-      setServicioNuevo(registro.servicio_nuevo_nombre ?? '')
-      setPuestoActual(registro.puesto_actual_nombre ?? '')
-      setPuestoNuevo(registro.puesto_nuevo_nombre ?? '')
-      setSueldoActual(registro.sueldo_actual != null ? String(registro.sueldo_actual) : '')
-      setSueldoNuevo(registro.sueldo_nuevo != null ? String(registro.sueldo_nuevo) : '')
-      setMotivo(registro.motivo ?? '')
-      setRazon(registro.razon ?? '')
-      setCreadoPor(registro.creado_por ?? '')
-      setSolicitadoPor(registro.solicitado_por ?? '')
+    if (!registro || !registroId) return
+    setNombreOficial(registro.oficial_nombre ?? '')
+    setCurp(registro.curp ?? '')
+    setFechaIngreso(toInputDate(registro.fecha_ingreso))
+    setFechaInicioEfectiva(toInputDate(registro.fecha_inicio_efectiva))
+    setServicioActual(registro.servicio_actual_nombre ?? '')
+    setServicioNuevo(registro.servicio_nuevo_nombre ?? '')
+    setPuestoActual(registro.puesto_actual_nombre ?? '')
+    setPuestoNuevo(registro.puesto_nuevo_nombre ?? '')
+    setSueldoActual(registro.sueldo_actual != null ? String(registro.sueldo_actual) : '')
+    setSueldoNuevo(registro.sueldo_nuevo != null ? String(registro.sueldo_nuevo) : '')
+    setMotivo(registro.motivo ?? '')
+    setRazon(registro.razon ?? '')
+    setCreadoPor(registro.creado_por ?? '')
+    setSolicitadoPor(registro.solicitado_por ?? '')
+    if (registro.created_at) {
+      try {
+        const d = new Date(registro.created_at)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        setFechaHora(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
+      } catch {
+        /* mantener fecha actual */
+      }
     }
-  }, [registro, registroId, puedeEditar])
+  }, [registro, registroId])
 
   const payload = {
     oficial_nombre: nombreOficial.trim(),
@@ -141,29 +148,30 @@ export function FormularioMoper({ onGuardar, registroId, registro, folioPreview,
     }
   }
 
+  if (registroId && !registro) {
+    return (
+      <div id="formulario-moper" className="rounded-lg border border-oxford-200 bg-oxford-50 px-4 py-8 text-center text-sm text-oxford-600">
+        Cargando datos del MOPER…
+      </div>
+    )
+  }
+
+  if (registroId && registro && !puedeEditar) {
+    return (
+      <div id="formulario-moper" className="space-y-3">
+        <p className="text-xs font-medium text-oxford-600">
+          Vista de consulta — confirme que coincide con el movimiento antes de firmar abajo.
+        </p>
+        <MoperResumenRegistro registro={registro} />
+      </div>
+    )
+  }
+
   return (
     <div id="formulario-moper" className="space-y-4 sm:space-y-6">
       {/* Sección A: Datos Generales */}
       <section className="border-2 border-oxford-300 rounded-lg p-3 sm:p-4 bg-white">
         <h2 className="text-sm sm:text-base font-bold text-black border-b border-oxford-300 pb-2 mb-3 sm:mb-4">A. Datos Generales</h2>
-        {(registro && registroId && !puedeEditar) && (registro?.creado_por != null || registro?.solicitado_por != null || registro?.created_at) && (
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 mb-4 p-3 bg-oxford-50 rounded border border-oxford-200">
-            <div>
-              <span className="text-xs font-medium text-oxford-600">Creado por:</span>
-              <p className="text-sm text-black">{registro?.creado_por || '-'}</p>
-            </div>
-            <div>
-              <span className="text-xs font-medium text-oxford-600">Fecha de llenado:</span>
-              <p className="text-sm text-black">
-                {registro?.created_at ? format(new Date(registro.created_at), "d 'de' MMMM yyyy, HH:mm", { locale: es }) : '-'}
-              </p>
-            </div>
-            <div>
-              <span className="text-xs font-medium text-oxford-600">Solicitado por:</span>
-              <p className="text-sm text-black">{registro?.solicitado_por || '-'}</p>
-            </div>
-          </div>
-        )}
         <div className="grid gap-4 sm:grid-cols-2">
           {(!registro || (registroId && puedeEditar)) && (
             <>

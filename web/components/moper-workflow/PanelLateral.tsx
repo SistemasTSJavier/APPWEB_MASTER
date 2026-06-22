@@ -275,6 +275,14 @@ export function PanelLateral({ registroIdActual, onSeleccionarRegistro, onNuevoR
                         </span>
                       )}
                     </button>
+                    <button
+                      type="button"
+                      onClick={(e) => abrirPreview(r.id, e)}
+                      className="shrink-0 py-1 px-1.5 text-xs border border-oxford-300 rounded text-oxford-600 hover:bg-oxford-100"
+                      title="Vista previa completa"
+                    >
+                      Ver
+                    </button>
                     {puedeCancelarEmail && (
                       <div className="relative shrink-0">
                         <button
@@ -307,7 +315,7 @@ export function PanelLateral({ registroIdActual, onSeleccionarRegistro, onNuevoR
         </>
       )}
 
-      {/* Modal vista previa completa del registro pendiente */}
+      {/* Modal vista previa completa del registro */}
       {(previewRegistro !== null || cargandoPreview) && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -318,7 +326,10 @@ export function PanelLateral({ registroIdActual, onSeleccionarRegistro, onNuevoR
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-oxford-200 flex items-center justify-between shrink-0">
-              <h3 className="font-bold text-oxford-900">Vista previa – Pendiente de aprobar</h3>
+              <h3 className="font-bold text-oxford-900">
+                Vista previa
+                {previewRegistro?.folio ? ` — ${previewRegistro.folio}` : ''}
+              </h3>
               <button
                 type="button"
                 onClick={() => setPreviewRegistro(null)}

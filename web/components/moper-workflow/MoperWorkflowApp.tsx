@@ -15,6 +15,7 @@ import { moperWorkflowPuedeAjustarFolio } from "@/lib/moper-workflow-role";
 import { EnlaceCodigoOficial } from "./EnlaceCodigoOficial";
 import { EnlacesFirmaInterna } from "./EnlacesFirmaInterna";
 import { MoperFolioAuditoriaPanel } from "./MoperFolioAuditoriaPanel";
+import { MoperRegistroAbiertoBanner } from "./MoperRegistroAbiertoBanner";
 
 type MoperWorkflowAppProps = {
   initialRegistroId?: number | null;
@@ -26,6 +27,7 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
   const [folioPreview, setFolioPreview] = useState("SPT/No. 0280/MOP");
   const [registroId, setRegistroId] = useState<number | null>(null);
   const [registroCompleto, setRegistroCompleto] = useState<RegistroMoper | null>(null);
+  const [cargandoRegistro, setCargandoRegistro] = useState(false);
   const [refreshPanel, setRefreshPanel] = useState(0);
 
   useEffect(() => {
@@ -37,13 +39,16 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
 
   const cargarRegistro = useCallback(
     (id: number) => {
+      setCargandoRegistro(true);
+      setRegistroCompleto(null);
       moperFetch(`/api/moper/${id}`, { headers: authHeaders() })
         .then((r) => r.json())
         .then((r: RegistroMoper) => {
           setRegistroCompleto(r);
           if (r.folio) setFolioPreview(r.folio);
         })
-        .catch(() => setRegistroCompleto(null));
+        .catch(() => setRegistroCompleto(null))
+        .finally(() => setCargandoRegistro(false));
     },
     [authHeaders],
   );
@@ -112,6 +117,7 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
   const onNuevoRegistro = useCallback(() => {
     setRegistroId(null);
     setRegistroCompleto(null);
+    setCargandoRegistro(false);
     actualizarFolioPreview();
   }, [actualizarFolioPreview]);
 
@@ -137,6 +143,15 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
           <p className="text-center font-bold text-oxford-800 text-base sm:text-lg mb-4 sm:mb-6 uppercase">
             Movimiento de Personal (MOPER)
           </p>
+          {registroId && cargandoRegistro ? (
+            <p className="mb-4 text-center text-sm text-oxford-600">Cargando registro seleccionado…</p>
+          ) : null}
+          {registroCompleto && registroId ? <MoperRegistroAbiertoBanner registro={registroCompleto} /> : null}
+          {registroId && !cargandoRegistro && !registroCompleto ? (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              No se pudo cargar el registro. Seleccione otro en la lista o intente de nuevo.
+            </p>
+          ) : null}
           <div className="border-2 border-oxford-300 rounded-lg p-3 sm:p-4 mb-4 bg-oxford-50/30 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-oxford-600 text-sm font-medium uppercase">Folio: </span>
@@ -180,6 +195,7 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
             ) : null}
           </div>
           <FormularioMoper
+            key={registroId ?? "nuevo"}
             onGuardar={onGuardar}
             registroId={registroId}
             registro={registroCompleto}
