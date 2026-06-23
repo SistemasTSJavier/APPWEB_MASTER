@@ -178,10 +178,12 @@ export async function POST(req: Request) {
 
       // ✅ GUARDAR AUDITORÍA EN TABLA SEPARADA
       if (process.env.NODE_ENV === "production") {
-        await admin.from("cuadricula_asistencia_audit").insert(auditLog).catch((e) => {
-          console.warn(`[ASISTENCIA] Error guardando auditoría:`, e.message);
+        try {
+          await admin.from("cuadricula_asistencia_audit").insert(auditLog);
+        } catch (e) {
+          console.warn(`[ASISTENCIA] Error guardando auditoría:`, (e as any)?.message || String(e));
           // No fallar la sincronización por error en auditoría
-        });
+        }
       }
 
       const { error } = await admin.from("cuadricula_asistencia").upsert(
