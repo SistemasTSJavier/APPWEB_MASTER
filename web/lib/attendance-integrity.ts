@@ -25,6 +25,14 @@ export type AttendanceAuditLog = {
   notes?: string;
 };
 
+/** Payload persistido en cuadricula_asistencia (Supabase). */
+export type StoredPayload = {
+  version?: number;
+  savedAt?: string;
+  rows?: unknown[];
+  serviceNo?: string;
+};
+
 /**
  * Valida estructura de filas de asistencia.
  * Retorna lista de errores si hay problemas.

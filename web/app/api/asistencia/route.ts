@@ -15,16 +15,10 @@ import {
   compareAttendancePayloads,
   createAuditLog,
   formatIntegrityErrorMessage,
+  type StoredPayload,
 } from "@/lib/attendance-integrity";
 
 export const dynamic = "force-dynamic";
-
-type StoredPayload = {
-  version?: number;
-  savedAt?: string;
-  rows?: unknown[];
-  serviceNo?: string;
-};
 
 function parseWeekIso(raw: string | null): string | null {
   const s = (raw ?? "").trim();

@@ -12,6 +12,7 @@ import {
   compareAttendancePayloads,
   createAuditLog,
   generateAttendanceHealthReport,
+  type StoredPayload,
 } from "@/lib/attendance-integrity";
 
 export const dynamic = "force-dynamic";
