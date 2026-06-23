@@ -171,12 +171,28 @@ export async function saveAttendanceGrid(
 ): Promise<boolean> {
   const id = serviceCatalogId.trim()
   if (!id) return false
-  const payload = buildAttendanceGridPayload(rows, serviceNo, opts?.savedAt ?? new Date().toISOString())
-  const localOk = saveAttendanceGridLocal(weekStartIso, id, payload)
+  
+  const savedAt = opts?.savedAt ?? new Date().toISOString()
+  const newPayload = buildAttendanceGridPayload(rows, serviceNo, savedAt)
+  
+  // ✅ MEJORADO: Hacer merge con datos previos si no es forceReplace
+  let payloadToSave = newPayload
+  if (!opts?.forceReplace) {
+    const existing = loadAttendanceGridLocal(weekStartIso, id)
+    if (existing?.rows?.length) {
+      // Combinar datos nuevos con anteriores
+      payloadToSave = mergeStoredAttendanceGrids(existing, newPayload) ?? newPayload
+      console.log(
+        `[ASISTENCIA-SAVE] Merge: ${existing.rows.length} filas previas + ${rows.length} nuevas = ${payloadToSave.rows.length} totales`
+      )
+    }
+  }
+  
+  const localOk = saveAttendanceGridLocal(weekStartIso, id, payloadToSave)
   invalidateAttendanceStorageWeekCache(weekStartIso)
   const { invalidateAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
   invalidateAttendanceWeekPrefetch(weekStartIso)
-  const remoteOk = await pushAttendanceGridRemote(weekStartIso, id, payload, serviceNo, {
+  const remoteOk = await pushAttendanceGridRemote(weekStartIso, id, payloadToSave, serviceNo, {
     forceReplace: opts?.forceReplace,
   })
   return remoteOk || localOk
@@ -197,6 +213,7 @@ export async function saveManyAttendanceGrids(
   if (items.length === 0) return { saved: 0, failed: 0 }
 
   const { syncAllLocalAttendanceToRemote } = await import('./attendanceRemote')
+  const { mergeStoredAttendanceGrids } = await import('./attendanceRemote')
   const baseMs = Date.now()
   const entries: {
     weekStartIso: string
@@ -211,7 +228,19 @@ export async function saveManyAttendanceGrids(
     const id = scopeKey.trim()
     if (!id || rows.length === 0) continue
     const savedAt = new Date(baseMs + i).toISOString()
-    const payload = buildAttendanceGridPayload(rows, serviceNo, savedAt)
+    let payload = buildAttendanceGridPayload(rows, serviceNo, savedAt)
+    
+    // ✅ MEJORADO: Hacer merge con datos previos si no es forceReplace
+    if (!opts?.forceReplace) {
+      const existing = loadAttendanceGridLocal(weekStartIso, id)
+      if (existing?.rows?.length) {
+        payload = mergeStoredAttendanceGrids(existing, payload) ?? payload
+        console.log(
+          `[ASISTENCIA-SAVE-MANY] ${id}: ${existing.rows.length} previas + ${rows.length} nuevas = ${payload.rows.length} totales`
+        )
+      }
+    }
+    
     const localOk = saveAttendanceGridLocal(weekStartIso, id, payload)
     entries.push({ weekStartIso, scopeKey: id, grid: payload, serviceNo, localOk })
   }

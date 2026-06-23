@@ -124,14 +124,42 @@ export async function POST(req: Request) {
         }
       }
 
-      const payload = {
+      // ✅ MEJORADO: Hacer merge con datos anteriores
+      let payloadToSave = {
         ...item.grid,
         savedAt: item.incomingSavedAt,
         version: item.grid.version === 1 ? 1 : 2,
       };
 
+      if (!forceReplace && prev?.rows && Array.isArray(item.grid.rows)) {
+        // Combinar filas: datos nuevos prevalecen, datos anteriores se mantienen si no están en nuevos
+        const newRowsByEmpNo = new Map<string, unknown>();
+        (item.grid.rows || []).forEach((r: any) => {
+          const key = r?.empNo || r?.noEmpleado || `unknown_${Math.random()}`;
+          newRowsByEmpNo.set(String(key), r);
+        });
+
+        const mergedRows = [...(item.grid.rows || [])];
+        (prev.rows || []).forEach((r: any) => {
+          const key = r?.empNo || r?.noEmpleado || `unknown_${Math.random()}`;
+          if (!newRowsByEmpNo.has(String(key))) {
+            // Agregar fila anterior si no está en nuevos datos
+            mergedRows.push(r);
+          }
+        });
+
+        payloadToSave = {
+          ...payloadToSave,
+          rows: mergedRows,
+        };
+
+        console.log(
+          `[ASISTENCIA-SYNC-MERGE] ${item.weekStartIso}/${item.scopeKey}: ${prev.rows.length} previas + ${(item.grid.rows || []).length} nuevas = ${mergedRows.length} totales`
+        );
+      }
+
       // ✅ COMPARAR Y REPORTAR CAMBIOS
-      const comparison = compareAttendancePayloads(prev as Record<string, unknown> | null, payload as Record<string, unknown>);
+      const comparison = compareAttendancePayloads(prev as Record<string, unknown> | null, payloadToSave as Record<string, unknown>);
       
       // ✅ CREAR REGISTRO DE AUDITORÍA
       const auditLog = createAuditLog(
@@ -140,8 +168,8 @@ export async function POST(req: Request) {
         "sync",
         auth.user?.id ?? "unknown",
         auth.role ?? "unknown",
-        Array.isArray(item.grid.rows) ? item.grid.rows.length : 0,
-        payload,
+        Array.isArray(payloadToSave.rows) ? payloadToSave.rows.length : 0,
+        payloadToSave,
         prev,
         "success",
         undefined,
@@ -160,7 +188,7 @@ export async function POST(req: Request) {
         {
           week_start_iso: item.weekStartIso,
           scope_key: item.scopeKey,
-          payload,
+          payload: payloadToSave,
           service_no: item.serviceNo || null,
           saved_at: item.incomingSavedAt,
           updated_at: new Date().toISOString(),
@@ -196,6 +224,6 @@ export async function POST(req: Request) {
     skipped, 
     failed, 
     total: items.length,
-    message: `✓ ${uploaded} sincronizadas, ${skipped} omitidas, ${failed} fallidas`
+    message: `✓ ${uploaded} sincronizadas (con merge de datos previos), ${skipped} omitidas, ${failed} fallidas`
   });
 }

@@ -168,14 +168,46 @@ export async function POST(req: Request) {
     }
   }
 
-  const payload: StoredPayload = {
-    ...grid,
+  // ✅ MEJORADO: Hacer merge con datos anteriores (combinar filas por empleado)
+  let payloadToSave: StoredPayload = {
+    ...payload,
+  };
+
+  if (!forceReplace && existingPayload?.rows && Array.isArray(payloadToSave.rows)) {
+    // Combinar filas: datos nuevos prevalecen, datos anteriores se mantienen si no están en nuevos
+    const newRowsByEmpNo = new Map<string, unknown>();
+    (payloadToSave.rows || []).forEach((r: any) => {
+      const key = r?.empNo || r?.noEmpleado || `unknown_${Math.random()}`;
+      newRowsByEmpNo.set(String(key), r);
+    });
+
+    const mergedRows = [...(payloadToSave.rows || [])];
+    (existingPayload.rows || []).forEach((r: any) => {
+      const key = r?.empNo || r?.noEmpleado || `unknown_${Math.random()}`;
+      if (!newRowsByEmpNo.has(String(key))) {
+        // Agregar fila anterior si no está en nuevos datos
+        mergedRows.push(r);
+      }
+    });
+
+    payloadToSave = {
+      ...payload,
+      rows: mergedRows,
+    };
+
+    console.log(
+      `[ASISTENCIA-MERGE] ${weekStartIso}/${scopeKey}: ${existingPayload.rows.length} previas + ${(payload.rows || []).length} nuevas = ${mergedRows.length} totales`
+    );
+  }
+
+  const payload2: StoredPayload = {
+    ...payloadToSave,
     savedAt: incomingSavedAt,
-    version: grid.version === 1 ? 1 : 2,
+    version: payloadToSave.version === 1 ? 1 : 2,
   };
 
   // ✅ COMPARAR CAMBIOS Y REGISTRAR AUDITORÍA
-  const comparison = compareAttendancePayloads(existingPayload || null, payload);
+  const comparison = compareAttendancePayloads(existingPayload || null, payload2);
   const auditLog = createAuditLog(
     weekStartIso,
     scopeKey,
@@ -183,7 +215,7 @@ export async function POST(req: Request) {
     auth.user?.id ?? "unknown",
     auth.role ?? "unknown",
     validation.rowsCount,
-    payload,
+    payload2,
     existingPayload,
     "success",
     undefined,
@@ -201,7 +233,7 @@ export async function POST(req: Request) {
     {
       week_start_iso: weekStartIso,
       scope_key: scopeKey,
-      payload,
+      payload: payload2,
       service_no: serviceNo || null,
       saved_at: incomingSavedAt,
       updated_at: new Date().toISOString(),

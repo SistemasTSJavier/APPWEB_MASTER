@@ -4,6 +4,7 @@
 
 ### ❌ Problemas Anteriores
 - Pérdida de datos durante importaciones
+- **Eliminación de datos previos al guardar** ⚠️
 - Sin auditoría de quién cambió qué y cuándo
 - Sin backups automáticos
 - Sin validación de integridad de datos
@@ -20,22 +21,43 @@ Ahora cada importación valida:
 - ✓ Tipos de datos correctos
 - ✓ Rechaza datos inválidos antes de guardar
 
-**Cómo funciona:**
-```javascript
-// En lib/attendance-integrity.ts
-validateAttendanceRows(grid.rows)
-// Retorna: { ok: boolean, errors[], warnings[] }
+---
+
+## 1.5 **MERGE Automático de Datos** 🔄 ⭐ NUEVO
+
+**El sistema NUNCA sobrescribe datos previos.** En su lugar:
+
+1. **Al guardar:** Carga datos previos de esa semana/planta
+2. **Combina:** Une datos nuevos con anteriores por empleado (empNo)
+3. **Prevalece:** Datos nuevos reemplazan anteriores del mismo empleado
+4. **Mantiene:** Datos antiguos de empleados no en la importación se preservan
+5. **Registra:** Audita qué se agregó, modificó o mantuvo
+
+**Ejemplo:**
+
+```
+ANTES (base de datos):
+- E001: Asistencia D/T/N/D/T/N/D (semana anterior)
+- E002: Asistencia D/T/N/D/T/N/D
+- E003: Asistencia D/T/N/D/T/N/D
+
+IMPORTAS AHORA (solo E001 y E002):
+- E001: Asistencia ACTUALIZADO
+- E002: Asistencia ACTUALIZADO
+
+RESULTADO GUARDADO (merge automático):
+- E001: Asistencia ACTUALIZADO ✓ (reemplazado)
+- E002: Asistencia ACTUALIZADO ✓ (reemplazado)
+- E003: Asistencia D/T/N/D/T/N/D ✓ (preservado)
+
+AUDITORÍA:
+"2 agregados, 1 modificado, 0 removidos"
 ```
 
-Si hay **errores críticos**, la importación se rechaza con detalles:
-```json
-{
-  "error": "Datos de asistencia con errores de integridad",
-  "details": [
-    "Fila 5: falta empNo/noEmpleado",
-    "Fila 12 (E001): shifts no es array"
-  ]
-}
+**Logs:**
+```
+[ASISTENCIA-SAVE] Merge: 3 filas previas + 2 nuevas = 3 totales
+[ASISTENCIA-SYNC] ✓ 2026-06-23/planta:admin: 0 agregados, 2 modificados, 0 removidos
 ```
 
 ---
