@@ -15,6 +15,7 @@ import {
   compareAttendancePayloads,
   createAuditLog,
   formatIntegrityErrorMessage,
+  mergeAttendancePayloadRows,
   type StoredPayload,
 } from "@/lib/attendance-integrity";
 
@@ -168,22 +169,7 @@ export async function POST(req: Request) {
   };
 
   if (!forceReplace && existingPayload?.rows && Array.isArray(payloadToSave.rows)) {
-    // Combinar filas: datos nuevos prevalecen, datos anteriores se mantienen si no están en nuevos
-    const newRowsByEmpNo = new Map<string, unknown>();
-    (payloadToSave.rows || []).forEach((r: any) => {
-      const key = r?.empNo || r?.noEmpleado || `unknown_${Math.random()}`;
-      newRowsByEmpNo.set(String(key), r);
-    });
-
-    const mergedRows = [...(payloadToSave.rows || [])];
-    (existingPayload.rows || []).forEach((r: any) => {
-      const key = r?.empNo || r?.noEmpleado || `unknown_${Math.random()}`;
-      if (!newRowsByEmpNo.has(String(key))) {
-        // Agregar fila anterior si no está en nuevos datos
-        mergedRows.push(r);
-      }
-    });
-
+    const mergedRows = mergeAttendancePayloadRows(payloadToSave.rows, existingPayload.rows);
     payloadToSave = {
       ...grid,
       rows: mergedRows,

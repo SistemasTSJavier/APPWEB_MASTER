@@ -206,7 +206,7 @@ export function AttendanceView() {
     setGuardandoSemana(true)
     setSaveMessage(null)
     try {
-      const porPlanta = splitGridRowsByPlanta(rows)
+      const porPlanta = splitGridRowsByPlanta(rows, colaboradoresActivosCaptura, catalogo)
       const prefetch = await getAttendanceWeekPrefetch(weekIso)
       const mergeResults = await Promise.all(
         plantas.map(async (planta) => {

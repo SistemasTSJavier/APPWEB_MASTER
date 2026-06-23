@@ -27,6 +27,7 @@ import {
 } from './cuadriculaColaboradoresBridge'
 import { enrichGridRowsEstatus } from './attendancePlantaMerge'
 import {
+  filasParaGuardarPlantaWeek,
   mergeGridRowsForPlantaWeek,
   mergeGridRowsForPlantaWeekForCsvImport,
   mergeGridRowsTodasPlantasWeek,
@@ -1360,12 +1361,24 @@ export async function importAttendanceCsvDirectToGrid(opts: {
   let plantsSaveFailed = 0
 
   if (opts.persist !== false && updatedCount > 0) {
-    const porPlanta = splitGridRowsByPlanta(rows)
+    const { getAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
+    const prefetch = await getAttendanceWeekPrefetch(opts.weekIso)
+    const porPlanta = splitGridRowsByPlanta(rows, opts.colaboradores, opts.catalogo)
+    const plantas = listarPlantasCapturaAsistencia(opts.colaboradores, opts.catalogo)
     const items: { scopeKey: string; rows: GridRow[] }[] = []
-    for (const [plantaNorm, filas] of porPlanta) {
-      if (filas.length === 0) continue
-      const scopeKey = plantaToStorageKey(plantaNorm)
-      if (scopeKey) items.push({ scopeKey, rows: filas })
+    for (const planta of plantas) {
+      const norm = normPlantaCapturaNombre(planta)
+      const filasPantalla = porPlanta.get(norm) ?? null
+      const filas = await filasParaGuardarPlantaWeek(
+        opts.colaboradores,
+        planta,
+        opts.catalogo,
+        opts.weekIso,
+        prefetch,
+        filasPantalla,
+      )
+      const scopeKey = plantaToStorageKey(planta)
+      if (scopeKey && filas.length > 0) items.push({ scopeKey, rows: filas })
     }
     if (items.length > 0) {
       const batch = await saveManyAttendanceGrids(opts.weekIso, items, { forceReplace: true })

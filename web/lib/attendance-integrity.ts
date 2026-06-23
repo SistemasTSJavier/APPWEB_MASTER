@@ -3,6 +3,53 @@
  * Previene pérdida de datos durante importaciones y cambios.
  */
 
+import { empNoClaveGridRow } from "@/lib/attendance-emp-no";
+
+/** Clave canónica de fila persistida (cuadrícula usa employeeNo; legado empNo/noEmpleado). */
+export function attendanceRowEmpKey(row: Record<string, unknown>): string {
+  return empNoClaveGridRow({
+    employeeNo:
+      typeof row.employeeNo === "string"
+        ? row.employeeNo
+        : typeof row.empNo === "string"
+          ? row.empNo
+          : typeof row.noEmpleado === "string"
+            ? row.noEmpleado
+            : null,
+    id: typeof row.id === "string" ? row.id : undefined,
+  });
+}
+
+/** Etiqueta legible del N.º de empleado en mensajes de error. */
+function attendanceRowEmpLabel(row: Record<string, unknown>): string {
+  return (
+    attendanceRowEmpKey(row) ||
+    String(row.employeeNo ?? row.empNo ?? row.noEmpleado ?? row.id ?? "?")
+  );
+}
+
+/**
+ * Combina filas de asistencia por N.º de empleado; las filas nuevas prevalecen.
+ * Mantiene filas anteriores que no aparecen en el payload entrante.
+ */
+export function mergeAttendancePayloadRows(
+  incomingRows: unknown[],
+  previousRows: unknown[] | undefined | null,
+): unknown[] {
+  const rowByKey = new Map<string, unknown>();
+  for (const r of previousRows ?? []) {
+    if (!r || typeof r !== "object") continue;
+    const key = attendanceRowEmpKey(r as Record<string, unknown>);
+    if (key) rowByKey.set(key, r);
+  }
+  for (const r of incomingRows) {
+    if (!r || typeof r !== "object") continue;
+    const key = attendanceRowEmpKey(r as Record<string, unknown>);
+    if (key) rowByKey.set(key, r);
+  }
+  return [...rowByKey.values()];
+}
+
 export type AttendanceValidationResult = {
   ok: boolean;
   rowsCount: number;
@@ -59,23 +106,21 @@ export function validateAttendanceRows(rows: unknown[]): AttendanceValidationRes
     }
 
     const r = row as Record<string, unknown>;
-    
-    // Validaciones básicas
-    if (!r.empNo && !r.noEmpleado) {
-      errors.push(`Fila ${i}: falta empNo/noEmpleado`);
+    const empLabel = attendanceRowEmpLabel(r);
+
+    if (!attendanceRowEmpKey(r)) {
+      errors.push(`Fila ${i}: falta número de empleado (employeeNo/empNo/noEmpleado/id)`);
       continue;
     }
 
-    // Validar que tenga shifts (la asistencia)
     if (!Array.isArray(r.shifts)) {
-      errors.push(`Fila ${i} (${r.empNo || r.noEmpleado}): shifts no es array o falta`);
+      errors.push(`Fila ${i} (${empLabel}): shifts no es array o falta`);
       continue;
     }
 
-    // Validar longitud de shifts (debería ser 7 para una semana)
     if (r.shifts.length !== 7) {
       warnings.push(
-        `Fila ${i} (${r.empNo || r.noEmpleado}): shifts tiene ${r.shifts.length} elementos (esperado 7)`
+        `Fila ${i} (${empLabel}): shifts tiene ${r.shifts.length} elementos (esperado 7)`
       );
     }
 
@@ -135,7 +180,7 @@ export function compareAttendancePayloads(
     oldRows
       .filter((r) => r && typeof r === "object")
       .map((r: Record<string, unknown>) => [
-        r.empNo || r.noEmpleado || "unknown",
+        attendanceRowEmpKey(r) || "unknown",
         JSON.stringify(r),
       ])
   );
@@ -144,7 +189,7 @@ export function compareAttendancePayloads(
     newRows
       .filter((r) => r && typeof r === "object")
       .map((r: Record<string, unknown>) => [
-        r.empNo || r.noEmpleado || "unknown",
+        attendanceRowEmpKey(r) || "unknown",
         JSON.stringify(r),
       ])
   );

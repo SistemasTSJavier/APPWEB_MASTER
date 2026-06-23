@@ -10,11 +10,14 @@ import {
   colaboradoresActivosParaCapturaPlanta,
   filtrarColaboradoresActivosCaptura,
   gridRowServiceNo,
+  mapaColaboradoresActivosCapturaPorEmpNo,
   normPlantaCapturaNombre,
+  plantaCapturaColaborador,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
 import { canonicalEmpNoAttendance, empNoClaveGridRow, indexGridRowsByEmpNo } from "@/lib/attendance-emp-no";
 import { sortGridRowsByPosicion } from "./attendanceGridSort";
+import { appendFilasGuardadasFueraDeBase } from "./attendancePlantaMerge";
 import { emptyShifts, WEEK_COLUMNS, ZERO_TOTALS, type GridRow } from "./mockData";
 import { withComputedTotals } from "./attendanceTotals";
 
@@ -283,11 +286,28 @@ export async function mergeGridRowsTodasPlantasWeek(
   };
 }
 
-/** Reparte filas por planta para guardar (incluye vacantes de cada planta). */
-export function splitGridRowsByPlanta(rows: GridRow[]): Map<string, GridRow[]> {
+/** Reparte filas por planta para guardar (usa planta de expediente, no solo plantaLinea en pantalla). */
+export function splitGridRowsByPlanta(
+  rows: GridRow[],
+  colaboradores?: ColaboradorCompleto[],
+  catalogo: CatalogoServicioItem[] = [],
+): Map<string, GridRow[]> {
   const map = new Map<string, GridRow[]>();
+  const byEmp =
+    colaboradores && colaboradores.length > 0
+      ? mapaColaboradoresActivosCapturaPorEmpNo(colaboradores)
+      : null;
+
   for (const r of rows) {
-    const p = normPlantaCapturaNombre(r.plantaLinea ?? "");
+    let p = normPlantaCapturaNombre(r.plantaLinea ?? "");
+    if (byEmp) {
+      const k = empNoClaveGridRow(r);
+      const col = k ? byEmp.get(k) : undefined;
+      if (col) {
+        const expPlanta = normPlantaCapturaNombre(plantaCapturaColaborador(col, catalogo));
+        if (expPlanta) p = expPlanta;
+      }
+    }
     if (!p) continue;
     const list = map.get(p) ?? [];
     list.push(r);
@@ -296,7 +316,7 @@ export function splitGridRowsByPlanta(rows: GridRow[]): Map<string, GridRow[]> {
   return map;
 }
 
-/** Filas a guardar: exactamente lo visible (activos de Colaboradores + asistencia de la semana). */
+/** Filas a guardar: roster completo de la planta con los turnos visibles en pantalla. */
 export async function filasParaGuardarPlantaWeek(
   colaboradores: ColaboradorCompleto[],
   plantaNombre: string,
@@ -305,13 +325,22 @@ export async function filasParaGuardarPlantaWeek(
   prefetch: AttendanceWeekPrefetch,
   filasPantalla?: GridRow[] | null,
 ): Promise<GridRow[]> {
-  if (filasPantalla && filasPantalla.length > 0) return filasPantalla;
-  return mergeGridRowsForPlantaWeek(
+  const roster = await mergeGridRowsForPlantaWeek(
     colaboradores,
     plantaNombre,
     catalogo,
     weekStartIso,
     prefetch,
+  );
+  if (!filasPantalla?.length) return roster;
+
+  const merged = fusionarCapturaSemanalDesdeExpediente(roster, filasPantalla);
+  return appendFilasGuardadasFueraDeBase(
+    merged,
+    filasPantalla,
+    colaboradores,
+    plantaNombre,
+    catalogo,
   );
 }
 
