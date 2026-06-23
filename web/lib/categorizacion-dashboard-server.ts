@@ -18,6 +18,8 @@ import {
   buildResumenCategorizacion,
   listCatEvaluacionesModulo,
   listColaboradoresActivosParaCategorizacion,
+  loadMapasPromedioOperaciones,
+  promedioOperacionesParaEmpleado,
 } from "@/lib/categorizacion-server";
 import { fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
@@ -81,15 +83,16 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
 
   const mesYm = mesCalendarioActualYm();
 
-  const [activos, resumen, rhList, colaboradores, faltasMes] = await Promise.all([
+  const [activos, rhList, colaboradores, faltasMes, opMapas] = await Promise.all([
     listColaboradoresActivosParaCategorizacion(undefined, client),
-    buildResumenCategorizacion(client),
     listCatEvaluacionesModulo("recursos_humanos", client),
     client ? fetchAllColaboradoresCompletos(client).catch(() => [] as ColaboradorCompleto[]) : Promise.resolve([]),
     client
       ? contarFaltasMesDesdeCuadricula(client, mesYm).catch(() => ({ mesYm, faltas: {} as Record<string, never> }))
       : Promise.resolve({ mesYm, faltas: {} as Record<string, never> }),
+    loadMapasPromedioOperaciones(client),
   ]);
+  const resumen = await buildResumenCategorizacion(client, { opMapas });
 
   const personal: CatPersonalRow[] = activos.map((a) => ({
     noEmpleado: a.noEmpleado,
@@ -121,9 +124,14 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
 
     const promedioRh = r?.promedioRh ?? null;
     const promedioCapacitacion = r?.promedioCapacitacion ?? null;
-    const promedioOperaciones = r?.promedioOperaciones ?? null;
+    const promedioOperaciones = promedioOperacionesParaEmpleado(p.noEmpleado, p.puesto, opMapas);
     const promedioEnfoque = r?.promedioEnfoque ?? null;
-    const promedioGeneral = r?.promedioGeneral ?? null;
+    const promedioGeneral = promedioGeneralCategorizacion([
+      promedioRh,
+      promedioCapacitacion,
+      promedioOperaciones,
+      promedioEnfoque,
+    ]);
     const promedioGraficaModulos = promedioGeneralCategorizacion([
       promedioCapacitacion,
       promedioOperaciones,
@@ -148,8 +156,8 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       promedioEnfoque,
       promedioGraficaModulos,
       promedioGeneral,
-      nivel: r?.nivel ?? etiquetaNivel(promedioGeneral),
-      paquete: r?.paquete ?? etiquetaPaquete(promedioGeneral),
+      nivel: etiquetaNivel(promedioGeneral),
+      paquete: etiquetaPaquete(promedioGeneral),
       nivelId: nivelDesdePromedio(promedioGeneral),
       paqueteId: paqueteDesdePromedio(promedioGeneral),
       faltasMesActual: faltas.total,

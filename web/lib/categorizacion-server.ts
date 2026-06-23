@@ -267,10 +267,261 @@ function parseScores(raw: unknown): Record<string, number> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, number> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (k === CAT_JT_EVALS_SCORES_KEY) continue;
     const n = Number(v);
     if (Number.isFinite(n)) out[k] = n;
   }
   return out;
+}
+
+/** Calificaciones JT por oficial cuando PostgREST no expone calificado_por (caché antigua). */
+const CAT_JT_EVALS_SCORES_KEY = "__jt_evaluaciones_oficiales__";
+
+type JtOficialEvalJson = {
+  scores: Record<string, number>;
+  comentarios: string;
+  promedio: number | null;
+};
+
+function parseJtBucketRaw(raw: unknown): Record<string, JtOficialEvalJson> {
+  if (!raw || typeof raw !== "object") return {};
+  const bucket = (raw as Record<string, unknown>)[CAT_JT_EVALS_SCORES_KEY];
+  if (!bucket || typeof bucket !== "object") return {};
+  const out: Record<string, JtOficialEvalJson> = {};
+  for (const [oficialNo, entry] of Object.entries(bucket as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    const scores = parseScores(e.scores);
+    const prom =
+      e.promedio != null && Number.isFinite(Number(e.promedio))
+        ? Number(e.promedio)
+        : promedioDeScores(scores);
+    out[normalizarNoEmpleado(oficialNo)] = {
+      scores,
+      comentarios: String(e.comentarios ?? ""),
+      promedio: prom,
+    };
+  }
+  return out;
+}
+
+function debeUsarLegacyJsonCatEvaluacion(message: string): boolean {
+  if (errorPareceRpcCatEvaluacionFalta(message)) return true;
+  if (errorPareceSchemaCacheColumnas(message)) return true;
+  const m = message.toLowerCase();
+  if (m.includes("could not find") && (m.includes("calificado_por") || m.includes("submodulo"))) return true;
+  return false;
+}
+
+async function listCatEvaluacionesModuloLegacyMinimal(
+  client: SupabaseClient,
+  modulo: CatEvalModuloId,
+): Promise<Record<string, unknown>[]> {
+  const { data, error } = await client
+    .from("cat_evaluacion")
+    .select("no_empleado, modulo, scores, comentarios, promedio")
+    .eq("modulo", modulo);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Record<string, unknown>[];
+}
+
+function expandOperacionesLegacyRows(
+  rawRows: Record<string, unknown>[],
+  subOperaciones: string | null,
+): CatEvaluacionRow[] {
+  const out: CatEvaluacionRow[] = [];
+  for (const r of rawRows) {
+    const noEmpleado = normalizarNoEmpleado(String(r.no_empleado));
+    const jtBucket = parseJtBucketRaw(r.scores);
+    const jtKeys = Object.keys(jtBucket);
+
+    if (jtKeys.length > 0 && (subOperaciones === "jefe_turno" || subOperaciones == null)) {
+      for (const calificadoPor of jtKeys) {
+        const e = jtBucket[calificadoPor]!;
+        out.push({
+          noEmpleado,
+          modulo: "operaciones",
+          submodulo: "jefe_turno",
+          calificadoPor,
+          scores: e.scores,
+          comentarios: e.comentarios,
+          promedio: e.promedio,
+        });
+      }
+    }
+
+    if (subOperaciones === "jefe_turno") continue;
+
+    const flatScores = parseScores(r.scores);
+    if (Object.keys(flatScores).length === 0) continue;
+    out.push({
+      noEmpleado,
+      modulo: "operaciones",
+      submodulo: "oficial",
+      calificadoPor: "",
+      scores: flatScores,
+      comentarios: String(r.comentarios ?? ""),
+      promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(flatScores),
+    });
+  }
+  return out;
+}
+
+async function getCatEvaluacionLegacyMinimal(
+  client: SupabaseClient,
+  noEmpleado: string,
+  modulo: CatEvalModuloId,
+  sub: string,
+  calificadoPor: string,
+): Promise<CatEvaluacionRow | null> {
+  const no = noEmpleado.trim().toUpperCase();
+  const { data, error } = await client
+    .from("cat_evaluacion")
+    .select("no_empleado, modulo, scores, comentarios, promedio")
+    .eq("no_empleado", no)
+    .eq("modulo", modulo)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+
+  if (modulo === "operaciones" && sub === "jefe_turno") {
+    const entry = parseJtBucketRaw(data.scores)[calificadoPor];
+    if (!entry) return null;
+    return {
+      noEmpleado: no,
+      modulo,
+      submodulo: "jefe_turno",
+      calificadoPor,
+      scores: entry.scores,
+      comentarios: entry.comentarios,
+      promedio: entry.promedio,
+    };
+  }
+
+  const scores = parseScores(data.scores);
+  return {
+    noEmpleado: no,
+    modulo,
+    submodulo: modulo === "operaciones" ? "oficial" : "",
+    calificadoPor: "",
+    scores,
+    comentarios: String(data.comentarios ?? ""),
+    promedio: data.promedio != null ? Number(data.promedio) : promedioDeScores(scores),
+  };
+}
+
+async function upsertCatEvaluacionJtLegacyJson(
+  client: SupabaseClient,
+  noEmpleado: string,
+  calificadoPor: string,
+  filtered: Record<string, number>,
+  comentarios: string,
+  promedio: number | null,
+): Promise<CatEvaluacionRow> {
+  const no = noEmpleado.trim().toUpperCase();
+  const { data: existing, error: readErr } = await client
+    .from("cat_evaluacion")
+    .select("scores")
+    .eq("no_empleado", no)
+    .eq("modulo", "operaciones")
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+
+  const rawScores: Record<string, unknown> =
+    existing?.scores && typeof existing.scores === "object"
+      ? { ...(existing.scores as Record<string, unknown>) }
+      : {};
+  const jtBucket = parseJtBucketRaw(rawScores);
+  jtBucket[calificadoPor] = {
+    scores: filtered,
+    comentarios: comentarios.trim(),
+    promedio,
+  };
+  rawScores[CAT_JT_EVALS_SCORES_KEY] = jtBucket;
+
+  const payload = {
+    scores: rawScores,
+    comentarios: "",
+    promedio: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (existing) {
+    const { error } = await client
+      .from("cat_evaluacion")
+      .update(payload)
+      .eq("no_empleado", no)
+      .eq("modulo", "operaciones");
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await client.from("cat_evaluacion").insert({
+      no_empleado: no,
+      modulo: "operaciones",
+      ...payload,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  return {
+    noEmpleado: no,
+    modulo: "operaciones",
+    submodulo: "jefe_turno",
+    calificadoPor,
+    scores: filtered,
+    comentarios: comentarios.trim(),
+    promedio,
+  };
+}
+
+async function upsertCatEvaluacionLegacyMinimal(
+  client: SupabaseClient,
+  noEmpleado: string,
+  modulo: CatEvalModuloId,
+  filtered: Record<string, number>,
+  comentarios: string,
+  promedio: number | null,
+): Promise<CatEvaluacionRow> {
+  const no = noEmpleado.trim().toUpperCase();
+  const payload = {
+    scores: filtered,
+    comentarios: comentarios.trim(),
+    promedio,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existing, error: readErr } = await client
+    .from("cat_evaluacion")
+    .select("no_empleado")
+    .eq("no_empleado", no)
+    .eq("modulo", modulo)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+
+  if (existing) {
+    const { error } = await client
+      .from("cat_evaluacion")
+      .update(payload)
+      .eq("no_empleado", no)
+      .eq("modulo", modulo);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await client.from("cat_evaluacion").insert({
+      no_empleado: no,
+      modulo,
+      ...payload,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  return {
+    noEmpleado: no,
+    modulo,
+    submodulo: modulo === "operaciones" ? "oficial" : "",
+    calificadoPor: "",
+    scores: filtered,
+    comentarios: comentarios.trim(),
+    promedio,
+  };
 }
 
 function submoduloDbParaModulo(modulo: CatEvalModuloId, submodulo?: string): string {
@@ -298,7 +549,8 @@ function rowToCatEvaluacion(r: Record<string, unknown>, modulo: CatEvalModuloId)
 export function mapaPromedioOperacionesJefeTurno(rows: CatEvaluacionRow[]): Map<string, number | null> {
   const porJefe = new Map<string, number[]>();
   for (const r of rows) {
-    if (r.submodulo !== "jefe_turno" || r.promedio == null || !Number.isFinite(r.promedio)) continue;
+    const esJt = r.submodulo === "jefe_turno" || Boolean(r.calificadoPor);
+    if (!esJt || r.promedio == null || !Number.isFinite(r.promedio)) continue;
     const list = porJefe.get(r.noEmpleado) ?? [];
     list.push(r.promedio);
     porJefe.set(r.noEmpleado, list);
@@ -320,17 +572,16 @@ export async function getCatEvaluacion(
   if (!client) return null;
   const sub = submoduloDbParaModulo(modulo, opts?.submodulo);
   const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
-  const { data, error } = await client
-    .from("cat_evaluacion")
-    .select("*")
-    .eq("no_empleado", noEmpleado.trim().toUpperCase())
-    .eq("modulo", modulo)
-    .eq("submodulo", sub)
-    .eq("calificado_por", calificadoPor)
-    .maybeSingle();
-  if (error) throw new Error(hintSupabaseClientError(error.message));
-  if (!data) return null;
-  return rowToCatEvaluacion(data as Record<string, unknown>, modulo);
+
+  try {
+    return await getCatEvaluacionViaRpc(client, noEmpleado, modulo, sub, calificadoPor);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
+      throw new Error(mensajeErrorCatEvaluacionSchema(msg));
+    }
+    return getCatEvaluacionLegacyMinimal(client, noEmpleado, modulo, sub, calificadoPor);
+  }
 }
 
 function errorPareceEsquemaEvaluacionLegacy(message: string): boolean {
@@ -343,6 +594,83 @@ function errorPareceEsquemaEvaluacionLegacy(message: string): boolean {
   );
 }
 
+function errorPareceSchemaCacheColumnas(message: string): boolean {
+  const m = message.toLowerCase();
+  return errorPareceEsquemaEvaluacionLegacy(message) && m.includes("schema cache");
+}
+
+function errorPareceRpcCatEvaluacionFalta(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("could not find the function") && m.includes("cat_");
+}
+
+function mensajeErrorCatEvaluacionSchema(message: string): string {
+  if (errorPareceSchemaCacheColumnas(message) || errorPareceRpcCatEvaluacionFalta(message)) {
+    return `${message} — Ejecuta en Supabase SQL Editor: web/supabase/migrations/025_cat_evaluacion_rpc.sql (incluye columnas + funciones RPC). Espera 20 s y guarda de nuevo. Si persiste, reinicia el proyecto en Supabase → Settings → General → Restart project.`;
+  }
+  return hintSupabaseClientError(message);
+}
+
+function rpcRowFromJson(data: unknown, modulo: CatEvalModuloId): CatEvaluacionRow {
+  if (!data || typeof data !== "object") throw new Error("Respuesta RPC vacía");
+  return rowToCatEvaluacion(data as Record<string, unknown>, modulo);
+}
+
+async function upsertCatEvaluacionViaRpc(
+  client: SupabaseClient,
+  noEmpleado: string,
+  modulo: CatEvalModuloId,
+  sub: string,
+  calificadoPor: string,
+  filtered: Record<string, number>,
+  comentarios: string,
+  promedio: number | null,
+): Promise<CatEvaluacionRow> {
+  const { data, error } = await client.rpc("cat_upsert_evaluacion", {
+    p_no_empleado: noEmpleado.trim().toUpperCase(),
+    p_modulo: modulo,
+    p_submodulo: sub,
+    p_calificado_por: calificadoPor,
+    p_scores: filtered,
+    p_comentarios: comentarios.trim(),
+    p_promedio: promedio,
+  });
+  if (error) throw new Error(error.message);
+  return rpcRowFromJson(data, modulo);
+}
+
+async function listCatEvaluacionesModuloViaRpc(
+  client: SupabaseClient,
+  modulo: CatEvalModuloId,
+  subOperaciones: string | null,
+): Promise<CatEvaluacionRow[]> {
+  const { data, error } = await client.rpc("cat_list_evaluaciones_modulo", {
+    p_modulo: modulo,
+    p_submodulo: subOperaciones ?? "",
+  });
+  if (error) throw new Error(error.message);
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map((row) => rpcRowFromJson(row, modulo));
+}
+
+async function getCatEvaluacionViaRpc(
+  client: SupabaseClient,
+  noEmpleado: string,
+  modulo: CatEvalModuloId,
+  sub: string,
+  calificadoPor: string,
+): Promise<CatEvaluacionRow | null> {
+  const { data, error } = await client.rpc("cat_get_evaluacion", {
+    p_no_empleado: noEmpleado.trim().toUpperCase(),
+    p_modulo: modulo,
+    p_submodulo: sub,
+    p_calificado_por: calificadoPor,
+  });
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return rpcRowFromJson(data, modulo);
+}
+
 export async function listCatEvaluacionesModulo(
   modulo: CatEvalModuloId,
   admin?: SupabaseClient | null,
@@ -350,31 +678,97 @@ export async function listCatEvaluacionesModulo(
 ): Promise<CatEvaluacionRow[]> {
   const client = admin ?? db();
   if (!client) return [];
-  let q = client.from("cat_evaluacion").select("*").eq("modulo", modulo);
   const subOperaciones =
     modulo === "operaciones" && opts?.submodulo != null
       ? submoduloDbParaModulo(modulo, opts.submodulo)
       : null;
-  if (subOperaciones != null) {
-    q = q.eq("submodulo", subOperaciones);
-    if (subOperaciones === "oficial") q = q.eq("calificado_por", "");
-    if (subOperaciones === "jefe_turno") q = q.neq("calificado_por", "");
+
+  try {
+    return await listCatEvaluacionesModuloViaRpc(client, modulo, subOperaciones);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
+      throw new Error(mensajeErrorCatEvaluacionSchema(msg));
+    }
   }
-  const { data, error } = await q;
-  if (!error) {
-    return (data ?? []).map((row) => rowToCatEvaluacion(row as Record<string, unknown>, modulo));
+
+  if (modulo === "operaciones") {
+    const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
+    const expanded = expandOperacionesLegacyRows(rawRows, subOperaciones);
+    if (subOperaciones === "oficial") return expanded.filter((r) => r.submodulo === "oficial");
+    if (subOperaciones === "jefe_turno") return expanded.filter((r) => r.submodulo === "jefe_turno");
+    return expanded;
   }
-  if (modulo !== "operaciones" || subOperaciones == null || !errorPareceEsquemaEvaluacionLegacy(error.message)) {
-    throw new Error(hintSupabaseClientError(error.message));
+
+  const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
+  return rawRows.map((row) => rowToCatEvaluacion(row, modulo));
+}
+
+export type MapasPromedioOperaciones = {
+  oficial: Map<string, number | null>;
+  jefeTurno: Map<string, number | null>;
+};
+
+export async function loadMapasPromedioOperaciones(
+  admin?: SupabaseClient | null,
+): Promise<MapasPromedioOperaciones> {
+  const [opOficialList, opJefeList] = await Promise.all([
+    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "oficial" }),
+    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "jefe_turno" }),
+  ]);
+  return {
+    oficial: new Map(opOficialList.map((r) => [r.noEmpleado, r.promedio])),
+    jefeTurno: mapaPromedioOperacionesJefeTurno(opJefeList),
+  };
+}
+
+/** Oficial: promedio de su evaluación. JT: media de los promedios de cada oficial calificador. */
+export function promedioOperacionesParaEmpleado(
+  noEmpleado: string,
+  puesto: string,
+  mapas: MapasPromedioOperaciones,
+): number | null {
+  const key = normalizarNoEmpleado(noEmpleado);
+  const rol = rolOperacionesDesdePuesto(puesto);
+  const map = rol === "jefe_turno" ? mapas.jefeTurno : mapas.oficial;
+  return map.get(key) ?? null;
+}
+
+function mergePersonalConActivos(
+  personalCat: CatPersonalRow[],
+  activos: CatColaboradorActivoOpcion[],
+): CatPersonalRow[] {
+  const map = new Map<string, CatPersonalRow>();
+  for (const p of personalCat) {
+    map.set(normalizarNoEmpleado(p.noEmpleado), p);
   }
-  const { data: legacy, error: legacyErr } = await client
-    .from("cat_evaluacion")
-    .select("*")
-    .eq("modulo", modulo);
-  if (legacyErr) throw new Error(hintSupabaseClientError(legacyErr.message));
-  const rows = (legacy ?? []).map((row) => rowToCatEvaluacion(row as Record<string, unknown>, modulo));
-  if (subOperaciones === "jefe_turno") return [];
-  return rows;
+  for (const a of activos) {
+    const no = normalizarNoEmpleado(a.noEmpleado);
+    const prev = map.get(no);
+    if (prev) {
+      map.set(no, {
+        ...prev,
+        nombre: prev.nombre || a.nombre,
+        servicio: prev.servicio || a.servicio,
+        puesto: prev.puesto || a.puesto,
+      });
+    } else {
+      map.set(no, {
+        noEmpleado: no,
+        periodoEvaluacion: "",
+        fechaIngreso: "",
+        nombre: a.nombre,
+        servicio: a.servicio,
+        puesto: a.puesto,
+        fechaNacimiento: "",
+        edad: "",
+        escolaridad: "",
+        estatus: "ACTIVO",
+        fechaBaja: "",
+      });
+    }
+  }
+  return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
 }
 
 export async function upsertCatEvaluacion(
@@ -403,29 +797,49 @@ export async function upsertCatEvaluacion(
     if (v != null && Number.isFinite(v)) filtered[c.key] = v;
   }
   const promedio = promedioDeScores(filtered);
-  const { error } = await client.from("cat_evaluacion").upsert(
-    {
-      no_empleado: noEmpleado.trim().toUpperCase(),
+
+  try {
+    return await upsertCatEvaluacionViaRpc(
+      client,
+      noEmpleado,
       modulo,
-      submodulo: sub,
-      calificado_por: calificadoPor,
-      scores: filtered,
-      comentarios: comentarios.trim(),
+      sub,
+      calificadoPor,
+      filtered,
+      comentarios,
       promedio,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "no_empleado,modulo,submodulo,calificado_por" },
-  );
-  if (error) throw new Error(hintSupabaseClientError(error.message));
-  return {
-    noEmpleado: noEmpleado.trim().toUpperCase(),
-    modulo,
-    submodulo: sub,
-    calificadoPor,
-    scores: filtered,
-    comentarios: comentarios.trim(),
-    promedio,
-  };
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
+      throw new Error(mensajeErrorCatEvaluacionSchema(msg));
+    }
+  }
+
+  if (modulo === "operaciones" && sub === "jefe_turno") {
+    return upsertCatEvaluacionJtLegacyJson(
+      client,
+      noEmpleado,
+      calificadoPor,
+      filtered,
+      comentarios,
+      promedio,
+    );
+  }
+
+  try {
+    return await upsertCatEvaluacionLegacyMinimal(
+      client,
+      noEmpleado,
+      modulo,
+      filtered,
+      comentarios,
+      promedio,
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(hintSupabaseClientError(msg));
+  }
 }
 
 export async function promedioCapacitacionEmpleado(
@@ -446,17 +860,19 @@ export async function promedioCapacitacionEmpleado(
   return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
 }
 
-export async function buildResumenCategorizacion(admin?: SupabaseClient | null): Promise<CatResumenEmpleado[]> {
-  const personal = await listCatPersonal(admin);
-  const [rhList, opOficialList, opJefeList, enList] = await Promise.all([
+export async function buildResumenCategorizacion(
+  admin?: SupabaseClient | null,
+  opts?: { opMapas?: MapasPromedioOperaciones },
+): Promise<CatResumenEmpleado[]> {
+  const [personalCat, activos, rhList, opMapas, enList] = await Promise.all([
+    listCatPersonal(admin),
+    listColaboradoresActivosParaCategorizacion(undefined, admin),
     listCatEvaluacionesModulo("recursos_humanos", admin),
-    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "oficial" }),
-    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "jefe_turno" }),
+    opts?.opMapas ? Promise.resolve(opts.opMapas) : loadMapasPromedioOperaciones(admin),
     listCatEvaluacionesModulo("enfoque_cliente", admin),
   ]);
+  const personal = mergePersonalConActivos(personalCat, activos);
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado, r.promedio]));
-  const opOficialMap = new Map(opOficialList.map((r) => [r.noEmpleado, r.promedio]));
-  const opJefeMap = mapaPromedioOperacionesJefeTurno(opJefeList);
   const enMap = new Map(enList.map((r) => [r.noEmpleado, r.promedio]));
 
   const client = admin ?? db();
@@ -470,9 +886,7 @@ export async function buildResumenCategorizacion(admin?: SupabaseClient | null):
   return personal.map((p) => {
     const promedioRh = rhMap.get(p.noEmpleado) ?? null;
     const promedioCapacitacion = capProms.get(p.noEmpleado) ?? null;
-    const rolOp = rolOperacionesDesdePuesto(p.puesto);
-    const promedioOperaciones =
-      (rolOp === "jefe_turno" ? opJefeMap : opOficialMap).get(p.noEmpleado) ?? null;
+    const promedioOperaciones = promedioOperacionesParaEmpleado(p.noEmpleado, p.puesto, opMapas);
     const promedioEnfoque = enMap.get(p.noEmpleado) ?? null;
     const promedioGeneral = promedioGeneralCategorizacion([
       promedioRh,

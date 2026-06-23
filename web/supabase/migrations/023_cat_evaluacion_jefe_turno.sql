@@ -113,3 +113,6 @@ grant select, insert, update, delete on table public.cat_personal to service_rol
 grant select, insert, update, delete on table public.cat_evaluacion to service_role;
 grant select, insert, update, delete on table public.cat_capacitacion_curso to service_role;
 grant select, insert, update, delete on table public.cat_capacitacion_registro to service_role;
+
+-- Refrescar caché de PostgREST tras cambios de columnas
+notify pgrst, 'reload schema';

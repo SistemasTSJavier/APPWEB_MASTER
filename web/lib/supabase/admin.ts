@@ -52,6 +52,9 @@ export function hintSupabaseTablePermissionError(message: string): string {
  */
 export function hintSupabaseClientError(message: string): string {
   const m = String(message ?? "");
+  if (/calificado_por|submodulo/i.test(m) && /schema cache|could not find.*column/i.test(m)) {
+    return `${m} — Ejecuta en Supabase SQL Editor: web/supabase/migrations/025_cat_evaluacion_rpc.sql. Espera 20 s o reinicia el proyecto en Supabase.`;
+  }
   if (
     /fetch failed/i.test(m) ||
     /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN/i.test(m) ||
