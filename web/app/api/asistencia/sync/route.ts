@@ -95,7 +95,7 @@ export async function POST(req: Request) {
 
   const weekKeys = [...new Set(valid.map((v) => v.weekStartIso))];
   const scopeKeys = [...new Set(valid.map((v) => v.scopeKey))];
-  const existingMap = new Map<string, { savedAt?: string }>();
+  const existingMap = new Map<string, StoredPayload | null>();
 
   if (valid.length > 0) {
     const { data: existingRows } = await admin
@@ -105,8 +105,8 @@ export async function POST(req: Request) {
       .in("scope_key", scopeKeys);
 
     for (const row of existingRows ?? []) {
-      const payload = row.payload as { savedAt?: string } | null;
-      existingMap.set(`${row.week_start_iso}|${row.scope_key}`, payload ?? {});
+      const payload = row.payload as StoredPayload | null;
+      existingMap.set(`${row.week_start_iso}|${row.scope_key}`, payload);
     }
   }
 
