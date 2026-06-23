@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  puestoEsJefeTurno,
+  puestoEsOficialOperaciones,
+} from "@/lib/categorizacion-operaciones-roles";
 
 export type CatEmpleadoOpcion = { noEmpleado: string; nombre: string; servicio?: string };
 
@@ -320,6 +324,94 @@ export function CatResumenServicios({
               <span className="max-w-[12rem] truncate">{servicio}</span>
               <span className="font-mono font-bold tabular-nums">{count}</span>
             </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Paso inicial en Operaciones: elegir servicio antes de listar oficiales y JT. */
+export function CatSelectorServicioObligatorio({
+  value,
+  onChange,
+  personal,
+  disabled,
+  className = "",
+}: {
+  value: string;
+  onChange: (servicio: string) => void;
+  personal: { servicio?: string; puesto?: string }[];
+  disabled?: boolean;
+  className?: string;
+}) {
+  const resumen = useMemo(() => {
+    const map = new Map<
+      string,
+      { servicio: string; oficiales: number; jefesTurno: number; total: number }
+    >();
+    for (const r of personal) {
+      const s = normServicioFiltro(String(r.servicio ?? ""));
+      if (!s) continue;
+      const row = map.get(s) ?? { servicio: s, oficiales: 0, jefesTurno: 0, total: 0 };
+      row.total++;
+      const puesto = String(r.puesto ?? "");
+      if (puestoEsJefeTurno(puesto)) row.jefesTurno++;
+      else if (puestoEsOficialOperaciones(puesto)) row.oficiales++;
+      map.set(s, row);
+    }
+    return [...map.values()].sort((a, b) =>
+      a.servicio.localeCompare(b.servicio, "es", { numeric: true }),
+    );
+  }, [personal]);
+
+  if (resumen.length === 0) {
+    return (
+      <p className="text-xs font-medium text-amber-800">
+        No hay colaboradores activos con servicio en expediente. Revise la sección Colaboradores.
+      </p>
+    );
+  }
+
+  return (
+    <div className={`space-y-3 ${className}`.trim()}>
+      <label className="block space-y-1">
+        <span className="form-label">Servicio</span>
+        <select
+          className="form-control uppercase"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">— Elija un servicio —</option>
+          {resumen.map((r) => (
+            <option key={r.servicio} value={r.servicio}>
+              {r.servicio} — {r.oficiales} oficial(es), {r.jefesTurno} JT
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {resumen.map((r) => {
+          const activo = value && serviciosCoincidenCat(value, r.servicio);
+          return (
+            <button
+              key={r.servicio}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(r.servicio)}
+              className={`rounded-lg border px-3 py-2.5 text-left text-xs transition ${
+                activo
+                  ? "border-violet-500 bg-violet-100 font-bold text-violet-950"
+                  : "border-slate-200 bg-white font-semibold text-slate-800 hover:border-violet-300"
+              }`}
+            >
+              <span className="block uppercase leading-snug">{r.servicio}</span>
+              <span className="mt-1 block font-normal text-slate-600">
+                {r.oficiales} oficial{r.oficiales === 1 ? "" : "es"} · {r.jefesTurno} jefe
+                {r.jefesTurno === 1 ? "" : "s"} de turno
+              </span>
+            </button>
           );
         })}
       </div>

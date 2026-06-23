@@ -105,6 +105,14 @@ export function etiquetaPaquete(promedio: number | null): string {
   return r ? `${r.label} (${r.rango})` : "—";
 }
 
+/** Promedio cuando varios evaluadores califican al mismo colaborador (p. ej. oficiales → JT). */
+export function promedioAcumuladoEvaluaciones(promedios: Array<number | null | undefined>): number | null {
+  const vals = promedios.filter((p): p is number => p != null && Number.isFinite(p));
+  if (vals.length === 0) return null;
+  const sum = vals.reduce((a, b) => a + b, 0);
+  return Math.round((sum / vals.length) * 100) / 100;
+}
+
 export function promedioGeneralCategorizacion(promedios: Array<number | null | undefined>): number | null {
   const vals = promedios.filter((p): p is number => p != null && Number.isFinite(p));
   if (vals.length === 0) return null;

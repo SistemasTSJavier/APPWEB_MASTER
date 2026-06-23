@@ -27,7 +27,7 @@ export const CATEGORIZACION_MODULOS = [
   {
     id: "operaciones",
     label: "Operaciones",
-    description: "15 criterios operativos calificados 1–5, promedio y comentarios.",
+    description: "Oficial: 15 criterios. Jefe de turno (JT): 24 criterios calificados por cada oficial del servicio; promedio acumulado.",
     icon: "⚙️",
   },
   {

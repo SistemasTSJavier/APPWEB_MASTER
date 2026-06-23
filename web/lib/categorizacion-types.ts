@@ -26,6 +26,10 @@ export type CatColaboradorActivoOpcion = {
 export type CatEvaluacionRow = {
   noEmpleado: string;
   modulo: CatEvalModuloId;
+  /** En operaciones: oficial | jefe_turno; vacío en otros módulos. */
+  submodulo?: string;
+  /** N.º del oficial evaluador (solo jefe de turno). */
+  calificadoPor?: string;
   scores: Record<string, number>;
   comentarios: string;
   promedio: number | null;
