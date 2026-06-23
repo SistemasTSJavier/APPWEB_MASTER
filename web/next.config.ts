@@ -27,6 +27,11 @@ const nextConfig: NextConfig = {
   /** Menos huella de fingerprinting (no afecta funcionalidad). */
   poweredByHeader: false,
 
+  /** Optimizar carga de fuentes y evitar preload innecesarios. */
+  experimental: {
+    optimizePackageImports: ["@/components", "@/lib"],
+  },
+
   async headers() {
     return [
       {

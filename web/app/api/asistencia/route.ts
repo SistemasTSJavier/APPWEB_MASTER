@@ -10,6 +10,12 @@ import {
   roleMayReadCuadriculaAsistencia,
   roleMayWriteCuadriculaAsistencia,
 } from "@/lib/app-role";
+import {
+  validateAttendanceRows,
+  compareAttendancePayloads,
+  createAuditLog,
+  formatIntegrityErrorMessage,
+} from "@/lib/attendance-integrity";
 
 export const dynamic = "force-dynamic";
 
@@ -123,9 +129,26 @@ export async function POST(req: Request) {
     );
   }
 
+  // ✅ VALIDAR INTEGRIDAD ANTES DE GUARDAR
+  const validation = validateAttendanceRows(grid.rows);
+  if (!validation.ok) {
+    const errorMsg = formatIntegrityErrorMessage(validation, `${weekStartIso}/${scopeKey}`);
+    console.error(`[ASISTENCIA-VALIDACIÓN] Falla de integridad:\n${errorMsg}`);
+    return NextResponse.json(
+      {
+        error: `Datos de asistencia con errores de integridad. ${validation.errors.length} error(es) crítico(s).`,
+        details: validation.errors,
+        validation,
+      },
+      { status: 400 },
+    );
+  }
+
   const incomingSavedAt = typeof grid.savedAt === "string" ? grid.savedAt : new Date().toISOString();
   const serviceNo = typeof o.serviceNo === "string" ? o.serviceNo : (grid.serviceNo ?? "");
   const forceReplace = o.forceReplace === true;
+
+  let existingPayload: StoredPayload | null = null;
 
   if (!forceReplace) {
     const { data: existing } = await admin
@@ -136,7 +159,8 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (existing?.payload) {
-      const prev = existing.payload as StoredPayload;
+      existingPayload = existing.payload as StoredPayload;
+      const prev = existingPayload;
       const prevAt = typeof prev.savedAt === "string" ? prev.savedAt : "";
       if (prevAt && prevAt > incomingSavedAt) {
         return NextResponse.json({ ok: true, skipped: true, reason: "older_than_server" });
@@ -149,6 +173,29 @@ export async function POST(req: Request) {
     savedAt: incomingSavedAt,
     version: grid.version === 1 ? 1 : 2,
   };
+
+  // ✅ COMPARAR CAMBIOS Y REGISTRAR AUDITORÍA
+  const comparison = compareAttendancePayloads(existingPayload || null, payload);
+  const auditLog = createAuditLog(
+    weekStartIso,
+    scopeKey,
+    "manual_edit",
+    auth.user?.id ?? "unknown",
+    auth.role ?? "unknown",
+    validation.rowsCount,
+    payload,
+    existingPayload,
+    "success",
+    undefined,
+    comparison.summary
+  );
+
+  // ✅ GUARDAR AUDITORÍA
+  if (process.env.NODE_ENV === "production") {
+    await admin.from("cuadricula_asistencia_audit").insert(auditLog).catch((e) => {
+      console.warn(`[ASISTENCIA] Error guardando auditoría:`, e.message);
+    });
+  }
 
   const { error } = await admin.from("cuadricula_asistencia").upsert(
     {
@@ -163,7 +210,14 @@ export async function POST(req: Request) {
   );
 
   if (error) {
+    console.error(`[ASISTENCIA] Error en upsert:`, error.message);
     return NextResponse.json({ error: hintSupabaseClientError(error.message) }, { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+
+  // ✅ LOG DETALLADO
+  if (comparison.changed) {
+    console.log(`[ASISTENCIA] ✓ ${weekStartIso}/${scopeKey}: ${comparison.summary}`);
+  }
+
+  return NextResponse.json({ ok: true, validation, comparison });
 }

@@ -7,6 +7,12 @@ import {
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayWriteCuadriculaAsistencia } from "@/lib/app-role";
+import {
+  validateAttendanceRows,
+  compareAttendancePayloads,
+  createAuditLog,
+  generateAttendanceHealthReport,
+} from "@/lib/attendance-integrity";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +73,15 @@ export async function POST(req: Request) {
       failed++;
       continue;
     }
+
+    // ✅ VALIDAR INTEGRIDAD DE FILAS
+    const validation = validateAttendanceRows(grid.rows);
+    if (!validation.ok) {
+      console.warn(`[ASISTENCIA] Validación fallida para ${weekStartIso}/${scopeKey}:`, validation.errors);
+      failed++;
+      continue; // No procesar si hay errores críticos
+    }
+
     valid.push({
       weekStartIso,
       scopeKey,
@@ -115,6 +130,32 @@ export async function POST(req: Request) {
         version: item.grid.version === 1 ? 1 : 2,
       };
 
+      // ✅ COMPARAR Y REPORTAR CAMBIOS
+      const comparison = compareAttendancePayloads(prev as Record<string, unknown> | null, payload as Record<string, unknown>);
+      
+      // ✅ CREAR REGISTRO DE AUDITORÍA
+      const auditLog = createAuditLog(
+        item.weekStartIso,
+        item.scopeKey,
+        "sync",
+        auth.user?.id ?? "unknown",
+        auth.role ?? "unknown",
+        Array.isArray(item.grid.rows) ? item.grid.rows.length : 0,
+        payload,
+        prev,
+        "success",
+        undefined,
+        comparison.summary
+      );
+
+      // ✅ GUARDAR AUDITORÍA EN TABLA SEPARADA
+      if (process.env.NODE_ENV === "production") {
+        await admin.from("cuadricula_asistencia_audit").insert(auditLog).catch((e) => {
+          console.warn(`[ASISTENCIA] Error guardando auditoría:`, e.message);
+          // No fallar la sincronización por error en auditoría
+        });
+      }
+
       const { error } = await admin.from("cuadricula_asistencia").upsert(
         {
           week_start_iso: item.weekStartIso,
@@ -127,7 +168,19 @@ export async function POST(req: Request) {
         { onConflict: "week_start_iso,scope_key" },
       );
 
-      return error ? ("failed" as const) : ("uploaded" as const);
+      if (error) {
+        console.error(`[ASISTENCIA] Error en upsert para ${item.weekStartIso}/${item.scopeKey}:`, error.message);
+        return "failed" as const;
+      }
+
+      // ✅ LOG DETALLADO
+      if (comparison.changed) {
+        console.log(
+          `[ASISTENCIA-SYNC] ✓ ${item.weekStartIso}/${item.scopeKey}: ${comparison.summary}`
+        );
+      }
+
+      return "uploaded" as const;
     }),
   );
 
@@ -137,5 +190,12 @@ export async function POST(req: Request) {
     else failed++;
   }
 
-  return NextResponse.json({ ok: true, uploaded, skipped, failed, total: items.length });
+  return NextResponse.json({ 
+    ok: true, 
+    uploaded, 
+    skipped, 
+    failed, 
+    total: items.length,
+    message: `✓ ${uploaded} sincronizadas, ${skipped} omitidas, ${failed} fallidas`
+  });
 }
