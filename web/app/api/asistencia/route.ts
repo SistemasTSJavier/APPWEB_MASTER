@@ -170,7 +170,7 @@ export async function POST(req: Request) {
 
   // ✅ MEJORADO: Hacer merge con datos anteriores (combinar filas por empleado)
   let payloadToSave: StoredPayload = {
-    ...payload,
+    ...grid,
   };
 
   if (!forceReplace && existingPayload?.rows && Array.isArray(payloadToSave.rows)) {
@@ -191,12 +191,12 @@ export async function POST(req: Request) {
     });
 
     payloadToSave = {
-      ...payload,
+      ...grid,
       rows: mergedRows,
     };
 
     console.log(
-      `[ASISTENCIA-MERGE] ${weekStartIso}/${scopeKey}: ${existingPayload.rows.length} previas + ${(payload.rows || []).length} nuevas = ${mergedRows.length} totales`
+      `[ASISTENCIA-MERGE] ${weekStartIso}/${scopeKey}: ${existingPayload.rows.length} previas + ${(grid.rows || []).length} nuevas = ${mergedRows.length} totales`
     );
   }
 
