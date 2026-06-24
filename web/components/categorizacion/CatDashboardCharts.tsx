@@ -3,18 +3,26 @@
 import { CAT_ESCALA_MAX, CAT_ESCALA_MIN } from "@/lib/categorizacion-calificaciones";
 
 const BARRAS = [
-  { key: "op", label: "Operativa", color: "#5b9bd5", valorKey: "operaciones" as const },
-  { key: "cap", label: "Capacitación", color: "#2e5090", valorKey: "capacitacion" as const },
-  { key: "enf", label: "Enfoque al cliente", color: "#ed7d31", valorKey: "enfoque" as const },
-];
+  { key: "op", label: "Operativa", valorKey: "operaciones" as const },
+  { key: "cap", label: "Capacitación", valorKey: "capacitacion" as const },
+  { key: "enf", label: "Enfoque al cliente", valorKey: "enfoque" as const },
+] as const;
 
-const ESCALA_LEYENDA = [
-  { n: 1, label: "No cumple con el estandar", color: "#fff2cc" },
-  { n: 2, label: "Regular", color: "#fce4d6" },
-  { n: 3, label: "Bueno", color: "#f8cbad" },
-  { n: 4, label: "Muy bueno", color: "#f4b183" },
-  { n: 5, label: "Excelente", color: "#c65911", text: "text-white" },
-];
+/** Escala 1–5: rojo → naranja → amarillo → verde limón → verde. */
+export const ESCALA_PUNTAJE_CAT = [
+  { n: 1, label: "No cumple con el estandar", color: "#dc2626", text: "text-white" },
+  { n: 2, label: "Regular", color: "#f97316", text: "text-white" },
+  { n: 3, label: "Bueno", color: "#facc15", text: "text-slate-900" },
+  { n: 4, label: "Muy bueno", color: "#a3e635", text: "text-slate-900" },
+  { n: 5, label: "Excelente", color: "#16a34a", text: "text-white" },
+] as const;
+
+export function colorPuntajeCategorizacion(valor: number | null | undefined): string {
+  if (valor == null || Number.isNaN(valor)) return "#cbd5e1";
+  const clamped = Math.max(CAT_ESCALA_MIN, Math.min(CAT_ESCALA_MAX, valor));
+  const bucket = Math.min(CAT_ESCALA_MAX, Math.max(CAT_ESCALA_MIN, Math.round(clamped)));
+  return ESCALA_PUNTAJE_CAT.find((e) => e.n === bucket)?.color ?? "#94a3b8";
+}
 
 export function CatBarChartModulos({
   capacitacion,
@@ -38,10 +46,10 @@ export function CatBarChartModulos({
         <table className="mb-3 w-full min-w-[480px] border-collapse text-[8px] font-bold uppercase sm:text-[9px]">
           <thead>
             <tr>
-              {ESCALA_LEYENDA.map((e) => (
+              {ESCALA_PUNTAJE_CAT.map((e) => (
                 <th
                   key={e.n}
-                  className={`border border-slate-300 px-0.5 py-1 text-center leading-tight ${e.text ?? "text-slate-800"} ${e.n === 1 ? "text-[7px] sm:text-[8px]" : ""}`}
+                  className={`border border-slate-400/60 px-0.5 py-1.5 text-center leading-tight shadow-sm ${e.text} ${e.n === 1 ? "text-[7px] sm:text-[8px]" : ""}`}
                   style={{ backgroundColor: e.color }}
                   title={e.label}
                 >
@@ -71,6 +79,7 @@ export function CatBarChartModulos({
 
         {BARRAS.map((b) => {
           const valor = map[b.valorKey];
+          const barColor = colorPuntajeCategorizacion(valor);
           return (
             <div key={b.key} className="flex min-w-[56px] max-w-[120px] flex-1 flex-col items-center justify-end">
               <span className="mb-2 text-base font-extrabold tabular-nums text-slate-900 sm:text-lg">
@@ -78,10 +87,10 @@ export function CatBarChartModulos({
               </span>
               <div className={`flex w-full max-w-[72px] items-end justify-center ${presentacion ? "h-32 sm:h-40" : "h-28 sm:h-36"}`}>
                 <div
-                  className="w-[70%] max-w-[56px] rounded-t-sm shadow-sm"
+                  className="w-[70%] max-w-[56px] rounded-t-sm shadow-md ring-1 ring-black/10"
                   style={{
                     height: valor != null ? `${(valor / max) * 100}%` : "4%",
-                    backgroundColor: valor != null ? b.color : "#cbd5e1",
+                    backgroundColor: barColor,
                     minHeight: valor != null ? 8 : 4,
                   }}
                 />
@@ -92,15 +101,6 @@ export function CatBarChartModulos({
             </div>
           );
         })}
-      </div>
-
-      <div className="mt-4 flex flex-wrap justify-center gap-3 pb-1 text-[10px] font-bold uppercase sm:gap-4">
-        {BARRAS.map((b) => (
-          <span key={b.key} className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: b.color }} />
-            {b.label}
-          </span>
-        ))}
       </div>
     </div>
   );

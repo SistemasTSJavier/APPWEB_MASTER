@@ -31,6 +31,10 @@ import {
   filtrarPorServicio,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg, CatPromedioBadge, CatRatingGrid } from "@/components/categorizacion/cat-form-ui";
+import type { AppRole } from "@/lib/app-role";
+import { roleEsClienteEnfoque } from "@/lib/app-role";
+import { puedeAdministrarAccesosEnfoque } from "@/lib/categorizacion-enfoque-auth";
+import { CatEnfoqueAccesosPanel, serviciosDesdeActivos } from "@/components/categorizacion/CatEnfoqueAccesosPanel";
 import { fetchColaboradoresActivosCat } from "@/lib/categorizacion-colaboradores-client";
 
 type EvalRow = {
@@ -44,9 +48,12 @@ function noKey(no: string): string {
   return no.trim().toUpperCase();
 }
 
-export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
+export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloId; appRole: AppRole }) {
   const esRh = modulo === "recursos_humanos";
   const esOperaciones = modulo === "operaciones";
+  const esEnfoque = modulo === "enfoque_cliente";
+  const esClienteEnfoque = roleEsClienteEnfoque(appRole);
+  const esAdminEnfoque = puedeAdministrarAccesosEnfoque(appRole);
   const [rolOperaciones, setRolOperaciones] = useState<CatOperacionesRolId>("oficial");
   const campos = useMemo(
     () => camposPorModulo(modulo, esOperaciones ? { rolOperaciones } : undefined),
@@ -65,8 +72,16 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [filtroTabla, setFiltroTabla] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
+  const [enfoqueClienteServicio, setEnfoqueClienteServicio] = useState("");
+  const [enfoqueClienteFin, setEnfoqueClienteFin] = useState("");
 
-  const filtroPorServicio = modulo === "enfoque_cliente";
+  const filtroPorServicio = false;
+  const servicioEnfoqueElegido = esEnfoque
+    ? esClienteEnfoque
+      ? enfoqueClienteServicio.trim()
+      : filtroServicio.trim()
+    : "";
+  const necesitaServicioEnfoque = esEnfoque && !servicioEnfoqueElegido && !esClienteEnfoque;
   const esJefeTurno = esOperaciones && rolOperaciones === "jefe_turno";
   const servicioOperacionesElegido = esOperaciones ? filtroServicio.trim() : "";
   const necesitaServicioOperaciones = esOperaciones && !servicioOperacionesElegido;
@@ -103,24 +118,65 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
     [activosEnServicioOperaciones, servicioOperacionesElegido],
   );
 
+  function elegirServicioEnfoque(servicio: string) {
+    setFiltroServicio(servicio.trim());
+    setNoSel("");
+    setFiltroTabla("");
+    setMsg(null);
+    if (servicio.trim()) {
+      void fetch("/api/categorizacion/enfoque-sincronizar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ servicio: servicio.trim() }),
+      }).catch(() => undefined);
+    }
+  }
+
+  useEffect(() => {
+    if (!esClienteEnfoque) return;
+    void (async () => {
+      try {
+        const r = await fetch("/api/categorizacion/enfoque-accesos/contexto", { cache: "no-store" });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error);
+        setEnfoqueClienteServicio(String(j.servicio ?? ""));
+        setEnfoqueClienteFin(String(j.fechaFin ?? ""));
+        setFiltroServicio(String(j.servicio ?? ""));
+      } catch (e) {
+        setMsg(e instanceof Error ? e.message.toUpperCase() : "ACCESO NO VIGENTE.");
+      }
+    })();
+  }, [esClienteEnfoque]);
+
   const activosPorRol = useMemo(() => {
-    if (!esOperaciones) return activos;
+    if (!esOperaciones) {
+      if (esEnfoque) {
+        if (!servicioEnfoqueElegido) return [];
+        return filtrarPorServicio(activos, servicioEnfoqueElegido);
+      }
+      return activos;
+    }
     const porRol = activos.filter((p) => personalCoincideRolOperaciones(p.puesto, rolOperaciones));
     if (!servicioOperacionesElegido) return [];
     return filtrarPorServicio(porRol, servicioOperacionesElegido);
-  }, [activos, esOperaciones, rolOperaciones, servicioOperacionesElegido]);
+  }, [activos, esOperaciones, esEnfoque, rolOperaciones, servicioOperacionesElegido, servicioEnfoqueElegido]);
 
   const personalPorServicio = useMemo(
-    () => (esOperaciones ? activosPorRol : filtrarPorServicio(activosPorRol, filtroServicio)),
-    [activosPorRol, filtroServicio, esOperaciones],
+    () =>
+      esOperaciones || esEnfoque
+        ? activosPorRol
+        : filtrarPorServicio(activosPorRol, filtroServicio),
+    [activosPorRol, filtroServicio, esOperaciones, esEnfoque],
   );
 
   const personalFiltrado = useMemo(
     () =>
       esOperaciones
         ? filtrarPersonalListado(activosPorRol, filtroTabla, servicioOperacionesElegido)
-        : filtrarPersonalListado(activosPorRol, filtroTabla, filtroServicio),
-    [activosPorRol, filtroTabla, filtroServicio, esOperaciones, servicioOperacionesElegido],
+        : esEnfoque
+          ? filtrarPersonalListado(activosPorRol, filtroTabla, servicioEnfoqueElegido)
+          : filtrarPersonalListado(activosPorRol, filtroTabla, filtroServicio),
+    [activosPorRol, filtroTabla, filtroServicio, esOperaciones, esEnfoque, servicioOperacionesElegido, servicioEnfoqueElegido],
   );
 
   const opciones = useMemo(
@@ -308,6 +364,10 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
       setMsg("SELECCIONA EMPLEADO.");
       return;
     }
+    if (esEnfoque && !servicioEnfoqueElegido) {
+      setMsg("SELECCIONA UN SERVICIO.");
+      return;
+    }
     if (esJefeTurno) {
       if (!servicioOperacionesElegido) {
         setMsg("SELECCIONA UN SERVICIO.");
@@ -383,6 +443,18 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
             criterios) o <strong>jefes de turno</strong> (24 criterios; cada oficial del servicio califica al JT y el
             promedio es la media de esas calificaciones).
           </>
+        ) : esEnfoque ? (
+          esClienteEnfoque ? (
+            <>
+              Califique a los colaboradores <strong>activos</strong> de su servicio asignado. Cada criterio del{" "}
+              <strong>1 al 5</strong>; el promedio de Enfoque al cliente alimenta el dashboard de categorización.
+            </>
+          ) : (
+            <>
+              Elija el <strong>servicio</strong> o genere un <strong>acceso temporal</strong> para el cliente. Solo se
+              listan colaboradores activos y calificables de ese servicio; al guardar se registra en Enfoque al cliente.
+            </>
+          )
         ) : (
           <>
             Califica cada criterio del <strong>1 al 5</strong>. El promedio del módulo es la media de los criterios
@@ -391,7 +463,49 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
         )}
       </p>
 
+      {esEnfoque && esAdminEnfoque ? (
+        <CatEnfoqueAccesosPanel serviciosDisponibles={serviciosDesdeActivos(activos)} />
+      ) : null}
+
       <CatMsg msg={msg} />
+
+      {esEnfoque && esClienteEnfoque && servicioEnfoqueElegido ? (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+          <strong>Servicio asignado:</strong> <span className="uppercase">{servicioEnfoqueElegido}</span>
+          {enfoqueClienteFin ? (
+            <span className="ml-2 text-slate-600">· Acceso vigente hasta {enfoqueClienteFin}</span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {esEnfoque && necesitaServicioEnfoque ? (
+        <section className="card space-y-4">
+          <div>
+            <h2 className="text-sm font-bold uppercase text-violet-950">Paso 1 — Seleccione el servicio</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Solo colaboradores activos y calificables del servicio elegido. Al elegir servicio se sincroniza{" "}
+              <strong>cat_personal</strong> para evitar errores al guardar.
+            </p>
+          </div>
+          <CatSelectorServicioObligatorio
+            value={filtroServicio}
+            onChange={elegirServicioEnfoque}
+            personal={activos}
+            disabled={busy}
+          />
+        </section>
+      ) : null}
+
+      {esEnfoque && !necesitaServicioEnfoque && !esClienteEnfoque ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+          <p className="text-xs font-semibold text-violet-950">
+            Servicio: <strong className="uppercase">{servicioEnfoqueElegido}</strong>
+          </p>
+          <button type="button" className="btn-secondary text-[10px] uppercase" onClick={() => elegirServicioEnfoque("")}>
+            Cambiar servicio
+          </button>
+        </div>
+      ) : null}
 
       {esOperaciones && necesitaServicioOperaciones ? (
         <section className="card space-y-4">
@@ -455,13 +569,18 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
 
       <section className="card space-y-3">
         <h2 className="text-sm font-bold uppercase">{labelModuloEval(modulo)} — evaluar empleado</h2>
-        {necesitaServicioOperaciones ? (
+        {necesitaServicioOperaciones || necesitaServicioEnfoque ? (
           <p className="rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2 text-xs font-medium text-violet-900">
-            Seleccione un servicio arriba para ver oficiales y jefes de turno de ese servicio.
+            {esEnfoque
+              ? "Seleccione un servicio arriba para calificar colaboradores activos de ese servicio."
+              : "Seleccione un servicio arriba para ver oficiales y jefes de turno de ese servicio."}
           </p>
         ) : (
           <>
-        <CatResumenServicios personal={activosPorRol} servicioFiltro={filtroServicio} />
+        <CatResumenServicios
+          personal={activosPorRol}
+          servicioFiltro={esEnfoque ? servicioEnfoqueElegido : esOperaciones ? servicioOperacionesElegido : filtroServicio}
+        />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtroPorServicio ? (
             <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activosPorRol} />
@@ -577,12 +696,14 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
               <button type="button" className="btn-primary uppercase" disabled={busy} onClick={() => void guardar()}>
                 {esJefeTurno ? "Guardar calificación del oficial" : "Guardar y promediar"}
               </button>
-              <Link
-                href={`/categorizacion/dashboard?no=${encodeURIComponent(noSel)}`}
-                className="btn-secondary uppercase"
-              >
-                Ver dashboard
-              </Link>
+              {!esClienteEnfoque ? (
+                <Link
+                  href={`/categorizacion/dashboard?no=${encodeURIComponent(noSel)}`}
+                  className="btn-secondary uppercase"
+                >
+                  Ver dashboard
+                </Link>
+              ) : null}
             </div>
           </>
         )}
@@ -600,9 +721,11 @@ export function CatEvaluacionPanel({ modulo }: { modulo: CatEvalModuloId }) {
             : ""}
           )
         </h2>
-        {necesitaServicioOperaciones ? (
+        {necesitaServicioOperaciones || necesitaServicioEnfoque ? (
           <p className="mb-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Elija un servicio para ver el resumen de oficiales y JT de ese servicio.
+            {esEnfoque
+              ? "Elija un servicio para ver el resumen de colaboradores activos de ese servicio."
+              : "Elija un servicio para ver el resumen de oficiales y JT de ese servicio."}
           </p>
         ) : (
           <>

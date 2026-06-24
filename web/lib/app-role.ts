@@ -16,6 +16,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - capacitacion: inicio y sección Categorización únicamente.
  * - relaciones_laborales: inicio y MOPER (registrar, editar y guardar); sin otros módulos.
  * - gerente_operaciones: solo MOPER; firma como Gerente de Operaciones (gerenteoperaciones@tacticalsupport.com.mx).
+ * - cliente_enfoque: solo consulta del dashboard de categorización (todos los módulos), limitado al servicio del acceso temporal.
  */
 export type AppRole =
   | "admin"
@@ -29,7 +30,8 @@ export type AppRole =
   | "editor_cuadricula"
   | "capacitacion"
   | "relaciones_laborales"
-  | "gerente_operaciones";
+  | "gerente_operaciones"
+  | "cliente_enfoque";
 
 /** Correos previstos para usuarios legales (referencia al crear usuarios en Supabase). */
 export const AUX_LEGAL_EMAIL = "auxlegal@tacticalsupport.com.mx";
@@ -87,6 +89,9 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   gerente_operaciones: "gerente_operaciones",
   "gerente operaciones": "gerente_operaciones",
   gerenteoperaciones: "gerente_operaciones",
+  cliente_enfoque: "cliente_enfoque",
+  "cliente enfoque": "cliente_enfoque",
+  cliente_enfoque_cliente: "cliente_enfoque",
 };
 
 export function parseAppRole(raw: unknown): AppRole | null {
@@ -108,6 +113,7 @@ export const APP_ROLE_LABEL: Record<AppRole, string> = {
   capacitacion: "Capacitación",
   relaciones_laborales: "Relaciones laborales",
   gerente_operaciones: "Gerente operaciones",
+  cliente_enfoque: "Cliente enfoque",
 };
 
 /** Rol efectivo: metadata `app_role` o correos corporativos conocidos. */
@@ -175,11 +181,16 @@ export function mayAccessFichaTecnica(role: AppRole, _email?: string | null): bo
   return role === "admin";
 }
 
-/** Categorización: admin, gerente RH, rol capacitacion o correo capacitacion@tacticalsupport.com.mx */
+/** Categorización: admin, gerente RH, capacitacion, correo capacitacion o cliente enfoque con acceso vigente. */
 export function roleMayAccessCategorizacion(role: AppRole, email?: string | null): boolean {
+  if (role === "cliente_enfoque") return true;
   if (role === "admin" || role === "gerente_rh" || role === "capacitacion") return true;
   const e = (email ?? "").trim().toLowerCase();
   return e === CAPACITACION_EMAIL.toLowerCase();
+}
+
+export function roleEsClienteEnfoque(role: AppRole): boolean {
+  return role === "cliente_enfoque";
 }
 
 export function canAccessPath(role: AppRole, pathname: string, userEmail?: string | null): boolean {
@@ -189,6 +200,11 @@ export function canAccessPath(role: AppRole, pathname: string, userEmail?: strin
     return mayAccessFichaTecnica(role, userEmail);
   }
   if (sec === "/categorizacion") {
+    if (role === "cliente_enfoque") {
+      return (
+        pathname === "/categorizacion/dashboard" || pathname.startsWith("/categorizacion/dashboard/")
+      );
+    }
     return roleMayAccessCategorizacion(role, userEmail);
   }
   const allowed = SECTION_ROLES[sec];
@@ -228,12 +244,14 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
 
 /** Tras login o acceso denegado. */
 export function defaultHomeForRole(role: AppRole): string {
+  if (role === "cliente_enfoque") return "/categorizacion/dashboard";
   if (role === "relaciones_laborales" || role === "gerente_operaciones") return "/moper";
   if (role === "aux_rh") return "/altas";
   return "/";
 }
 
 export function inicioHrefParaRol(role: AppRole): string {
+  if (role === "cliente_enfoque") return "/categorizacion/dashboard";
   if (role === "relaciones_laborales" || role === "gerente_operaciones") return "/moper";
   if (role === "aux_rh") return "/altas";
   return "/";
@@ -241,6 +259,9 @@ export function inicioHrefParaRol(role: AppRole): string {
 
 /** Enlaces del menú lateral (sin página de inicio). */
 export function appSidebarModuleLinks(role: AppRole, userEmail?: string | null): { href: string; label: string }[] {
+  if (role === "cliente_enfoque") {
+    return [{ href: "/categorizacion/dashboard", label: "Dashboard categorización" }];
+  }
   if (role === "aux_rh") {
     return [
       { href: "/altas", label: "Altas" },
@@ -255,7 +276,7 @@ export function appSidebarModuleLinks(role: AppRole, userEmail?: string | null):
 
 /** Muestra enlace «Inicio» en la barra lateral. */
 export function roleShowsInicioNav(role: AppRole): boolean {
-  return role !== "aux_rh" && role !== "gerente_operaciones";
+  return role !== "aux_rh" && role !== "gerente_operaciones" && role !== "cliente_enfoque";
 }
 
 /** Altas: importar / guardar expediente nuevo. Administrador y Aux RH (Gerente RH solo consulta en Altas). */

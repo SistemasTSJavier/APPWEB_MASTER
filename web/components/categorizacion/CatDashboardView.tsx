@@ -4,14 +4,23 @@ import { forwardRef } from "react";
 import type { CatDashboardEmpleado } from "@/lib/categorizacion-dashboard-types";
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
-import { CatBarChartModulos } from "@/components/categorizacion/CatDashboardCharts";
+import { CatBarChartModulos, colorPuntajeCategorizacion } from "@/components/categorizacion/CatDashboardCharts";
 import { CAT_DASHBOARD_LOGO_FALLBACKS } from "@/lib/brand-logo";
 import { TacticalSupportLogo } from "@/components/tactical-support-logo";
 
 export const CatDashboardView = forwardRef<
   HTMLDivElement,
-  { empleado: CatDashboardEmpleado; generadoEn: string; presentacion?: boolean }
->(function CatDashboardView({ empleado, generadoEn, presentacion = false }, ref) {
+  {
+    empleado: CatDashboardEmpleado;
+    generadoEn: string;
+    presentacion?: boolean;
+    rankingServicio?: CatDashboardEmpleado[];
+    onSeleccionarColaborador?: (noEmpleado: string) => void;
+  }
+>(function CatDashboardView(
+  { empleado, generadoEn, presentacion = false, rankingServicio, onSeleccionarColaborador },
+  ref,
+) {
   const fecha = new Date(generadoEn).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
   const nivelLabel = empleado.nivelId ? empleado.nivelId.toUpperCase() : "—";
   const paqueteLabel = empleado.paqueteId
@@ -23,6 +32,7 @@ export const CatDashboardView = forwardRef<
   return (
     <div
       ref={ref}
+      data-cat-dashboard="true"
       className={
         presentacion
           ? "flex h-full min-h-0 w-full max-w-none flex-col overflow-hidden rounded-none border-0 bg-white shadow-none"
@@ -50,27 +60,41 @@ export const CatDashboardView = forwardRef<
             : "grid grid-cols-1 gap-0 lg:grid-cols-12"
         }
       >
-        <aside className="border-b border-slate-200 bg-white px-5 py-6 sm:px-6 sm:py-8 xl:col-span-3 xl:border-b-0 xl:border-r xl:overflow-y-auto">
-          <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
-          <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
-            {empleado.nombre}
-          </p>
-          <p className="mt-0.5 font-mono text-xs text-slate-500">N° {empleado.noEmpleado}</p>
-
-          <p className="mt-6 text-2xl font-light leading-tight text-slate-800 sm:text-3xl">{empleado.tiempoEnEmpresa}</p>
-          <p className="text-[10px] font-bold uppercase text-slate-500">en la empresa</p>
-          {empleado.fechaIngreso ? (
-            <p className="mt-1 text-[11px] font-medium text-slate-500 sm:text-xs">
-              Desde {formatearFechaLegible(empleado.fechaIngreso)} a la fecha
+        <aside
+          className={`border-b border-slate-200 bg-white px-5 py-6 sm:px-6 sm:py-8 xl:border-b-0 xl:border-r ${
+            presentacion ? "flex min-h-0 flex-col xl:col-span-3 xl:overflow-hidden" : "xl:col-span-3 xl:overflow-y-auto"
+          }`}
+        >
+          <div className={presentacion ? "shrink-0" : undefined}>
+            <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
+            <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
+              {empleado.nombre}
             </p>
-          ) : null}
+            <p className="mt-0.5 font-mono text-xs text-slate-500">N° {empleado.noEmpleado}</p>
 
-          <dl className="mt-8 space-y-5">
-            <Dato label="Edad" valor={empleado.edad || "—"} />
-            <Dato label="Escolaridad" valor={empleado.escolaridad || "—"} />
-            <Dato label="Servicio" valor={empleado.servicio} />
-            <Dato label="Puesto" valor={empleado.puesto || "—"} />
+            <p className="mt-5 text-xl font-light leading-tight text-slate-800 sm:text-2xl">{empleado.tiempoEnEmpresa}</p>
+            <p className="text-[10px] font-bold uppercase text-slate-500">en la empresa</p>
+            {empleado.fechaIngreso ? (
+              <p className="mt-1 text-[11px] font-medium text-slate-500 sm:text-xs">
+                Desde {formatearFechaLegible(empleado.fechaIngreso)} a la fecha
+              </p>
+            ) : null}
+          </div>
+
+          <dl className="mt-5 grid grid-cols-2 gap-x-3 gap-y-0 rounded-lg border border-slate-200 bg-slate-50/80 text-[11px] sm:text-xs">
+            <DatoGrid label="Edad" valor={empleado.edad || "—"} />
+            <DatoGrid label="Escolaridad" valor={empleado.escolaridad || "—"} />
+            <DatoGrid label="Servicio" valor={empleado.servicio} />
+            <DatoGrid label="Puesto" valor={empleado.puesto || "—"} />
           </dl>
+
+          {presentacion && rankingServicio && rankingServicio.length > 1 ? (
+            <RankingServicio
+              actual={empleado.noEmpleado}
+              lista={rankingServicio}
+              onSeleccionar={onSeleccionarColaborador}
+            />
+          ) : null}
         </aside>
 
         <section className="border-b border-slate-200 px-5 py-6 sm:px-6 sm:py-8 xl:col-span-5 xl:border-b-0 xl:border-r xl:overflow-y-auto">
@@ -145,11 +169,106 @@ function formatearFechaLegible(ymd: string): string {
   }
 }
 
-function Dato({ label, valor }: { label: string; valor: string }) {
+function DatoGrid({ label, valor }: { label: string; valor: string }) {
   return (
-    <div>
-      <dt className="text-[10px] font-bold uppercase text-slate-500">{label}</dt>
-      <dd className="mt-0.5 text-sm font-bold uppercase text-slate-900">{valor}</dd>
+    <>
+      <dt className="border-b border-r border-slate-200/80 bg-slate-100/90 px-2.5 py-2 font-bold uppercase text-slate-600">
+        {label}
+      </dt>
+      <dd className="border-b border-slate-200/80 px-2.5 py-2 font-semibold uppercase text-slate-900">{valor}</dd>
+    </>
+  );
+}
+
+function RankingServicio({
+  actual,
+  lista,
+  onSeleccionar,
+}: {
+  actual: string;
+  lista: CatDashboardEmpleado[];
+  onSeleccionar?: (noEmpleado: string) => void;
+}) {
+  const actualKey = actual.trim().toUpperCase();
+  const ordenados = [...lista].sort((a, b) => {
+    const pa = a.promedioGeneral ?? -1;
+    const pb = b.promedioGeneral ?? -1;
+    if (pb !== pa) return pb - pa;
+    return a.nombre.localeCompare(b.nombre, "es");
+  });
+  const total = ordenados.length;
+  const umbralBajo = 3;
+
+  return (
+    <div className="mt-4 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4">
+      <p className="shrink-0 text-[10px] font-bold uppercase text-slate-600">Ranking del servicio</p>
+      <p className="mt-0.5 shrink-0 text-[9px] font-medium text-slate-500">
+        Por promedio general · ámbar: puede mejorar (&lt; {umbralBajo.toFixed(1)})
+        {onSeleccionar ? " · clic para ver dashboard" : ""}
+      </p>
+      <ol className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-0.5 text-[10px] sm:text-[11px]">
+        {ordenados.map((e, i) => {
+          const rank = i + 1;
+          const esActual = e.noEmpleado.trim().toUpperCase() === actualKey;
+          const prom = e.promedioGeneral;
+          const top = rank <= 3 && prom != null;
+          const mejorar = prom != null && prom < umbralBajo;
+          const dot = colorPuntajeCategorizacion(prom);
+          const filaClass = `flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+            esActual
+              ? "bg-violet-100 font-bold text-violet-950 ring-1 ring-violet-300"
+              : top
+                ? "bg-emerald-50/80"
+                : mejorar
+                  ? "bg-amber-50/90"
+                  : "hover:bg-slate-50"
+          }`;
+          return (
+            <li key={e.noEmpleado}>
+              {onSeleccionar ? (
+                <button
+                  type="button"
+                  className={`${filaClass} cursor-pointer transition-colors hover:ring-1 hover:ring-violet-200`}
+                  onClick={() => onSeleccionar(e.noEmpleado)}
+                  aria-current={esActual ? "true" : undefined}
+                  aria-label={`Ver dashboard de ${e.nombre}, posición ${rank}`}
+                >
+                  <span className="w-5 shrink-0 text-right font-mono font-bold tabular-nums text-slate-500">{rank}</span>
+                  <span
+                    className="inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-black/10"
+                    style={{ backgroundColor: dot }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1 truncate uppercase leading-tight" title={e.nombre}>
+                    {e.nombre}
+                  </span>
+                  <span className="shrink-0 font-mono font-bold tabular-nums">
+                    {prom != null ? prom.toFixed(2) : "—"}
+                  </span>
+                </button>
+              ) : (
+                <div className={filaClass}>
+                  <span className="w-5 shrink-0 text-right font-mono font-bold tabular-nums text-slate-500">{rank}</span>
+                  <span
+                    className="inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-black/10"
+                    style={{ backgroundColor: dot }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1 truncate uppercase leading-tight" title={e.nombre}>
+                    {e.nombre}
+                  </span>
+                  <span className="shrink-0 font-mono font-bold tabular-nums">
+                    {prom != null ? prom.toFixed(2) : "—"}
+                  </span>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-2 shrink-0 text-[9px] text-slate-500">
+        {total} colaborador{total === 1 ? "" : "es"} en el servicio
+      </p>
     </div>
   );
 }

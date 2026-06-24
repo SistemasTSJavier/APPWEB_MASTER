@@ -9,6 +9,7 @@ import { CatResumenPanel } from "@/components/categorizacion/CatResumenPanel";
 import { CategorizacionHero, CategorizacionModuloGrid } from "@/components/categorizacion/categorizacion-ui";
 import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
 import type { AppRole } from "@/lib/app-role";
+import { roleEsClienteEnfoque } from "@/lib/app-role";
 import { categorizacionModuloMeta, type CategorizacionModuloId } from "@/lib/categorizacion-modulos";
 
 function evalModuloFromUrl(id: CategorizacionModuloId): CatEvalModuloId | null {
@@ -18,7 +19,7 @@ function evalModuloFromUrl(id: CategorizacionModuloId): CatEvalModuloId | null {
   return null;
 }
 
-function ModuloPanel({ moduloId }: { moduloId: CategorizacionModuloId }) {
+function ModuloPanel({ moduloId, appRole }: { moduloId: CategorizacionModuloId; appRole: AppRole }) {
   if (moduloId === "dashboard") return null;
   if (moduloId === "personal") return <CatPersonalPanel />;
   if (moduloId === "catalogo-capacitaciones") return <CatCatalogoCapacitacionesPanel />;
@@ -26,7 +27,7 @@ function ModuloPanel({ moduloId }: { moduloId: CategorizacionModuloId }) {
   if (moduloId === "nivel") return <CatResumenPanel tipo="nivel" />;
   if (moduloId === "paquete-prestaciones") return <CatResumenPanel tipo="paquete-prestaciones" />;
   const evalMod = evalModuloFromUrl(moduloId);
-  if (evalMod) return <CatEvaluacionPanel modulo={evalMod} />;
+  if (evalMod) return <CatEvaluacionPanel modulo={evalMod} appRole={appRole} />;
   return null;
 }
 
@@ -40,6 +41,7 @@ export function CategorizacionModuloClient({
   moduloId: CategorizacionModuloId;
 }) {
   const meta = categorizacionModuloMeta(moduloId);
+  const esClienteEnfoque = roleEsClienteEnfoque(appRole);
 
   return (
     <AppModuleShell role={appRole} email={email} currentPath="/categorizacion">
@@ -47,16 +49,18 @@ export function CategorizacionModuloClient({
         <CategorizacionHero
           title={meta.label}
           description={meta.description}
-          backHref="/categorizacion"
-          backLabel="Categorización"
+          backHref={esClienteEnfoque ? undefined : "/categorizacion"}
+          backLabel={esClienteEnfoque ? undefined : "Categorización"}
         />
 
-        <ModuloPanel moduloId={moduloId} />
+        <ModuloPanel moduloId={moduloId} appRole={appRole} />
 
-        <div>
-          <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">Otros módulos</p>
-          <CategorizacionModuloGrid activeId={moduloId} />
-        </div>
+        {!esClienteEnfoque ? (
+          <div>
+            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">Otros módulos</p>
+            <CategorizacionModuloGrid activeId={moduloId} />
+          </div>
+        ) : null}
       </div>
     </AppModuleShell>
   );

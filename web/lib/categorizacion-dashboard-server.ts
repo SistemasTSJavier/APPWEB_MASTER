@@ -15,11 +15,13 @@ import {
   mesCalendarioActualYm,
 } from "@/lib/categorizacion-faltas-cuadricula";
 import {
+  activosCategorizacionDesdeColaboradores,
   buildResumenCategorizacion,
   listCatEvaluacionesModulo,
-  listColaboradoresActivosParaCategorizacion,
+  listCatPersonal,
   loadMapasPromedioOperaciones,
   promedioOperacionesParaEmpleado,
+  promediosCapacitacionPorEmpleados,
 } from "@/lib/categorizacion-server";
 import { fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
@@ -81,18 +83,33 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
   const client =
     admin ?? (isSupabaseServerConfigured() ? createSupabaseServiceRoleClient() : null);
 
+  if (!client) {
+    return { empleados: [], servicios: [], generadoEn: new Date().toISOString() };
+  }
+
   const mesYm = mesCalendarioActualYm();
 
-  const [activos, rhList, colaboradores, faltasMes, opMapas] = await Promise.all([
-    listColaboradoresActivosParaCategorizacion(undefined, client),
+  const [colaboradores, rhList, faltasMes, opMapas, personalCat, enList, capProms] = await Promise.all([
+    fetchAllColaboradoresCompletos(client),
     listCatEvaluacionesModulo("recursos_humanos", client),
-    client ? fetchAllColaboradoresCompletos(client).catch(() => [] as ColaboradorCompleto[]) : Promise.resolve([]),
-    client
-      ? contarFaltasMesDesdeCuadricula(client, mesYm).catch(() => ({ mesYm, faltas: {} as Record<string, never> }))
-      : Promise.resolve({ mesYm, faltas: {} as Record<string, never> }),
+    contarFaltasMesDesdeCuadricula(client, mesYm).catch(() => ({ mesYm, faltas: {} as Record<string, never> })),
     loadMapasPromedioOperaciones(client),
+    listCatPersonal(client),
+    listCatEvaluacionesModulo("enfoque_cliente", client),
+    promediosCapacitacionPorEmpleados(client),
   ]);
-  const resumen = await buildResumenCategorizacion(client, { opMapas });
+
+  const activos = activosCategorizacionDesdeColaboradores(colaboradores);
+  activos.sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
+
+  const resumen = await buildResumenCategorizacion(client, {
+    opMapas,
+    activos,
+    personalCat,
+    rhList,
+    enList,
+    capProms,
+  });
 
   const personal: CatPersonalRow[] = activos.map((a) => ({
     noEmpleado: a.noEmpleado,

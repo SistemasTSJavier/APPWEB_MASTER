@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
-import { requireCategorizacionApi } from "@/lib/categorizacion-api-auth";
+import { roleEsClienteEnfoque } from "@/lib/app-role";
+import {
+  assertModuloPermitidoClienteEnfoque,
+  requireCategorizacionApi,
+  servicioScopeCategorizacion,
+} from "@/lib/categorizacion-api-auth";
 import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
-import { getCatEvaluacion, listCatEvaluacionesModulo, upsertCatEvaluacion } from "@/lib/categorizacion-server";
+import { colaboradorPerteneceServicioEnfoque, syncCatPersonalActivosPorServicio } from "@/lib/categorizacion-enfoque-acceso";
+import {
+  getCatEvaluacion,
+  listCatEvaluacionesModulo,
+  listColaboradoresActivosParaCategorizacion,
+  upsertCatEvaluacion,
+} from "@/lib/categorizacion-server";
 import { isSupabaseServerConfigured, supabaseServerEnvMissing } from "@/lib/supabase/admin";
 
 const MODULOS: CatEvalModuloId[] = ["recursos_humanos", "operaciones", "enfoque_cliente"];
@@ -27,15 +38,28 @@ export async function GET(req: Request) {
 
   try {
     if (modulo && no) {
+      const denied = assertModuloPermitidoClienteEnfoque(gate.auth, modulo);
+      if (denied) return denied;
       const row = await getCatEvaluacion(no, modulo, null, { submodulo, calificadoPor });
       return NextResponse.json({ ok: true, row });
     }
     if (modulo) {
-      const rows = await listCatEvaluacionesModulo(
+      const denied = assertModuloPermitidoClienteEnfoque(gate.auth, modulo);
+      if (denied) return denied;
+      let rows = await listCatEvaluacionesModulo(
         modulo,
         null,
         modulo === "operaciones" ? { submodulo: submodulo ?? "oficial" } : undefined,
       );
+      const srv = servicioScopeCategorizacion(gate.auth);
+      if (srv && modulo === "enfoque_cliente") {
+        const activos = await listColaboradoresActivosParaCategorizacion(undefined, null, {
+          servicio: srv,
+          soloCalificables: true,
+        });
+        const permitidos = new Set(activos.map((a) => a.noEmpleado.trim().toUpperCase()));
+        rows = rows.filter((r) => permitidos.has(r.noEmpleado.trim().toUpperCase()));
+      }
       return NextResponse.json({ ok: true, rows });
     }
     return NextResponse.json({ error: "Parametro modulo requerido" }, { status: 400 });
@@ -47,6 +71,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const gate = await requireCategorizacionApi();
   if ("error" in gate) return gate.error;
+  if (roleEsClienteEnfoque(gate.auth.role)) {
+    return NextResponse.json({ error: "Acceso de solo consulta; no puede registrar calificaciones." }, { status: 403 });
+  }
   if (!isSupabaseServerConfigured()) {
     return NextResponse.json({ error: "Supabase no configurado" }, { status: 503 });
   }
@@ -68,6 +95,25 @@ export async function POST(req: Request) {
   if (!modulo || !no || !MODULOS.includes(modulo)) {
     return NextResponse.json({ error: "noEmpleado y modulo validos requeridos" }, { status: 400 });
   }
+  const denied = assertModuloPermitidoClienteEnfoque(gate.auth, modulo);
+  if (denied) return denied;
+
+  const srv = servicioScopeCategorizacion(gate.auth);
+  if (srv && modulo === "enfoque_cliente") {
+    const activos = await listColaboradoresActivosParaCategorizacion(undefined, null, {
+      servicio: srv,
+      soloCalificables: true,
+    });
+    const col = activos.find((a) => a.noEmpleado.trim().toUpperCase() === no);
+    if (!col || !colaboradorPerteneceServicioEnfoque(col.servicio, srv)) {
+      return NextResponse.json(
+        { error: "El colaborador no pertenece al servicio autorizado o no está activo." },
+        { status: 403 },
+      );
+    }
+    await syncCatPersonalActivosPorServicio(srv);
+  }
+
   try {
     const row = await upsertCatEvaluacion(no, modulo, body.scores ?? {}, String(body.comentarios ?? ""), null, {
       submodulo: body.submodulo,

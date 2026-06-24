@@ -49,6 +49,6 @@ export function filtrarCatPersonalCalificable(rows: CatPersonalRow[]): CatPerson
   return filtrarPersonalServiciosCalificables(rows);
 }
 
-export function etiquetasServiciosNoCalifican(): string[] {
-  return [...CAT_SERVICIOS_NO_CALIFICAN];
+export function serviciosCoincidenCat(a: string, b: string): boolean {
+  return normalizarServicioCategorizacion(a) === normalizarServicioCategorizacion(b);
 }

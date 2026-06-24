@@ -1,6 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
-import { roleMayAccessCategorizacion } from "@/lib/app-role";
+import { roleEsClienteEnfoque, roleMayAccessCategorizacion } from "@/lib/app-role";
 import { isCategorizacionModuloId } from "@/lib/categorizacion-modulos";
 import { CategorizacionModuloClient } from "@/app/categorizacion/CategorizacionModuloClient";
 
@@ -15,6 +15,9 @@ export default async function CategorizacionModuloPage({ params }: Props) {
 
   const { modulo: moduloRaw } = await params;
   if (!isCategorizacionModuloId(moduloRaw)) notFound();
+  if (roleEsClienteEnfoque(auth.role) && moduloRaw !== "dashboard") {
+    redirect("/categorizacion/dashboard");
+  }
 
   return (
     <CategorizacionModuloClient appRole={auth.role} email={auth.user.email ?? ""} moduloId={moduloRaw} />

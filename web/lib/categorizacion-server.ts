@@ -33,6 +33,7 @@ import {
 import {
   filtrarCatPersonalCalificable,
   servicioCatPersonalEsCalificable,
+  serviciosCoincidenCat,
 } from "@/lib/categorizacion-servicios-calificables";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
@@ -140,6 +141,22 @@ function filtrarColaboradoresActivosPorBusqueda(
   });
 }
 
+/** Filtra expedientes activos calificables sin volver a leer Supabase. */
+export function activosCategorizacionDesdeColaboradores(
+  colaboradores: ColaboradorCompleto[],
+  opts?: { servicio?: string; soloCalificables?: boolean },
+): CatColaboradorActivoOpcion[] {
+  const srv = opts?.servicio?.trim() ? opts.servicio.trim() : "";
+  return colaboradores
+    .filter((c) => {
+      if (!colaboradorEstaActivoEnOperacion(c)) return false;
+      if (opts?.soloCalificables !== false && !colaboradorCalificableEnCategorizacion(c)) return false;
+      if (srv && !serviciosCoincidenCat(servicioVigenteColaboradorCategorizacion(c), srv)) return false;
+      return true;
+    })
+    .map(mapColaboradorActivoCategorizacion);
+}
+
 /**
  * Lista colaboradores activos en expedientes (misma fuente que la sección Colaboradores).
  * Sin depender de cat_personal sincronizado.
@@ -147,13 +164,12 @@ function filtrarColaboradoresActivosPorBusqueda(
 export async function listColaboradoresActivosParaCategorizacion(
   busqueda?: string,
   admin?: SupabaseClient | null,
+  opts?: { servicio?: string; soloCalificables?: boolean; colaboradores?: ColaboradorCompleto[] },
 ): Promise<CatColaboradorActivoOpcion[]> {
   const client = admin ?? db();
-  if (!client) return [];
-  const colaboradores = await fetchAllColaboradoresCompletos(client);
-  const activos = colaboradores
-    .filter(colaboradorEstaActivoEnOperacion)
-    .map(mapColaboradorActivoCategorizacion);
+  if (!client && !opts?.colaboradores) return [];
+  const colaboradores = opts?.colaboradores ?? (client ? await fetchAllColaboradoresCompletos(client) : []);
+  const activos = activosCategorizacionDesdeColaboradores(colaboradores, opts);
   const filtrados = filtrarColaboradoresActivosPorBusqueda(activos, busqueda);
   filtrados.sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
   return filtrados;
@@ -846,42 +862,63 @@ export async function promedioCapacitacionEmpleado(
   noEmpleado: string,
   admin?: SupabaseClient | null,
 ): Promise<number | null> {
-  const client = admin ?? db();
-  if (!client) return null;
-  const { data, error } = await client
-    .from("cat_capacitacion_registro")
-    .select("promedio")
-    .eq("no_empleado", noEmpleado.trim().toUpperCase());
-  if (error) throw new Error(hintSupabaseClientError(error.message));
-  const vals = (data ?? [])
-    .map((r) => (r as { promedio: number | null }).promedio)
-    .filter((p): p is number => p != null && Number.isFinite(p));
-  if (vals.length === 0) return null;
-  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+  const map = await promediosCapacitacionPorEmpleados(admin);
+  return map.get(normalizarNoEmpleado(noEmpleado)) ?? null;
 }
+
+/** Una sola consulta para promedios de capacitación de todos los colaboradores. */
+export async function promediosCapacitacionPorEmpleados(
+  admin?: SupabaseClient | null,
+): Promise<Map<string, number | null>> {
+  const client = admin ?? db();
+  const out = new Map<string, number | null>();
+  if (!client) return out;
+
+  const { data, error } = await client.from("cat_capacitacion_registro").select("no_empleado, promedio");
+  if (error) throw new Error(hintSupabaseClientError(error.message));
+
+  const acc = new Map<string, number[]>();
+  for (const row of data ?? []) {
+    const r = row as { no_empleado?: string; promedio?: number | null };
+    const no = normalizarNoEmpleado(String(r.no_empleado ?? ""));
+    const p = r.promedio;
+    if (!no || p == null || !Number.isFinite(p)) continue;
+    const list = acc.get(no) ?? [];
+    list.push(p);
+    acc.set(no, list);
+  }
+  for (const [no, vals] of acc) {
+    out.set(no, Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100);
+  }
+  return out;
+}
+
+export type BuildResumenCategorizacionOpts = {
+  opMapas?: MapasPromedioOperaciones;
+  activos?: CatColaboradorActivoOpcion[];
+  personalCat?: CatPersonalRow[];
+  rhList?: CatEvaluacionRow[];
+  enList?: CatEvaluacionRow[];
+  capProms?: Map<string, number | null>;
+};
 
 export async function buildResumenCategorizacion(
   admin?: SupabaseClient | null,
-  opts?: { opMapas?: MapasPromedioOperaciones },
+  opts?: BuildResumenCategorizacionOpts,
 ): Promise<CatResumenEmpleado[]> {
-  const [personalCat, activos, rhList, opMapas, enList] = await Promise.all([
-    listCatPersonal(admin),
-    listColaboradoresActivosParaCategorizacion(undefined, admin),
-    listCatEvaluacionesModulo("recursos_humanos", admin),
-    opts?.opMapas ? Promise.resolve(opts.opMapas) : loadMapasPromedioOperaciones(admin),
-    listCatEvaluacionesModulo("enfoque_cliente", admin),
+  const [personalCat, activos, rhList, opMapas, enList, capProms] = await Promise.all([
+    opts?.personalCat != null ? Promise.resolve(opts.personalCat) : listCatPersonal(admin),
+    opts?.activos != null
+      ? Promise.resolve(opts.activos)
+      : listColaboradoresActivosParaCategorizacion(undefined, admin),
+    opts?.rhList != null ? Promise.resolve(opts.rhList) : listCatEvaluacionesModulo("recursos_humanos", admin),
+    opts?.opMapas != null ? Promise.resolve(opts.opMapas) : loadMapasPromedioOperaciones(admin),
+    opts?.enList != null ? Promise.resolve(opts.enList) : listCatEvaluacionesModulo("enfoque_cliente", admin),
+    opts?.capProms != null ? Promise.resolve(opts.capProms) : promediosCapacitacionPorEmpleados(admin),
   ]);
   const personal = mergePersonalConActivos(personalCat, activos);
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado, r.promedio]));
   const enMap = new Map(enList.map((r) => [r.noEmpleado, r.promedio]));
-
-  const client = admin ?? db();
-  const capProms = new Map<string, number | null>();
-  if (client) {
-    for (const p of personal) {
-      capProms.set(p.noEmpleado, await promedioCapacitacionEmpleado(p.noEmpleado, client));
-    }
-  }
 
   return personal.map((p) => {
     const promedioRh = rhMap.get(p.noEmpleado) ?? null;
