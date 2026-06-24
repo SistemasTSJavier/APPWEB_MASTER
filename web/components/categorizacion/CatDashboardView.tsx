@@ -5,6 +5,7 @@ import type { CatDashboardEmpleado } from "@/lib/categorizacion-dashboard-types"
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
 import { CatBarChartModulos, colorPuntajeCategorizacion } from "@/components/categorizacion/CatDashboardCharts";
+import { CatOficialFoto } from "@/components/categorizacion/CatOficialFoto";
 import { CAT_DASHBOARD_LOGO_FALLBACKS } from "@/lib/brand-logo";
 import { TacticalSupportLogo } from "@/components/tactical-support-logo";
 
@@ -16,9 +17,19 @@ export const CatDashboardView = forwardRef<
     presentacion?: boolean;
     rankingServicio?: CatDashboardEmpleado[];
     onSeleccionarColaborador?: (noEmpleado: string) => void;
+    puedeSubirFoto?: boolean;
+    onFotoActualizada?: (noEmpleado: string, url: string) => void;
   }
 >(function CatDashboardView(
-  { empleado, generadoEn, presentacion = false, rankingServicio, onSeleccionarColaborador },
+  {
+    empleado,
+    generadoEn,
+    presentacion = false,
+    rankingServicio,
+    onSeleccionarColaborador,
+    puedeSubirFoto = false,
+    onFotoActualizada,
+  },
   ref,
 ) {
   const fecha = new Date(generadoEn).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
@@ -66,11 +77,23 @@ export const CatDashboardView = forwardRef<
           }`}
         >
           <div className={presentacion ? "shrink-0" : undefined}>
-            <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
-            <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
-              {empleado.nombre}
-            </p>
-            <p className="mt-0.5 font-mono text-xs text-slate-500">N° {empleado.noEmpleado}</p>
+            <div className="flex items-start gap-3 sm:gap-4">
+              <CatOficialFoto
+                noEmpleado={empleado.noEmpleado}
+                nombre={empleado.nombre}
+                fotoUrl={empleado.fotoUrl}
+                puedeSubir={puedeSubirFoto}
+                presentacion={presentacion}
+                onActualizada={(url) => onFotoActualizada?.(empleado.noEmpleado, url)}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
+                <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
+                  {empleado.nombre}
+                </p>
+                <p className="mt-0.5 font-mono text-xs text-slate-500">N° {empleado.noEmpleado}</p>
+              </div>
+            </div>
 
             <p className="mt-5 text-xl font-light leading-tight text-slate-800 sm:text-2xl">{empleado.tiempoEnEmpresa}</p>
             <p className="text-[10px] font-bold uppercase text-slate-500">en la empresa</p>

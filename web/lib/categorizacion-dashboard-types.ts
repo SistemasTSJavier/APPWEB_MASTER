@@ -32,6 +32,8 @@ export type CatDashboardEmpleado = {
   faltasMesActual: number;
   faltasMesDetalle: string;
   faltasMesYm: string;
+  /** URL pública de foto (expediente form.fichaFotoUrl). */
+  fotoUrl: string | null;
 };
 
 export type CatDashboardPayload = {

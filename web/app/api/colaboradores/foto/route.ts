@@ -9,7 +9,7 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { mayAccessFichaTecnica, roleMayEditColaboradores } from "@/lib/app-role";
+import { mayAccessFichaTecnica, roleMayWriteExpedienteColaborador } from "@/lib/app-role";
 import { FICHA_FOTO_FORM_KEY } from "@/lib/ficha-tecnica-keys";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ function extFromMime(mime: string): string {
 export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
-  if (!roleMayEditColaboradores(auth.role)) {
+  if (!roleMayWriteExpedienteColaborador(auth.role)) {
     return NextResponse.json({ error: "No autorizado para actualizar foto de ficha" }, { status: 403 });
   }
 

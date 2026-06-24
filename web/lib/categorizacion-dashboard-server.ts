@@ -28,6 +28,7 @@ import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
+import { FICHA_FOTO_FORM_KEY } from "@/lib/ficha-tecnica-keys";
 import {
   createSupabaseServiceRoleClient,
   isSupabaseServerConfigured,
@@ -156,6 +157,7 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     ]);
 
     const faltas = faltasMesParaEmpleado(faltasMes.faltas, key);
+    const fotoUrl = colab ? String(colab.form?.[FICHA_FOTO_FORM_KEY] ?? "").trim() || null : null;
 
     return {
       noEmpleado: p.noEmpleado,
@@ -181,6 +183,7 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       faltasMesDetalle: etiquetaFaltasMes(faltas),
       faltasMesYm: faltasMes.mesYm,
       rh: rhDetalle(rhMap.get(key) ?? {}, faltas, faltasMes.mesYm),
+      fotoUrl,
     };
   });
 

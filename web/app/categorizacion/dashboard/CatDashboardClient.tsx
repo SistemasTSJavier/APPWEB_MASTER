@@ -8,13 +8,14 @@ import { CatDashboardView } from "@/components/categorizacion/CatDashboardView";
 import { CategorizacionHero } from "@/components/categorizacion/categorizacion-ui";
 import type { CatDashboardEmpleado, CatDashboardPayload } from "@/lib/categorizacion-dashboard-types";
 import type { AppRole } from "@/lib/app-role";
-import { roleEsClienteEnfoque } from "@/lib/app-role";
+import { roleEsClienteEnfoque, roleMayWriteExpedienteColaborador } from "@/lib/app-role";
+import { CatOficialFoto } from "@/components/categorizacion/CatOficialFoto";
 
 const LOOP_MS = 20_000;
 const PDF_MARGIN_MM = 10;
 const PDF_HEADER_MM = 8;
 const PDF_JPEG_QUALITY = 0.92;
-const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v2";
+const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v3";
 const DASHBOARD_CACHE_MS = 5 * 60_000;
 
 type DashboardCache = CatDashboardPayload & { cachedAt: number };
@@ -27,7 +28,10 @@ function leerDashboardCache(): CatDashboardPayload | null {
     const parsed = JSON.parse(raw) as DashboardCache;
     if (!parsed?.empleados?.length || Date.now() - parsed.cachedAt > DASHBOARD_CACHE_MS) return null;
     const { cachedAt: _c, ...payload } = parsed;
-    return payload;
+    return {
+      ...payload,
+      empleados: (payload.empleados ?? []).map((e) => ({ ...e, fotoUrl: e.fotoUrl ?? null })),
+    };
   } catch {
     return null;
   }
@@ -133,6 +137,26 @@ export function CatDashboardClient({
   const [fechaFinAcceso, setFechaFinAcceso] = useState("");
   const dashRef = useRef<HTMLDivElement>(null);
   const esClienteConsulta = roleEsClienteEnfoque(appRole);
+  const puedeSubirFoto = roleMayWriteExpedienteColaborador(appRole) && !esClienteConsulta;
+
+  function normalizarEmpleadosDashboard(rows: CatDashboardEmpleado[]): CatDashboardEmpleado[] {
+    return rows.map((e) => ({ ...e, fotoUrl: e.fotoUrl ?? null }));
+  }
+
+  function actualizarFotoEmpleado(no: string, url: string) {
+    const key = no.trim().toUpperCase();
+    setData((prev) => {
+      if (!prev) return prev;
+      const next: CatDashboardPayload = {
+        ...prev,
+        empleados: prev.empleados.map((e) =>
+          e.noEmpleado.trim().toUpperCase() === key ? { ...e, fotoUrl: url } : e,
+        ),
+      };
+      guardarDashboardCache(next);
+      return next;
+    });
+  }
 
   const load = useCallback(async (opts?: { background?: boolean }) => {
     const background = Boolean(opts?.background);
@@ -144,7 +168,7 @@ export function CatDashboardClient({
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       const payload: CatDashboardPayload = {
-        empleados: j.empleados,
+        empleados: normalizarEmpleadosDashboard(j.empleados ?? []),
         servicios: j.servicios,
         generadoEn: j.generadoEn,
       };
@@ -515,6 +539,25 @@ export function CatDashboardClient({
             />
           </div>
 
+          {empleadoManual && puedeSubirFoto ? (
+            <div className="flex flex-wrap items-start gap-4 rounded-lg border border-violet-200 bg-violet-50/60 px-4 py-3">
+              <CatOficialFoto
+                noEmpleado={empleadoManual.noEmpleado}
+                nombre={empleadoManual.nombre}
+                fotoUrl={empleadoManual.fotoUrl}
+                puedeSubir
+                onActualizada={(url) => actualizarFotoEmpleado(empleadoManual.noEmpleado, url)}
+              />
+              <div className="min-w-[12rem] flex-1 text-xs text-slate-700">
+                <p className="font-bold uppercase text-violet-950">Foto del colaborador</p>
+                <p className="mt-1 leading-relaxed">
+                  Suba la fotografía oficial una por una. Se guarda en el expediente y aparece en la presentación del
+                  dashboard y en la ficha técnica.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -728,6 +771,8 @@ export function CatDashboardClient({
               presentacion
               rankingServicio={empleadosServicio}
               onSeleccionarColaborador={seleccionarEnPresentacion}
+              puedeSubirFoto={puedeSubirFoto}
+              onFotoActualizada={actualizarFotoEmpleado}
             />
           </div>
         </div>
