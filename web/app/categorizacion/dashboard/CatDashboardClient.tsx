@@ -556,7 +556,7 @@ export function CatDashboardClient({
               </>
             ) : null}
             <button type="button" className="text-xs font-bold uppercase text-violet-800" onClick={() => void load()}>
-              Actualizar datos
+              {refreshing ? "Actualizando…" : "Actualizar datos"}
             </button>
           </div>
 
@@ -570,7 +570,10 @@ export function CatDashboardClient({
         </section>
 
         {err ? <p className="text-sm font-bold uppercase text-red-800">{err}</p> : null}
-        {busy ? <p className="text-sm text-slate-500">Cargando datos…</p> : null}
+        {busy && !data ? <p className="text-sm text-slate-500">Cargando colaboradores y promedios…</p> : null}
+        {refreshing && data ? (
+          <p className="text-xs font-medium text-slate-500">Actualizando datos en segundo plano…</p>
+        ) : null}
 
         {!busy && servicio && empleadosServicio.length > 0 && (esClienteConsulta || (!noSel && !modoLoop)) ? (
           <section className="card overflow-x-auto">

@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef } from "react";
+import { forwardRef, useMemo } from "react";
 import type { CatDashboardEmpleado } from "@/lib/categorizacion-dashboard-types";
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
@@ -190,12 +190,16 @@ function RankingServicio({
   onSeleccionar?: (noEmpleado: string) => void;
 }) {
   const actualKey = actual.trim().toUpperCase();
-  const ordenados = [...lista].sort((a, b) => {
-    const pa = a.promedioGeneral ?? -1;
-    const pb = b.promedioGeneral ?? -1;
-    if (pb !== pa) return pb - pa;
-    return a.nombre.localeCompare(b.nombre, "es");
-  });
+  const ordenados = useMemo(
+    () =>
+      [...lista].sort((a, b) => {
+        const pa = a.promedioGeneral ?? -1;
+        const pb = b.promedioGeneral ?? -1;
+        if (pb !== pa) return pb - pa;
+        return a.nombre.localeCompare(b.nombre, "es");
+      }),
+    [lista],
+  );
   const total = ordenados.length;
   const umbralBajo = 3;
 
