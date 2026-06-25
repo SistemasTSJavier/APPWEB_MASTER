@@ -71,12 +71,13 @@ export function CatOficialFoto({
   }
 
   const frameClass = presentacion
-    ? `aspect-[3/4] w-[46.2%] min-w-[9.35rem] max-w-[14.85rem] sm:min-w-[10.45rem] sm:max-w-[15.95rem] xl:max-w-[16.5rem] ${className}`
+    ? `aspect-[3/4] h-[7.75rem] w-[5.8rem] shrink-0 sm:h-[8.25rem] sm:w-[6.2rem] xl:h-[8.75rem] xl:w-[6.55rem] ${className}`
     : `aspect-[3/4] w-[10.45rem] sm:w-[11.55rem] ${className}`;
 
   return (
     <div
-      className={`flex shrink-0 flex-col items-stretch gap-1.5 ${presentacion ? "translate-x-[5%]" : ""}`}
+      data-cat-oficial-foto
+      className={`flex shrink-0 flex-col items-stretch gap-1.5 ${presentacion ? "self-start" : ""}`}
     >
       <div
         className={`relative flex ${frameClass} items-center justify-center overflow-hidden rounded-xl border-2 border-slate-300 bg-slate-100 shadow-md`}

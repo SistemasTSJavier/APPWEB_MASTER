@@ -1,21 +1,45 @@
 "use client";
 
-import { type ChangeEvent, useRef, useState } from "react";
-import {
-  optimizarLogoServicioParaSubida,
-} from "@/lib/cat-dashboard-logo-optimizar-client";
+import { type ChangeEvent, type ReactNode, useRef, useState } from "react";
+import { optimizarLogoServicioParaSubida } from "@/lib/cat-dashboard-logo-optimizar-client";
 import { CAT_DASHBOARD_BANNER_SRC } from "@/lib/brand-logo";
 
 export { CAT_DASHBOARD_BANNER_SRC };
 
-/** Logo del cliente: 25% de separación tras el logo central del banner, sin marco. */
-const CLIENT_LOGO_OVERLAY =
-  "pointer-events-none absolute inset-0 flex items-center";
-const CLIENT_LOGO_SLOT = "flex min-h-0 min-w-0 flex-1 items-center justify-start pr-[1.5%]";
-const CLIENT_LOGO_IMG =
-  "h-[min(28vw,11rem)] w-auto max-w-full object-contain object-left drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)]";
-const CLIENT_LOGO_IMG_PREVIEW =
-  "h-[min(20vw,7rem)] w-auto max-w-full object-contain object-left drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]";
+/**
+ * Centrado bajo «CATEGORIZACIÓN» en banner.jpeg (~76% del ancho del arte).
+ */
+const LOGO_CLIENTE_ZONA =
+  "absolute left-[76%] top-[50%] flex h-[38%] w-[min(17vw,10.5rem)] -translate-x-1/2 flex-col items-center justify-center sm:left-[75.5%] sm:w-[min(16vw,11rem)]";
+
+const LOGO_CLIENTE_IMG =
+  "max-h-[92%] max-w-[96%] object-contain object-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]";
+
+const LOGO_CLIENTE_IMG_PREVIEW =
+  "max-h-[4.25rem] w-auto max-w-[94%] object-contain object-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)]";
+
+function BannerBase({
+  presentacion = false,
+  logoSlot,
+}: {
+  presentacion?: boolean;
+  logoSlot: ReactNode;
+}) {
+  return (
+    <div className="relative w-full leading-[0]">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={CAT_DASHBOARD_BANNER_SRC}
+        alt=""
+        className="block h-auto w-full max-w-full select-none"
+        aria-hidden
+        decoding="async"
+        fetchPriority={presentacion ? "high" : "auto"}
+      />
+      <div className={`${LOGO_CLIENTE_ZONA} pointer-events-none`}>{logoSlot}</div>
+    </div>
+  );
+}
 
 export function CatDashboardBanner({
   servicio,
@@ -81,66 +105,55 @@ export function CatDashboardBanner({
 
   return (
     <header className="relative w-full shrink-0 overflow-hidden border-b border-slate-200 bg-[#0c1f4a]">
-      <div className="relative w-full leading-[0]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={CAT_DASHBOARD_BANNER_SRC}
-          alt=""
-          className="block h-auto w-full max-w-full select-none"
-          aria-hidden
-          decoding="async"
-          fetchPriority={presentacion ? "high" : "auto"}
-        />
-
-        <div className={CLIENT_LOGO_OVERLAY}>
-          <div className="w-[58%] shrink-0" aria-hidden />
-          <div className="w-[25%] shrink-0" aria-hidden />
-          <div className={`${CLIENT_LOGO_SLOT} ${mostrarSubida ? "pointer-events-auto" : ""}`}>
+      <BannerBase
+        presentacion={presentacion}
+        logoSlot={
+          <div className={`flex h-full w-full flex-col items-center justify-center gap-1 ${mostrarSubida ? "pointer-events-auto" : ""}`}>
             {logoClienteUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={logoClienteUrl}
                 alt={servicio.trim() ? `Logo ${servicio}` : "Logo del cliente"}
                 crossOrigin="anonymous"
-                className={CLIENT_LOGO_IMG}
+                className={LOGO_CLIENTE_IMG}
                 decoding="async"
               />
             ) : (
-              <span className="text-[9px] font-semibold uppercase leading-tight text-white/45 sm:text-[10px]">
+              <span className="px-1 text-center text-[8px] font-semibold uppercase leading-tight text-white/50 sm:text-[9px]">
                 Logo del cliente
               </span>
             )}
-          </div>
-        </div>
-        {mostrarSubida ? (
-          <div className="absolute bottom-[6%] left-[calc(58%+25%)] flex flex-col items-start gap-0.5">
-              <button
-                type="button"
-                className="rounded border border-white/50 bg-white/95 px-2 py-0.5 text-[8px] font-bold uppercase text-blue-950 shadow-sm hover:bg-white disabled:opacity-60 sm:text-[9px]"
-                disabled={subiendo || !servicio.trim()}
-                onClick={() => inputRef.current?.click()}
-              >
-                {subiendo ? "Subiendo…" : logoClienteUrl ? "Cambiar logo" : "Subir logo"}
-              </button>
-              <input
-                ref={inputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="sr-only"
-                onChange={(e) => void onFile(e)}
-              />
-              {msg ? (
-                <p
-                  className={`text-center text-[7px] font-semibold leading-tight sm:text-[8px] ${
-                    msg.includes("ERROR") ? "text-red-200" : "text-emerald-100"
-                  }`}
+            {mostrarSubida ? (
+              <>
+                <button
+                  type="button"
+                  className="rounded border border-white/50 bg-white/95 px-2 py-0.5 text-[7px] font-bold uppercase text-blue-950 shadow-sm hover:bg-white disabled:opacity-60 sm:text-[8px]"
+                  disabled={subiendo || !servicio.trim()}
+                  onClick={() => inputRef.current?.click()}
                 >
-                  {msg}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-      </div>
+                  {subiendo ? "Subiendo…" : logoClienteUrl ? "Cambiar logo" : "Subir logo"}
+                </button>
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  onChange={(e) => void onFile(e)}
+                />
+                {msg ? (
+                  <p
+                    className={`max-w-full text-center text-[7px] font-semibold leading-tight ${
+                      msg.includes("ERROR") ? "text-red-200" : "text-emerald-100"
+                    }`}
+                  >
+                    {msg}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        }
+      />
     </header>
   );
 }
@@ -199,29 +212,20 @@ export function CatLogoServicioFiltro({
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-[#0c1f4a]">
-      <div className="relative w-full leading-[0]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={CAT_DASHBOARD_BANNER_SRC}
-          alt=""
-          className="block h-auto w-full max-w-full"
-          aria-hidden
-        />
-        <div className={CLIENT_LOGO_OVERLAY}>
-          <div className="w-[58%] shrink-0" aria-hidden />
-          <div className="w-[25%] shrink-0" aria-hidden />
-          <div className={CLIENT_LOGO_SLOT}>
-            {logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt="" className={CLIENT_LOGO_IMG_PREVIEW} />
-            ) : (
-              <span className="text-[8px] font-semibold uppercase text-white/45">Logo cliente</span>
-            )}
-          </div>
-        </div>
-      </div>
+      <BannerBase
+        logoSlot={
+          logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="" className={LOGO_CLIENTE_IMG_PREVIEW} crossOrigin="anonymous" />
+          ) : (
+            <span className="text-[8px] font-semibold uppercase text-white/50">Logo cliente</span>
+          )
+        }
+      />
       <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-white px-3 py-2.5">
-        <p className="w-full text-[10px] font-bold uppercase text-slate-700 sm:w-auto">Logo cliente · {servicio}</p>
+        <p className="w-full text-[10px] font-bold uppercase text-slate-700 sm:w-auto">
+          Logo bajo «Categorización» · {servicio}
+        </p>
         <button
           type="button"
           className="btn-secondary text-[10px] uppercase"

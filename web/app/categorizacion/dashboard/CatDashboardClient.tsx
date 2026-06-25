@@ -15,7 +15,7 @@ import {
   claveLogoServicioDashboard,
   logoServicioDesdeMapa,
 } from "@/lib/cat-dashboard-logo-servicio";
-import { prepararClonHtml2Canvas } from "@/lib/html2canvas-export-compat";
+import { capturarDashboardComoCanvas } from "@/lib/dashboard-export-capture";
 
 const LOOP_MS = 20_000;
 const PDF_MARGIN_MM = 10;
@@ -60,47 +60,9 @@ function esperarPintado(): Promise<void> {
   });
 }
 
-async function inlineImagenesParaExport(root: HTMLElement): Promise<() => void> {
-  const restaurar: Array<() => void> = [];
-  await Promise.all(
-    Array.from(root.querySelectorAll("img")).map(async (img) => {
-      const src = img.currentSrc || img.src;
-      if (!src || src.startsWith("data:") || src.startsWith("blob:")) return;
-      try {
-        const res = await fetch(src);
-        if (!res.ok) return;
-        const blob = await res.blob();
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const fr = new FileReader();
-          fr.onload = () => resolve(String(fr.result));
-          fr.onerror = () => reject(fr.error);
-          fr.readAsDataURL(blob);
-        });
-        const prev = img.src;
-        img.src = dataUrl;
-        restaurar.push(() => {
-          img.src = prev;
-        });
-      } catch {
-        /* omitir imagen si no se puede incrustar */
-      }
-    }),
-  );
-  return () => {
-    for (const fn of restaurar) fn();
-  };
-}
-
-function expandirNodoCaptura(node: HTMLElement) {
-  node.style.overflow = "visible";
-  node.style.maxHeight = "none";
-  node.style.height = "auto";
-  node.style.minHeight = "auto";
-  node.style.transform = "none";
-}
-
 async function capturarElementoDashboard(el: HTMLElement) {
   await esperarPintado();
+
   const host = el.closest("[data-export-capture-host]") as HTMLElement | null;
   const hostPrev = host
     ? {
@@ -121,40 +83,11 @@ async function capturarElementoDashboard(el: HTMLElement) {
     host.style.pointerEvents = "none";
   }
 
-  const restaurarImgs = await inlineImagenesParaExport(el);
+  const scale = Math.min(2, Math.max(1.5, window.devicePixelRatio || 1.5));
+
   try {
-    const html2canvas = (await import("html2canvas")).default;
-    return await html2canvas(el, {
-      scale: Math.min(2.5, Math.max(1.75, window.devicePixelRatio || 2)),
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: "#ffffff",
-      logging: false,
-      scrollX: 0,
-      scrollY: -window.scrollY,
-      windowWidth: el.scrollWidth,
-      windowHeight: el.scrollHeight,
-      width: el.scrollWidth,
-      height: el.scrollHeight,
-      onclone: (clonedDoc) => {
-        const cloneRoot =
-          (clonedDoc.querySelector("[data-cat-dashboard]") as HTMLElement | null) ?? el;
-        const sourceRoot = (el.querySelector("[data-cat-dashboard]") as HTMLElement | null) ?? el;
-        prepararClonHtml2Canvas(clonedDoc, sourceRoot, cloneRoot);
-        expandirNodoCaptura(cloneRoot);
-        cloneRoot.querySelectorAll("*").forEach((node) => {
-          const elNode = node as HTMLElement;
-          elNode.style.animation = "none";
-          elNode.style.transition = "none";
-          const tag = elNode.tagName;
-          if (tag === "ASIDE" || tag === "SECTION" || tag === "OL" || tag === "DIV") {
-            expandirNodoCaptura(elNode);
-          }
-        });
-      },
-    });
+    return await capturarDashboardComoCanvas(el, { scale });
   } finally {
-    restaurarImgs();
     if (host && hostPrev) {
       host.style.left = hostPrev.left;
       host.style.top = hostPrev.top;

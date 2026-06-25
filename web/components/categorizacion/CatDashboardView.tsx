@@ -63,6 +63,7 @@ export const CatDashboardView = forwardRef<
       />
 
       <div
+        data-cat-export-expand
         className={
           presentacion
             ? "grid min-h-0 flex-1 grid-cols-1 gap-0 overflow-y-auto xl:grid-cols-12 xl:overflow-hidden"
@@ -70,13 +71,14 @@ export const CatDashboardView = forwardRef<
         }
       >
         <aside
+          data-cat-export-expand
           className={`border-b border-slate-200 bg-white px-5 py-6 sm:px-6 sm:py-8 xl:border-b-0 xl:border-r ${
             presentacion ? "flex min-h-0 flex-col xl:col-span-3 xl:overflow-hidden" : "xl:col-span-3 xl:overflow-y-auto"
           }`}
         >
           <div className={presentacion ? "shrink-0" : undefined}>
-            <div className="flex items-stretch justify-between gap-2 sm:gap-3">
-              <div className="flex min-w-0 flex-1 flex-col justify-center pr-0.5">
+            <div className="flex flex-nowrap items-start justify-between gap-2 sm:gap-3">
+              <div className="flex min-w-0 flex-1 flex-col justify-center pr-1">
                 <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
                 <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
                   {empleado.nombre}
@@ -223,15 +225,24 @@ function RankingServicio({
   );
   const total = ordenados.length;
   const umbralBajo = 3;
+  const compacto = total > 12;
 
   return (
-    <div className="mt-4 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4">
+    <div
+      data-cat-export-expand
+      className="mt-4 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4"
+    >
       <p className="shrink-0 text-[10px] font-bold uppercase text-slate-600">Ranking del servicio</p>
       <p className="mt-0.5 shrink-0 text-[9px] font-medium text-slate-500">
         Por promedio general · ámbar: puede mejorar (&lt; {umbralBajo.toFixed(1)})
         {onSeleccionar ? " · clic para ver dashboard" : ""}
       </p>
-      <ol className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-0.5 text-[10px] sm:text-[11px]">
+      <ol
+        data-cat-ranking-list
+        className={`mt-2 min-h-0 flex-1 pr-0.5 ${
+          compacto ? "space-y-0 text-[8px] sm:text-[9px]" : "space-y-0.5 text-[10px] sm:text-[11px]"
+        } overflow-y-auto`}
+      >
         {ordenados.map((e, i) => {
           const rank = i + 1;
           const esActual = e.noEmpleado.trim().toUpperCase() === actualKey;
@@ -239,7 +250,9 @@ function RankingServicio({
           const top = rank <= 3 && prom != null;
           const mejorar = prom != null && prom < umbralBajo;
           const dot = colorPuntajeCategorizacion(prom);
-          const filaClass = `flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left ${
+          const filaClass = `flex w-full items-center gap-1.5 rounded-md px-1.5 text-left ${
+            compacto ? "py-0.5" : "py-1"
+          } ${
             esActual
               ? "bg-violet-100 font-bold text-violet-950 ring-1 ring-violet-300"
               : top
