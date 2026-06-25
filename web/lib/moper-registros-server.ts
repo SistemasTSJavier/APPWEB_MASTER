@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hintSupabaseClientError } from "@/lib/supabase/admin";
+import { enviarEmailMoperContabilidad } from "@/lib/moper-email";
 import type {
+  MoperContabilidadItem,
   MoperFirmaTipo,
   MoperRegistroApi,
   MoperRegistroCreateBody,
@@ -163,9 +165,158 @@ export function mapRegistroToApi(r: MoperRegistroRow): MoperRegistroApi {
     firma_control_nombre: r.firma_control_nombre,
     firma_control_imagen: r.firma_control_imagen,
     completado: r.completado,
+    email_contabilidad_enviado_at: r.email_contabilidad_enviado_at ?? null,
+    recibido_contabilidad_at: r.recibido_contabilidad_at ?? null,
+    recibido_contabilidad_por: r.recibido_contabilidad_por ?? null,
     codigo_acceso: r.codigo_acceso,
     estado: r.estado,
   };
+}
+
+/** YYYY-MM-DD → inicio del día local (ISO UTC). */
+function dayStartIso(yyyyMmDd: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d, 0, 0, 0, 0);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+/** YYYY-MM-DD → fin del día local (ISO UTC). */
+function dayEndIso(yyyyMmDd: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d, 23, 59, 59, 999);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+function mapContabilidadRow(r: Record<string, unknown>): MoperContabilidadItem {
+  return {
+    id: Number(r.id),
+    folio: r.folio != null ? String(r.folio) : null,
+    oficial_nombre: String(r.oficial_nombre ?? ""),
+    servicio_actual_nombre: String(r.servicio_actual_nombre ?? ""),
+    servicio_nuevo_nombre: String(r.servicio_nuevo_nombre ?? ""),
+    puesto_actual_nombre: String(r.puesto_actual_nombre ?? ""),
+    puesto_nuevo_nombre: String(r.puesto_nuevo_nombre ?? ""),
+    motivo: String(r.motivo ?? ""),
+    created_at: String(r.created_at ?? ""),
+    completado: Boolean(r.completado),
+    email_contabilidad_enviado_at:
+      r.email_contabilidad_enviado_at != null ? String(r.email_contabilidad_enviado_at) : null,
+    recibido_contabilidad_at:
+      r.recibido_contabilidad_at != null ? String(r.recibido_contabilidad_at) : null,
+    recibido_contabilidad_por:
+      r.recibido_contabilidad_por != null ? String(r.recibido_contabilidad_por) : null,
+  };
+}
+
+/** Historial para contabilidad y consulta interna; ordenado por fecha de creación descendente. */
+export async function listarHistorialContabilidadMoper(
+  admin: SupabaseClient,
+  opts: { desde?: string; hasta?: string; recibido?: "si" | "no" | "todos" },
+): Promise<MoperContabilidadItem[]> {
+  let q = admin
+    .from("moper_registros")
+    .select(
+      "id, folio, oficial_nombre, servicio_actual_nombre, servicio_nuevo_nombre, puesto_actual_nombre, puesto_nuevo_nombre, motivo, created_at, completado, email_contabilidad_enviado_at, recibido_contabilidad_at, recibido_contabilidad_por",
+    )
+    .eq("completado", true)
+    .neq("estado", "cancelado")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  const recibido = opts.recibido ?? "todos";
+  if (recibido === "si") q = q.not("recibido_contabilidad_at", "is", null);
+  if (recibido === "no") q = q.is("recibido_contabilidad_at", null);
+
+  const desdeIso = opts.desde ? dayStartIso(opts.desde) : null;
+  if (desdeIso) q = q.gte("created_at", desdeIso);
+  const hastaIso = opts.hasta ? dayEndIso(opts.hasta) : null;
+  if (hastaIso) q = q.lte("created_at", hastaIso);
+
+  const { data, error } = await q;
+  if (error) failSupabase(error);
+  return (data ?? []).map((r) => mapContabilidadRow(r as Record<string, unknown>));
+}
+
+export async function registrarEmailContabilidadEnviado(admin: SupabaseClient, id: number): Promise<void> {
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from("moper_registros")
+    .update({ email_contabilidad_enviado_at: now, updated_at: now })
+    .eq("id", id);
+  if (error) failSupabase(error);
+}
+
+export async function marcarRecibidoContabilidadMoper(
+  admin: SupabaseClient,
+  id: number,
+  recibidoPor: string,
+): Promise<MoperRegistroApi> {
+  const { data: existing, error: exErr } = await admin.from("moper_registros").select("*").eq("id", id).maybeSingle();
+  if (exErr) failSupabase(exErr);
+  if (!existing) throw new Error("Registro no encontrado");
+  const row = existing as MoperRegistroRow;
+  if (row.estado === "cancelado") throw new Error("Registro cancelado");
+  if (!row.completado) throw new Error("El MOPER debe estar completado (todas las firmas)");
+  if (row.recibido_contabilidad_at) throw new Error("Este MOPER ya fue marcado como recibido");
+
+  const now = new Date().toISOString();
+  const por = recibidoPor.trim() || "Contabilidad";
+  const { data, error } = await admin
+    .from("moper_registros")
+    .update({
+      recibido_contabilidad_at: now,
+      recibido_contabilidad_por: por,
+      updated_at: now,
+    })
+    .eq("id", id)
+    .is("recibido_contabilidad_at", null)
+    .select("*")
+    .maybeSingle();
+  if (error) failSupabase(error);
+  if (!data) throw new Error("No se pudo marcar como recibido (pudo haber sido actualizado por otro usuario)");
+  return mapRegistroToApi(data as MoperRegistroRow);
+}
+
+export type NotificarContabilidadResultado = {
+  ok: boolean;
+  skipped?: boolean;
+  error?: string;
+  modo: "resend" | "sin_configurar";
+};
+
+/** Envía correo a contabilidad; actualiza email_contabilidad_enviado_at si el envío fue exitoso. */
+export async function notificarContabilidadMoperPorId(
+  admin: SupabaseClient,
+  id: number,
+  opts?: { forzar?: boolean; pendienteRecepcion?: boolean },
+): Promise<NotificarContabilidadResultado> {
+  const registro = await obtenerRegistroPorId(admin, id);
+  if (!registro) throw new Error("Registro no encontrado");
+  if (!registro.completado) throw new Error("El MOPER aún no está completado (faltan firmas)");
+
+  const yaEnviado = Boolean(registro.email_contabilidad_enviado_at);
+  if (!opts?.forzar && yaEnviado && !opts?.pendienteRecepcion) {
+    return { ok: true, skipped: true, modo: "resend" };
+  }
+
+  const resultado = await enviarEmailMoperContabilidad(registro, {
+    esReenvio: opts?.forzar || yaEnviado,
+    pendienteRecepcion: opts?.pendienteRecepcion,
+  });
+  if (resultado.ok) {
+    await registrarEmailContabilidadEnviado(admin, id);
+  }
+  return resultado;
 }
 
 export async function listarResumenMoper(admin: SupabaseClient): Promise<MoperResumenApi> {

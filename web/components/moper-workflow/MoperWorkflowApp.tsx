@@ -20,15 +20,36 @@ import { MoperRegistroAbiertoBanner } from "./MoperRegistroAbiertoBanner";
 type MoperWorkflowAppProps = {
   initialRegistroId?: number | null;
   firmaDestacada?: string | null;
+  refreshTrigger?: number;
+  ocultarPanelLateral?: boolean;
+  modoRecepcionDocumento?: boolean;
 };
 
-export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = null }: MoperWorkflowAppProps) {
-  const { user, authHeaders, puedeEditar, appRole } = useMoperWorkflow();
+export function MoperWorkflowApp({
+  initialRegistroId = null,
+  firmaDestacada = null,
+  refreshTrigger = 0,
+  ocultarPanelLateral = false,
+  modoRecepcionDocumento = false,
+}: MoperWorkflowAppProps) {
+  const {
+    user,
+    authHeaders,
+    puedeEditar,
+    appRole,
+    puedeMarcarRecibidoContabilidad,
+    puedeReenviarEmailContabilidad,
+    esSoloContabilidad,
+    esNominasRecepcion,
+  } = useMoperWorkflow();
+  const esModoRecepcion = esNominasRecepcion || esSoloContabilidad;
+  const etiquetaRecepcion = esNominasRecepcion ? "Nóminas" : "Contabilidad";
   const [folioPreview, setFolioPreview] = useState("SPT/No. 0280/MOP");
   const [registroId, setRegistroId] = useState<number | null>(null);
   const [registroCompleto, setRegistroCompleto] = useState<RegistroMoper | null>(null);
   const [cargandoRegistro, setCargandoRegistro] = useState(false);
   const [refreshPanel, setRefreshPanel] = useState(0);
+  const [marcandoRecibido, setMarcandoRecibido] = useState(false);
 
   useEffect(() => {
     moperFetch("/api/folios/preview", { headers: authHeaders() })
@@ -82,6 +103,13 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
     }
   }, [initialRegistroId, onSeleccionarRegistro, registroId]);
 
+  useEffect(() => {
+    if (refreshTrigger > 0 && registroId != null) {
+      cargarRegistro(registroId);
+      setRefreshPanel((k) => k + 1);
+    }
+  }, [refreshTrigger, registroId, cargarRegistro]);
+
   const onGenerarPDF = useCallback(() => {
     if (!registroCompleto) return;
     Promise.all([loadLogoAsDataUrl(), loadPlantillaAsDataUrl()]).then(([logo, plantilla]) => {
@@ -127,19 +155,72 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
     return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }, []);
 
+  const marcarRecibidoContabilidad = useCallback(async () => {
+    if (!registroId || !registroCompleto?.completado) return;
+    if (!window.confirm(`¿Confirma recepción oficial de este MOPER en ${etiquetaRecepcion}?`)) return;
+    setMarcandoRecibido(true);
+    try {
+      const r = await moperFetch(`/api/moper/${registroId}/recibido`, {
+        method: "PATCH",
+        headers: authHeaders(),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Error");
+      cargarRegistro(registroId);
+      setRefreshPanel((k) => k + 1);
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.location.reload();
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Error al marcar recibido");
+    } finally {
+      setMarcandoRecibido(false);
+    }
+  }, [authHeaders, cargarRegistro, etiquetaRecepcion, registroCompleto?.completado, registroId]);
+
+  const reenviarEmailContabilidad = useCallback(async () => {
+    if (!registroId || !registroCompleto?.completado) return;
+    if (!window.confirm("¿Reenviar notificación a contabilidad?")) return;
+    try {
+      const pendiente = !registroCompleto.recibido_contabilidad_at;
+      const r = await moperFetch(`/api/moper/${registroId}/notificar-contabilidad`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ pendiente }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Error al enviar");
+      alert("Correo enviado a contabilidad.");
+      cargarRegistro(registroId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Error al enviar correo");
+    }
+  }, [authHeaders, cargarRegistro, registroCompleto, registroId]);
+
   const puedeAjustarFolio = moperWorkflowPuedeAjustarFolio(appRole);
 
   return (
     <div className="flex flex-col rounded-xl border-2 border-oxford-200 bg-white overflow-hidden min-h-[480px]">
       <MoperWorkflowHeader />
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
-        <PanelLateral
-          registroIdActual={registroId}
-          onSeleccionarRegistro={onSeleccionarRegistro}
-          onNuevoRegistro={onNuevoRegistro}
-          refreshTrigger={refreshPanel}
-        />
+        {!ocultarPanelLateral ? (
+          <PanelLateral
+            registroIdActual={registroId}
+            onSeleccionarRegistro={onSeleccionarRegistro}
+            onNuevoRegistro={onNuevoRegistro}
+            refreshTrigger={refreshPanel}
+          />
+        ) : null}
         <main className="flex-1 min-w-0 w-full px-3 sm:px-4 py-4 sm:py-6 overflow-auto">
+          {esModoRecepcion && !registroId && !modoRecepcionDocumento ? (
+            <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+              Seleccione un MOPER en el listado y pulse <strong>Ver</strong> para consultar el documento.
+            </p>
+          ) : null}
           <p className="text-center font-bold text-oxford-800 text-base sm:text-lg mb-4 sm:mb-6 uppercase">
             Movimiento de Personal (MOPER)
           </p>
@@ -147,6 +228,32 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
             <p className="mb-4 text-center text-sm text-oxford-600">Cargando registro seleccionado…</p>
           ) : null}
           {registroCompleto && registroId ? <MoperRegistroAbiertoBanner registro={registroCompleto} /> : null}
+          {registroCompleto?.completado && registroCompleto.recibido_contabilidad_at ? (
+            <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              Recibido el{" "}
+              {new Date(registroCompleto.recibido_contabilidad_at).toLocaleString("es-MX")}
+              {registroCompleto.recibido_contabilidad_por
+                ? ` — ${registroCompleto.recibido_contabilidad_por}`
+                : ""}
+            </p>
+          ) : null}
+          {registroCompleto?.completado &&
+          !registroCompleto.recibido_contabilidad_at &&
+          puedeMarcarRecibidoContabilidad ? (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-sm text-amber-950 flex-1 min-w-[12rem]">
+                Este MOPER está listo. Confirme recepción para registrar el cambio oficial.
+              </p>
+              <button
+                type="button"
+                disabled={marcandoRecibido}
+                onClick={() => void marcarRecibidoContabilidad()}
+                className="btn-primary min-h-[44px] uppercase"
+              >
+                Marcar como recibido
+              </button>
+            </div>
+          ) : null}
           {registroId && !cargandoRegistro && !registroCompleto ? (
             <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               No se pudo cargar el registro. Seleccione otro en la lista o intente de nuevo.
@@ -183,7 +290,7 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
               ) : null}
             </div>
             {puedeAjustarFolio ? <MoperFolioAuditoriaPanel authHeaders={authHeaders} /> : null}
-            {registroCompleto?.codigo_acceso ? (
+            {registroCompleto?.codigo_acceso && !esModoRecepcion ? (
               <div className="space-y-2 text-sm uppercase">
                 <p>
                   <span className="text-oxford-600 font-medium">Codigo de acceso para el oficial: </span>
@@ -194,14 +301,16 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
               </div>
             ) : null}
           </div>
-          <FormularioMoper
-            key={registroId ?? "nuevo"}
-            onGuardar={onGuardar}
-            registroId={registroId}
-            registro={registroCompleto}
-            folioPreview={folioPreview}
-            puedeEditar={puedeEditar}
-          />
+          {!esModoRecepcion || registroId ? (
+            <FormularioMoper
+              key={registroId ?? "nuevo"}
+              onGuardar={onGuardar}
+              registroId={registroId}
+              registro={registroCompleto}
+              folioPreview={folioPreview}
+              puedeEditar={puedeEditar && !esModoRecepcion}
+            />
+          ) : null}
           {registroId ? (
             <>
               <FirmasWorkflow
@@ -212,20 +321,33 @@ export function MoperWorkflowApp({ initialRegistroId = null, firmaDestacada = nu
               />
               {registroCompleto ? (
                 <div className="mt-6 flex flex-wrap gap-3 justify-end">
-                  <a
-                    href={mailtoHref(registroCompleto)}
-                    className="btn-secondary min-h-[44px] inline-flex items-center justify-center uppercase"
-                  >
-                    Enviar por correo
-                  </a>
+                  {!esModoRecepcion ? (
+                    <a
+                      href={mailtoHref(registroCompleto)}
+                      className="btn-secondary min-h-[44px] inline-flex items-center justify-center uppercase"
+                    >
+                      Enviar por correo
+                    </a>
+                  ) : null}
+                  {puedeReenviarEmailContabilidad && registroCompleto.completado ? (
+                    <button
+                      type="button"
+                      onClick={() => void reenviarEmailContabilidad()}
+                      className="btn-secondary min-h-[44px] uppercase"
+                    >
+                      Notificar contabilidad
+                    </button>
+                  ) : null}
                   {registroCompleto.completado ? (
                     <>
                       <button type="button" onClick={onGenerarPDF} className="btn-primary min-h-[44px] uppercase">
                         Descargar PDF
                       </button>
-                      <button type="button" onClick={onNuevoRegistro} className="btn-secondary min-h-[44px] uppercase">
-                        Nuevo registro
-                      </button>
+                      {!esModoRecepcion ? (
+                        <button type="button" onClick={onNuevoRegistro} className="btn-secondary min-h-[44px] uppercase">
+                          Nuevo registro
+                        </button>
+                      ) : null}
                     </>
                   ) : null}
                 </div>

@@ -35,3 +35,19 @@ export function moperWorkflowPuedeCancelar(email: string | null | undefined, rol
   const e = (email ?? "").trim().toLowerCase();
   return e === "sistemas@tacticalsupport.com.mx" || e === "gterh@tacticalsupport.com.mx";
 }
+
+export function moperWorkflowPuedeMarcarRecibidoContabilidad(role: AppRole): boolean {
+  return role === "nominas" || role === "contabilidad";
+}
+
+export function moperWorkflowEsNominasRecepcion(role: AppRole): boolean {
+  return role === "nominas";
+}
+
+export function moperWorkflowPuedeReenviarEmailContabilidad(role: AppRole): boolean {
+  return role === "admin" || role === "rh" || role === "gerente_rh" || role === "relaciones_laborales";
+}
+
+export function moperWorkflowEsSoloContabilidad(role: AppRole): boolean {
+  return role === "contabilidad";
+}

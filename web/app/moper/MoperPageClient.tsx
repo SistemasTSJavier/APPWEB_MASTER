@@ -1,25 +1,44 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { AppRole } from "@/lib/app-role";
 import { MoperWorkflowProvider, useMoperWorkflow } from "@/components/moper-workflow/MoperWorkflowContext";
 import { MoperWorkflowApp } from "@/components/moper-workflow/MoperWorkflowApp";
 import { VistaPorCodigo } from "@/components/moper-workflow/VistaPorCodigo";
 import { CodigoAccesoPanel } from "@/components/moper-workflow/CodigoAccesoPanel";
+import { MoperContabilidadPanel } from "@/components/moper-workflow/MoperContabilidadPanel";
 
 function MoperPageContent() {
-  const { accesoPorCodigo, loginPorCodigo } = useMoperWorkflow();
+  const {
+    accesoPorCodigo,
+    loginPorCodigo,
+    authHeaders,
+    puedeMarcarRecibidoContabilidad,
+    puedeReenviarEmailContabilidad,
+    esSoloContabilidad,
+    esNominasRecepcion,
+  } = useMoperWorkflow();
   const searchParams = useSearchParams();
   const codigoUrl = searchParams.get("codigo")?.trim().toUpperCase() ?? "";
   const registroParam = searchParams.get("registro")?.trim() ?? "";
   const firmaParam = searchParams.get("firma")?.trim().toLowerCase() ?? "";
+  const [refreshWorkflow, setRefreshWorkflow] = useState(0);
   const initialRegistroId = (() => {
     const id = parseInt(registroParam, 10);
     return Number.isFinite(id) && id > 0 ? id : null;
   })();
   const firmaDestacada =
     firmaParam === "rh" || firmaParam === "gerente" || firmaParam === "control" ? firmaParam : null;
+
+  const vistaDocumentoRecepcion =
+    (esNominasRecepcion || esSoloContabilidad) && initialRegistroId != null;
+  const mostrarListaRecepcion = !vistaDocumentoRecepcion;
+  const mostrarWorkflowCaptura = !esNominasRecepcion || vistaDocumentoRecepcion;
+
+  const onHistorialRefresh = useCallback(() => {
+    setRefreshWorkflow((k) => k + 1);
+  }, []);
 
   useEffect(() => {
     if (!codigoUrl || accesoPorCodigo) return;
@@ -39,14 +58,51 @@ function MoperPageContent() {
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Modulo</p>
         <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">MOPER</h1>
-        <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
-          Captura y firmas internas abajo. El oficial firma en{" "}
-          <strong className="text-sky-900">/moper/firma</strong> con su codigo — sin iniciar sesion en la plataforma.
-          Gerente RH, Gerente de Operaciones y Centro de Control pueden firmar desde el enlace del correo con su cuenta.
-        </p>
+        {esNominasRecepcion && !vistaDocumentoRecepcion ? (
+          <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
+            MOPER completados pendientes de recepción. Pulse <strong>Ver</strong> para abrir el documento con todas las
+            firmas y confirmar recepción.
+          </p>
+        ) : esSoloContabilidad || vistaDocumentoRecepcion ? (
+          <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
+            Revise el movimiento de personal, las firmas y confirme recepción para registrar el cambio oficial.
+          </p>
+        ) : (
+          <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
+            Captura y firmas internas abajo. El oficial firma en{" "}
+            <strong className="text-sky-900">/moper/firma</strong> con su codigo — sin iniciar sesion en la plataforma.
+            Gerente RH, Gerente de Operaciones y Centro de Control pueden firmar desde el enlace del correo con su cuenta.
+            Al completarse todas las firmas se notifica por correo.
+          </p>
+        )}
       </div>
-      <CodigoAccesoPanel />
-      <MoperWorkflowApp initialRegistroId={initialRegistroId} firmaDestacada={firmaDestacada} />
+
+      {mostrarListaRecepcion ? (
+        <MoperContabilidadPanel
+          authHeaders={authHeaders}
+          puedeMarcarRecibido={puedeMarcarRecibidoContabilidad}
+          puedeReenviarEmail={puedeReenviarEmailContabilidad}
+          registroSeleccionadoId={initialRegistroId}
+          onRefreshRegistro={onHistorialRefresh}
+          soloPendientes={esNominasRecepcion}
+          abrirEnNuevaVentana={esNominasRecepcion}
+          etiquetaRecepcion={esNominasRecepcion ? "Nóminas" : "Contabilidad"}
+        />
+      ) : null}
+
+      {mostrarWorkflowCaptura ? (
+        <>
+          {!esNominasRecepcion && !esSoloContabilidad ? <CodigoAccesoPanel /> : null}
+
+          <MoperWorkflowApp
+            initialRegistroId={initialRegistroId}
+            firmaDestacada={firmaDestacada}
+            refreshTrigger={refreshWorkflow}
+            ocultarPanelLateral={esNominasRecepcion || esSoloContabilidad}
+            modoRecepcionDocumento={vistaDocumentoRecepcion}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

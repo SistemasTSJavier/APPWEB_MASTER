@@ -9,13 +9,14 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - aux_rh: solo Altas y Bajas; puede registrar, editar y guardar en ambos módulos (auxrh@tacticalsupport.com.mx).
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura), MOPER (registra/edita) y Gestores proceso. Sin altas, expedientes legal, servicios ni ficha técnica.
  * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC igual que admin (subir/eliminar, todos los departamentos).
- * - nominas: inicio, Colaboradores y MOPER solo consulta (sin expedientes legal ni export CSV).
+ * - nominas: inicio, Colaboradores, MOPER consulta y recepción de documentos completados (marca recibido).
  * - aux_legal: Colaboradores, Expedientes legal e historial MOPER (consulta).
  * - gerente_legal: lo mismo + Alertas contrato (contratos de prueba).
  * - editor_cuadricula: inicio, Bajas, Colaboradores y MOPER solo consulta; Cuadrícula con captura/guardado e import CSV.
  * - capacitacion: inicio y sección Categorización únicamente.
  * - relaciones_laborales: inicio y MOPER (registrar, editar y guardar); sin otros módulos.
  * - gerente_operaciones: solo MOPER; firma como Gerente de Operaciones (gerenteoperaciones@tacticalsupport.com.mx).
+ * - contabilidad: solo MOPER; consulta documentos completados y marca recepción oficial (contabilidad@tacticalsupport.com.mx).
  * - cliente_enfoque: solo consulta del dashboard de categorización (todos los módulos), limitado al servicio del acceso temporal.
  */
 export type AppRole =
@@ -31,6 +32,7 @@ export type AppRole =
   | "capacitacion"
   | "relaciones_laborales"
   | "gerente_operaciones"
+  | "contabilidad"
   | "cliente_enfoque";
 
 /** Correos previstos para usuarios legales (referencia al crear usuarios en Supabase). */
@@ -51,6 +53,9 @@ export const AUX_RH_EMAIL = "auxrh@tacticalsupport.com.mx";
 
 /** Gerente de operaciones: solo MOPER y firma gerente (metadata app_role: gerente_operaciones o este correo). */
 export const GERENTE_OPERACIONES_EMAIL = "gerenteoperaciones@tacticalsupport.com.mx";
+
+/** Contabilidad: solo MOPER; marca recepción de documentos completados (metadata app_role: contabilidad o este correo). */
+export const CONTABILIDAD_EMAIL = "contabilidad@tacticalsupport.com.mx";
 
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -89,6 +94,8 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   gerente_operaciones: "gerente_operaciones",
   "gerente operaciones": "gerente_operaciones",
   gerenteoperaciones: "gerente_operaciones",
+  contabilidad: "contabilidad",
+  contable: "contabilidad",
   cliente_enfoque: "cliente_enfoque",
   "cliente enfoque": "cliente_enfoque",
   cliente_enfoque_cliente: "cliente_enfoque",
@@ -113,6 +120,7 @@ export const APP_ROLE_LABEL: Record<AppRole, string> = {
   capacitacion: "Capacitación",
   relaciones_laborales: "Relaciones laborales",
   gerente_operaciones: "Gerente operaciones",
+  contabilidad: "Contabilidad",
   cliente_enfoque: "Cliente enfoque",
 };
 
@@ -125,6 +133,7 @@ export function resolveAppRoleFromUser(user: {
   const e = (user.email ?? "").trim().toLowerCase();
   if (e === AUX_RH_EMAIL.toLowerCase()) return "aux_rh";
   if (e === GERENTE_OPERACIONES_EMAIL.toLowerCase()) return "gerente_operaciones";
+  if (e === CONTABILIDAD_EMAIL.toLowerCase()) return "contabilidad";
   const fromMeta = parseAppRole(user.user_metadata?.app_role ?? user.app_metadata?.app_role);
   if (fromMeta) return fromMeta;
   if (e === RELACIONES_LABORALES_EMAIL.toLowerCase()) return "relaciones_laborales";
@@ -170,6 +179,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
     "editor_cuadricula",
     "relaciones_laborales",
     "gerente_operaciones",
+    "contabilidad",
   ],
   "/servicios": ["admin", "rh"],
   "/sgc": ["admin", "mejora_continua"],
@@ -245,14 +255,14 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
 /** Tras login o acceso denegado. */
 export function defaultHomeForRole(role: AppRole): string {
   if (role === "cliente_enfoque") return "/categorizacion/dashboard";
-  if (role === "relaciones_laborales" || role === "gerente_operaciones") return "/moper";
+  if (role === "relaciones_laborales" || role === "gerente_operaciones" || role === "contabilidad") return "/moper";
   if (role === "aux_rh") return "/altas";
   return "/";
 }
 
 export function inicioHrefParaRol(role: AppRole): string {
   if (role === "cliente_enfoque") return "/categorizacion/dashboard";
-  if (role === "relaciones_laborales" || role === "gerente_operaciones") return "/moper";
+  if (role === "relaciones_laborales" || role === "gerente_operaciones" || role === "contabilidad") return "/moper";
   if (role === "aux_rh") return "/altas";
   return "/";
 }
@@ -271,12 +281,15 @@ export function appSidebarModuleLinks(role: AppRole, userEmail?: string | null):
   if (role === "gerente_operaciones") {
     return [{ href: "/moper", label: "Moper" }];
   }
+  if (role === "contabilidad") {
+    return [{ href: "/moper", label: "Moper" }];
+  }
   return homeSidebarLinks(role, userEmail);
 }
 
 /** Muestra enlace «Inicio» en la barra lateral. */
 export function roleShowsInicioNav(role: AppRole): boolean {
-  return role !== "aux_rh" && role !== "gerente_operaciones" && role !== "cliente_enfoque";
+  return role !== "aux_rh" && role !== "gerente_operaciones" && role !== "contabilidad" && role !== "cliente_enfoque";
 }
 
 /** Altas: importar / guardar expediente nuevo. Administrador y Aux RH (Gerente RH solo consulta en Altas). */
@@ -352,8 +365,19 @@ export function roleMayReadMoperHistorialApi(role: AppRole): boolean {
     role === "gerente_legal" ||
     role === "editor_cuadricula" ||
     role === "relaciones_laborales" ||
-    role === "gerente_operaciones"
+    role === "gerente_operaciones" ||
+    role === "contabilidad"
   );
+}
+
+/** Marcar MOPER como recibido (cambio oficial): Nóminas o Contabilidad. */
+export function roleMayMarcarRecibidoContabilidadMoper(role: AppRole): boolean {
+  return role === "nominas" || role === "contabilidad";
+}
+
+/** Reenviar notificación por correo a contabilidad. */
+export function roleMayReenviarEmailContabilidadMoper(role: AppRole): boolean {
+  return role === "admin" || role === "rh" || role === "gerente_rh" || role === "relaciones_laborales";
 }
 
 /** Lectura del catálogo (lista desplegable): operación y cuadrícula (nóminas, gerente RH, mejora). */
@@ -443,6 +467,9 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
   if (role === "gerente_operaciones") {
     return [{ href: "/moper", label: "Moper" }];
   }
+  if (role === "contabilidad") {
+    return [{ href: "/moper", label: "Moper" }];
+  }
 
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
@@ -480,6 +507,7 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
         "editor_cuadricula",
         "relaciones_laborales",
         "gerente_operaciones",
+        "contabilidad",
       ],
     },
     {

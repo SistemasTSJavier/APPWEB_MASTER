@@ -16,6 +16,10 @@ import {
   moperWorkflowPuedeFirmarRh,
   moperWorkflowPuedeCancelar,
   moperWorkflowPuedeEditar,
+  moperWorkflowPuedeMarcarRecibidoContabilidad,
+  moperWorkflowPuedeReenviarEmailContabilidad,
+  moperWorkflowEsSoloContabilidad,
+  moperWorkflowEsNominasRecepcion,
   moperWorkflowRolFromAppRole,
   type MoperWorkflowRol,
 } from "@/lib/moper-workflow-role";
@@ -37,6 +41,10 @@ type MoperWorkflowContextValue = {
   puedeFirmarRh: boolean;
   puedeFirmarGerente: boolean;
   puedeFirmarControl: boolean;
+  puedeMarcarRecibidoContabilidad: boolean;
+  puedeReenviarEmailContabilidad: boolean;
+  esSoloContabilidad: boolean;
+  esNominasRecepcion: boolean;
   loginPorCodigo: (codigo: string) => Promise<{ ok: boolean; error?: string }>;
   clearCodigoAcceso: () => void;
   setRegistroPorCodigo: (registro: MoperRegistroApi) => void;
@@ -95,6 +103,10 @@ export function MoperWorkflowProvider({
     puedeFirmarRh: moperWorkflowPuedeFirmarRh(appRole),
     puedeFirmarGerente: moperWorkflowPuedeFirmarGerente(appRole),
     puedeFirmarControl: moperWorkflowPuedeFirmarControl(appRole),
+    puedeMarcarRecibidoContabilidad: moperWorkflowPuedeMarcarRecibidoContabilidad(appRole),
+    puedeReenviarEmailContabilidad: moperWorkflowPuedeReenviarEmailContabilidad(appRole),
+    esSoloContabilidad: moperWorkflowEsSoloContabilidad(appRole),
+    esNominasRecepcion: moperWorkflowEsNominasRecepcion(appRole),
     loginPorCodigo,
     clearCodigoAcceso,
     setRegistroPorCodigo,

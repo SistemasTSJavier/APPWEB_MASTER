@@ -31,6 +31,9 @@ export type MoperRegistroRow = {
   firma_control_nombre: string | null;
   firma_control_imagen: string | null;
   completado: boolean;
+  email_contabilidad_enviado_at: string | null;
+  recibido_contabilidad_at: string | null;
+  recibido_contabilidad_por: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -69,8 +72,27 @@ export type MoperRegistroApi = {
   firma_control_nombre?: string | null;
   firma_control_imagen?: string | null;
   completado?: boolean;
+  email_contabilidad_enviado_at?: string | null;
+  recibido_contabilidad_at?: string | null;
+  recibido_contabilidad_por?: string | null;
   codigo_acceso?: string | null;
   estado?: string;
+};
+
+export type MoperContabilidadItem = {
+  id: number;
+  folio: string | null;
+  oficial_nombre: string;
+  servicio_actual_nombre: string;
+  servicio_nuevo_nombre: string;
+  puesto_actual_nombre: string;
+  puesto_nuevo_nombre: string;
+  motivo: string;
+  created_at: string;
+  completado: boolean;
+  email_contabilidad_enviado_at: string | null;
+  recibido_contabilidad_at: string | null;
+  recibido_contabilidad_por: string | null;
 };
 
 export type MoperResumenApi = {

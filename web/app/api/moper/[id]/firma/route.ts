@@ -54,6 +54,12 @@ export async function PATCH(req: Request, { params }: Params) {
         nombreFirmante: "Oficial",
         codigoAcceso: body.codigo_acceso,
       });
+      if (registro.completado) {
+        const { notificarContabilidadMoperPorId } = await import("@/lib/moper-registros-server");
+        void notificarContabilidadMoperPorId(admin, id).catch((err) => {
+          console.error("[moper/firma] Error al notificar contabilidad:", err);
+        });
+      }
       return NextResponse.json(registro);
     } catch (e) {
       return NextResponse.json(
@@ -83,6 +89,12 @@ export async function PATCH(req: Request, { params }: Params) {
 
   try {
     const registro = await registrarFirmaMoper(admin, id, tipo, imagen, { nombreFirmante: nombre });
+    if (registro.completado) {
+      const { notificarContabilidadMoperPorId } = await import("@/lib/moper-registros-server");
+      void notificarContabilidadMoperPorId(admin, id).catch((err) => {
+        console.error("[moper/firma] Error al notificar contabilidad:", err);
+      });
+    }
     return NextResponse.json(registro);
   } catch (e) {
     return NextResponse.json(
