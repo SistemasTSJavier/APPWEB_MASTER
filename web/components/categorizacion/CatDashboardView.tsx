@@ -5,9 +5,8 @@ import type { CatDashboardEmpleado } from "@/lib/categorizacion-dashboard-types"
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
 import { CatBarChartModulos, colorPuntajeCategorizacion } from "@/components/categorizacion/CatDashboardCharts";
+import { CatDashboardBanner } from "@/components/categorizacion/CatDashboardBanner";
 import { CatOficialFoto } from "@/components/categorizacion/CatOficialFoto";
-import { CAT_DASHBOARD_LOGO_FALLBACKS } from "@/lib/brand-logo";
-import { TacticalSupportLogo } from "@/components/tactical-support-logo";
 
 export const CatDashboardView = forwardRef<
   HTMLDivElement,
@@ -19,6 +18,9 @@ export const CatDashboardView = forwardRef<
     onSeleccionarColaborador?: (noEmpleado: string) => void;
     puedeSubirFoto?: boolean;
     onFotoActualizada?: (noEmpleado: string, url: string) => void;
+    logoServicioUrl?: string | null;
+    puedeSubirLogo?: boolean;
+    onLogoServicioActualizado?: (url: string | null) => void;
   }
 >(function CatDashboardView(
   {
@@ -29,10 +31,12 @@ export const CatDashboardView = forwardRef<
     onSeleccionarColaborador,
     puedeSubirFoto = false,
     onFotoActualizada,
+    logoServicioUrl = null,
+    puedeSubirLogo = false,
+    onLogoServicioActualizado,
   },
   ref,
 ) {
-  const fecha = new Date(generadoEn).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
   const nivelLabel = empleado.nivelId ? empleado.nivelId.toUpperCase() : "—";
   const paqueteLabel = empleado.paqueteId
     ? empleado.paqueteId === "basico"
@@ -50,19 +54,13 @@ export const CatDashboardView = forwardRef<
           : "overflow-hidden rounded-xl border border-slate-300 bg-white shadow-md"
       }
     >
-      <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-5 sm:px-8 sm:py-6">
-        <div className="flex flex-col items-center justify-center gap-3 text-center sm:gap-4">
-          <TacticalSupportLogo priority={presentacion} fallbacks={CAT_DASHBOARD_LOGO_FALLBACKS} />
-          <div>
-            <h1 className="text-lg font-extrabold uppercase tracking-[0.12em] text-slate-800 sm:text-2xl">
-              Tactical Support
-            </h1>
-            <p className="mt-1 text-[10px] font-semibold text-slate-500 sm:text-xs">
-              Dashboard de categorización · {fecha}
-            </p>
-          </div>
-        </div>
-      </div>
+      <CatDashboardBanner
+        servicio={empleado.servicio}
+        logoClienteUrl={logoServicioUrl}
+        puedeSubirLogo={puedeSubirLogo}
+        onLogoActualizado={onLogoServicioActualizado}
+        presentacion={presentacion}
+      />
 
       <div
         className={
@@ -77,7 +75,14 @@ export const CatDashboardView = forwardRef<
           }`}
         >
           <div className={presentacion ? "shrink-0" : undefined}>
-            <div className="flex items-start gap-3 sm:gap-4">
+            <div className="flex items-stretch justify-between gap-2 sm:gap-3">
+              <div className="flex min-w-0 flex-1 flex-col justify-center pr-0.5">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
+                <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
+                  {empleado.nombre}
+                </p>
+                <p className="mt-0.5 font-mono text-xs text-slate-500">N° {empleado.noEmpleado}</p>
+              </div>
               <CatOficialFoto
                 noEmpleado={empleado.noEmpleado}
                 nombre={empleado.nombre}
@@ -86,13 +91,6 @@ export const CatDashboardView = forwardRef<
                 presentacion={presentacion}
                 onActualizada={(url) => onFotoActualizada?.(empleado.noEmpleado, url)}
               />
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
-                <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
-                  {empleado.nombre}
-                </p>
-                <p className="mt-0.5 font-mono text-xs text-slate-500">N° {empleado.noEmpleado}</p>
-              </div>
             </div>
 
             <p className="mt-5 text-xl font-light leading-tight text-slate-800 sm:text-2xl">{empleado.tiempoEnEmpresa}</p>

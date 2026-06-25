@@ -10,12 +10,18 @@ import type { CatDashboardEmpleado, CatDashboardPayload } from "@/lib/categoriza
 import type { AppRole } from "@/lib/app-role";
 import { roleEsClienteEnfoque, roleMayWriteExpedienteColaborador } from "@/lib/app-role";
 import { CatOficialFoto } from "@/components/categorizacion/CatOficialFoto";
+import { CatLogoServicioFiltro } from "@/components/categorizacion/CatDashboardBanner";
+import {
+  claveLogoServicioDashboard,
+  logoServicioDesdeMapa,
+} from "@/lib/cat-dashboard-logo-servicio";
+import { prepararClonHtml2Canvas } from "@/lib/html2canvas-export-compat";
 
 const LOOP_MS = 20_000;
 const PDF_MARGIN_MM = 10;
 const PDF_HEADER_MM = 8;
 const PDF_JPEG_QUALITY = 0.92;
-const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v3";
+const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v4";
 const DASHBOARD_CACHE_MS = 5 * 60_000;
 
 type DashboardCache = CatDashboardPayload & { cachedAt: number };
@@ -31,6 +37,7 @@ function leerDashboardCache(): CatDashboardPayload | null {
     return {
       ...payload,
       empleados: (payload.empleados ?? []).map((e) => ({ ...e, fotoUrl: e.fotoUrl ?? null })),
+      logosServicio: payload.logosServicio ?? {},
     };
   } catch {
     return null;
@@ -53,32 +60,110 @@ function esperarPintado(): Promise<void> {
   });
 }
 
+async function inlineImagenesParaExport(root: HTMLElement): Promise<() => void> {
+  const restaurar: Array<() => void> = [];
+  await Promise.all(
+    Array.from(root.querySelectorAll("img")).map(async (img) => {
+      const src = img.currentSrc || img.src;
+      if (!src || src.startsWith("data:") || src.startsWith("blob:")) return;
+      try {
+        const res = await fetch(src);
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result));
+          fr.onerror = () => reject(fr.error);
+          fr.readAsDataURL(blob);
+        });
+        const prev = img.src;
+        img.src = dataUrl;
+        restaurar.push(() => {
+          img.src = prev;
+        });
+      } catch {
+        /* omitir imagen si no se puede incrustar */
+      }
+    }),
+  );
+  return () => {
+    for (const fn of restaurar) fn();
+  };
+}
+
+function expandirNodoCaptura(node: HTMLElement) {
+  node.style.overflow = "visible";
+  node.style.maxHeight = "none";
+  node.style.height = "auto";
+  node.style.minHeight = "auto";
+  node.style.transform = "none";
+}
+
 async function capturarElementoDashboard(el: HTMLElement) {
   await esperarPintado();
-  const html2canvas = (await import("html2canvas")).default;
-  return html2canvas(el, {
-    scale: Math.min(3, Math.max(2, window.devicePixelRatio || 2)),
-    useCORS: true,
-    allowTaint: false,
-    backgroundColor: "#ffffff",
-    logging: false,
-    scrollX: 0,
-    scrollY: 0,
-    width: el.scrollWidth,
-    height: el.scrollHeight,
-    onclone: (doc) => {
-      const root = doc.querySelector("[data-cat-dashboard]") as HTMLElement | null;
-      if (!root) return;
-      root.style.overflow = "visible";
-      root.style.maxHeight = "none";
-      root.style.height = "auto";
-      root.querySelectorAll("*").forEach((node) => {
-        const elNode = node as HTMLElement;
-        elNode.style.animation = "none";
-        elNode.style.transition = "none";
-      });
-    },
-  });
+  const host = el.closest("[data-export-capture-host]") as HTMLElement | null;
+  const hostPrev = host
+    ? {
+        left: host.style.left,
+        top: host.style.top,
+        visibility: host.style.visibility,
+        zIndex: host.style.zIndex,
+        opacity: host.style.opacity,
+        pointerEvents: host.style.pointerEvents,
+      }
+    : null;
+  if (host) {
+    host.style.left = "0";
+    host.style.top = "0";
+    host.style.visibility = "visible";
+    host.style.opacity = "1";
+    host.style.zIndex = "9998";
+    host.style.pointerEvents = "none";
+  }
+
+  const restaurarImgs = await inlineImagenesParaExport(el);
+  try {
+    const html2canvas = (await import("html2canvas")).default;
+    return await html2canvas(el, {
+      scale: Math.min(2.5, Math.max(1.75, window.devicePixelRatio || 2)),
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: "#ffffff",
+      logging: false,
+      scrollX: 0,
+      scrollY: -window.scrollY,
+      windowWidth: el.scrollWidth,
+      windowHeight: el.scrollHeight,
+      width: el.scrollWidth,
+      height: el.scrollHeight,
+      onclone: (clonedDoc) => {
+        const cloneRoot =
+          (clonedDoc.querySelector("[data-cat-dashboard]") as HTMLElement | null) ?? el;
+        const sourceRoot = (el.querySelector("[data-cat-dashboard]") as HTMLElement | null) ?? el;
+        prepararClonHtml2Canvas(clonedDoc, sourceRoot, cloneRoot);
+        expandirNodoCaptura(cloneRoot);
+        cloneRoot.querySelectorAll("*").forEach((node) => {
+          const elNode = node as HTMLElement;
+          elNode.style.animation = "none";
+          elNode.style.transition = "none";
+          const tag = elNode.tagName;
+          if (tag === "ASIDE" || tag === "SECTION" || tag === "OL" || tag === "DIV") {
+            expandirNodoCaptura(elNode);
+          }
+        });
+      },
+    });
+  } finally {
+    restaurarImgs();
+    if (host && hostPrev) {
+      host.style.left = hostPrev.left;
+      host.style.top = hostPrev.top;
+      host.style.visibility = hostPrev.visibility;
+      host.style.zIndex = hostPrev.zIndex;
+      host.style.opacity = hostPrev.opacity;
+      host.style.pointerEvents = hostPrev.pointerEvents;
+    }
+  }
 }
 
 function fechaArchivoMx(d = new Date()): string {
@@ -136,11 +221,26 @@ export function CatDashboardClient({
   const [refreshing, setRefreshing] = useState(false);
   const [fechaFinAcceso, setFechaFinAcceso] = useState("");
   const dashRef = useRef<HTMLDivElement>(null);
+  const dashExportRef = useRef<HTMLDivElement>(null);
   const esClienteConsulta = roleEsClienteEnfoque(appRole);
   const puedeSubirFoto = roleMayWriteExpedienteColaborador(appRole) && !esClienteConsulta;
+  const puedeSubirLogo = !esClienteConsulta;
 
   function normalizarEmpleadosDashboard(rows: CatDashboardEmpleado[]): CatDashboardEmpleado[] {
     return rows.map((e) => ({ ...e, fotoUrl: e.fotoUrl ?? null }));
+  }
+
+  function actualizarLogoServicio(servicioNombre: string, url: string | null) {
+    const key = claveLogoServicioDashboard(servicioNombre);
+    setData((prev) => {
+      if (!prev) return prev;
+      const logosServicio = { ...prev.logosServicio };
+      if (url) logosServicio[key] = url;
+      else delete logosServicio[key];
+      const next: CatDashboardPayload = { ...prev, logosServicio };
+      guardarDashboardCache(next);
+      return next;
+    });
   }
 
   function actualizarFotoEmpleado(no: string, url: string) {
@@ -158,6 +258,15 @@ export function CatDashboardClient({
     });
   }
 
+  function normalizarPayloadDashboard(j: Record<string, unknown>): CatDashboardPayload {
+    return {
+      empleados: normalizarEmpleadosDashboard((j.empleados as CatDashboardEmpleado[]) ?? []),
+      servicios: (j.servicios as string[]) ?? [],
+      generadoEn: String(j.generadoEn ?? new Date().toISOString()),
+      logosServicio: (j.logosServicio as Record<string, string>) ?? {},
+    };
+  }
+
   const load = useCallback(async (opts?: { background?: boolean }) => {
     const background = Boolean(opts?.background);
     if (!background) setBusy(true);
@@ -167,11 +276,7 @@ export function CatDashboardClient({
       const r = await fetch("/api/categorizacion/dashboard", { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
-      const payload: CatDashboardPayload = {
-        empleados: normalizarEmpleadosDashboard(j.empleados ?? []),
-        servicios: j.servicios,
-        generadoEn: j.generadoEn,
-      };
+      const payload = normalizarPayloadDashboard(j as Record<string, unknown>);
       setData(payload);
       guardarDashboardCache(payload);
     } catch (e) {
@@ -234,6 +339,11 @@ export function CatDashboardClient({
     if (!noSel || !data) return null;
     return data.empleados.find((e) => e.noEmpleado.trim().toUpperCase() === noSel.trim().toUpperCase()) ?? null;
   }, [data, noSel]);
+
+  const logoServicioFiltro = useMemo(
+    () => (servicio ? logoServicioDesdeMapa(data?.logosServicio, servicio) : null),
+    [data?.logosServicio, servicio],
+  );
 
   const empleadoEnPantalla = useMemo(() => {
     if (noSel) return empleadoManual;
@@ -385,18 +495,33 @@ export function CatDashboardClient({
 
   const puedeMostrar = Boolean(noSel.trim() || (servicio && empleadosServicio.length > 0));
 
+  const empleadoExport = empleadoEnPantalla ?? empleadoManual;
+  const puedeExportarDashboard = Boolean(
+    empleadoExport && (pantallaCompleta || (noSel.trim() && empleadoManual)) && !modoLoop,
+  );
+
+  function elementoDashboardCaptura(): HTMLElement | null {
+    if (pantallaCompleta && dashRef.current) return dashRef.current;
+    if (dashExportRef.current) return dashExportRef.current;
+    return dashRef.current;
+  }
+
   async function exportarPdf() {
-    if (!dashRef.current || !empleadoEnPantalla) return;
+    const el = elementoDashboardCaptura();
+    if (!el || !empleadoExport) {
+      setErr("ABRA LA PRESENTACIÓN O SELECCIONE UN COLABORADOR PARA EXPORTAR.");
+      return;
+    }
     setExportando(true);
     setErr(null);
     try {
-      const canvas = await capturarElementoDashboard(dashRef.current);
+      const canvas = await capturarElementoDashboard(el);
       const { jsPDF } = await import("jspdf");
       const img = canvas.toDataURL("image/jpeg", PDF_JPEG_QUALITY);
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const no = empleadoEnPantalla.noEmpleado;
-      const nombre = empleadoEnPantalla.nombre;
-      const servicioLabel = empleadoEnPantalla.servicio?.trim() || servicio || "—";
+      const no = empleadoExport.noEmpleado;
+      const nombre = empleadoExport.nombre;
+      const servicioLabel = empleadoExport.servicio?.trim() || servicio || "—";
       const exportado = new Date().toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
 
       pdf.setProperties({
@@ -434,14 +559,18 @@ export function CatDashboardClient({
   }
 
   async function exportarPng() {
-    if (!dashRef.current || !empleadoEnPantalla) return;
+    const el = elementoDashboardCaptura();
+    if (!el || !empleadoExport) {
+      setErr("ABRA LA PRESENTACIÓN O SELECCIONE UN COLABORADOR PARA EXPORTAR.");
+      return;
+    }
     setExportando(true);
     setErr(null);
     try {
-      const canvas = await capturarElementoDashboard(dashRef.current);
+      const canvas = await capturarElementoDashboard(el);
       const a = document.createElement("a");
       a.href = canvas.toDataURL("image/png");
-      a.download = `dashboard-cat-${empleadoEnPantalla.noEmpleado}-${fechaArchivoMx()}.png`;
+      a.download = `dashboard-cat-${empleadoExport.noEmpleado}-${fechaArchivoMx()}.png`;
       a.click();
     } catch (e) {
       setErr(e instanceof Error ? e.message.toUpperCase() : "NO SE PUDO EXPORTAR IMAGEN.");
@@ -539,15 +668,16 @@ export function CatDashboardClient({
             />
           </div>
 
+          {servicio && puedeSubirLogo ? (
+            <CatLogoServicioFiltro
+              servicio={servicio}
+              logoUrl={logoServicioFiltro}
+              onActualizado={(url) => actualizarLogoServicio(servicio, url)}
+            />
+          ) : null}
+
           {empleadoManual && puedeSubirFoto ? (
-            <div className="flex flex-wrap items-start gap-4 rounded-lg border border-violet-200 bg-violet-50/60 px-4 py-3">
-              <CatOficialFoto
-                noEmpleado={empleadoManual.noEmpleado}
-                nombre={empleadoManual.nombre}
-                fotoUrl={empleadoManual.fotoUrl}
-                puedeSubir
-                onActualizada={(url) => actualizarFotoEmpleado(empleadoManual.noEmpleado, url)}
-              />
+            <div className="flex flex-wrap items-start justify-between gap-4 rounded-lg border border-violet-200 bg-violet-50/60 px-4 py-3">
               <div className="min-w-[12rem] flex-1 text-xs text-slate-700">
                 <p className="font-bold uppercase text-violet-950">Foto del colaborador</p>
                 <p className="mt-1 leading-relaxed">
@@ -555,6 +685,13 @@ export function CatDashboardClient({
                   dashboard y en la ficha técnica.
                 </p>
               </div>
+              <CatOficialFoto
+                noEmpleado={empleadoManual.noEmpleado}
+                nombre={empleadoManual.nombre}
+                fotoUrl={empleadoManual.fotoUrl}
+                puedeSubir
+                onActualizada={(url) => actualizarFotoEmpleado(empleadoManual.noEmpleado, url)}
+              />
             </div>
           ) : null}
 
@@ -583,7 +720,7 @@ export function CatDashboardClient({
                 <button
                   type="button"
                   className="btn-secondary uppercase"
-                  disabled={!mostrar || !empleadoEnPantalla || exportando || modoLoop}
+                  disabled={!puedeExportarDashboard || exportando}
                   onClick={() => void exportarPdf()}
                 >
                   {exportando ? "Exportando…" : "Exportar PDF"}
@@ -591,7 +728,7 @@ export function CatDashboardClient({
                 <button
                   type="button"
                   className="btn-secondary uppercase"
-                  disabled={!mostrar || !empleadoEnPantalla || exportando || modoLoop}
+                  disabled={!puedeExportarDashboard || exportando}
                   onClick={() => void exportarPng()}
                 >
                   Exportar imagen
@@ -753,6 +890,26 @@ export function CatDashboardClient({
                 Reanudar loop
               </button>
             ) : null}
+            {!esClienteConsulta ? (
+              <>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-800 shadow-sm disabled:opacity-50"
+                  disabled={!puedeExportarDashboard || exportando}
+                  onClick={() => void exportarPdf()}
+                >
+                  {exportando ? "Exportando…" : "Exportar PDF"}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-800 shadow-sm disabled:opacity-50"
+                  disabled={!puedeExportarDashboard || exportando}
+                  onClick={() => void exportarPng()}
+                >
+                  Exportar imagen
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold uppercase text-white shadow-sm"
@@ -773,6 +930,28 @@ export function CatDashboardClient({
               onSeleccionarColaborador={seleccionarEnPresentacion}
               puedeSubirFoto={puedeSubirFoto}
               onFotoActualizada={actualizarFotoEmpleado}
+              logoServicioUrl={logoServicioDesdeMapa(data.logosServicio, empleadoEnPantalla.servicio)}
+              puedeSubirLogo={puedeSubirLogo}
+              onLogoServicioActualizado={(url) => actualizarLogoServicio(empleadoEnPantalla.servicio, url)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {!esClienteConsulta && !pantallaCompleta && empleadoManual && data && noSel.trim() ? (
+        <div
+          data-export-capture-host
+          className="pointer-events-none fixed left-[-12000px] top-0 h-[920px] w-[1400px] opacity-0"
+          aria-hidden
+        >
+          <div className="h-full w-full bg-white">
+            <CatDashboardView
+              ref={dashExportRef}
+              empleado={empleadoManual}
+              generadoEn={data.generadoEn}
+              presentacion
+              rankingServicio={empleadosServicio.length > 1 ? empleadosServicio : undefined}
+              logoServicioUrl={logoServicioDesdeMapa(data.logosServicio, empleadoManual.servicio)}
             />
           </div>
         </div>

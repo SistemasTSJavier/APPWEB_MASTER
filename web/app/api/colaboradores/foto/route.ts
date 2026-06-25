@@ -80,7 +80,7 @@ export async function POST(req: Request) {
   const { error: upErr } = await admin.storage.from(BUCKET).upload(path, buf, {
     contentType: mime,
     upsert: false,
-    cacheControl: "3600",
+    cacheControl: "31536000",
   });
 
   if (upErr) {

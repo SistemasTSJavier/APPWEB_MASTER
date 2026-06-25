@@ -23,6 +23,7 @@ import {
   promedioOperacionesParaEmpleado,
   promediosCapacitacionPorEmpleados,
 } from "@/lib/categorizacion-server";
+import { listLogosServicioDashboard } from "@/lib/cat-dashboard-logo-servicio";
 import { fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
@@ -85,12 +86,13 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     admin ?? (isSupabaseServerConfigured() ? createSupabaseServiceRoleClient() : null);
 
   if (!client) {
-    return { empleados: [], servicios: [], generadoEn: new Date().toISOString() };
+    return { empleados: [], servicios: [], generadoEn: new Date().toISOString(), logosServicio: {} };
   }
 
   const mesYm = mesCalendarioActualYm();
 
-  const [colaboradores, rhList, faltasMes, opMapas, personalCat, enList, capProms] = await Promise.all([
+  const [colaboradores, rhList, faltasMes, opMapas, personalCat, enList, capProms, logosServicio] =
+    await Promise.all([
     fetchAllColaboradoresCompletos(client),
     listCatEvaluacionesModulo("recursos_humanos", client),
     contarFaltasMesDesdeCuadricula(client, mesYm).catch(() => ({ mesYm, faltas: {} as Record<string, never> })),
@@ -98,6 +100,7 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     listCatPersonal(client),
     listCatEvaluacionesModulo("enfoque_cliente", client),
     promediosCapacitacionPorEmpleados(client),
+    listLogosServicioDashboard(client),
   ]);
 
   const activos = activosCategorizacionDesdeColaboradores(colaboradores);
@@ -193,5 +196,6 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     empleados,
     servicios: [...serviciosSet].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" })),
     generadoEn: new Date().toISOString(),
+    logosServicio,
   };
 }

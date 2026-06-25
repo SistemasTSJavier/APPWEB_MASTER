@@ -40,4 +40,6 @@ export type CatDashboardPayload = {
   empleados: CatDashboardEmpleado[];
   servicios: string[];
   generadoEn: string;
+  /** Logo de cliente por servicio (clave normalizada). */
+  logosServicio: Record<string, string>;
 };
