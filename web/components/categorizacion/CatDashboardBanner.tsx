@@ -10,13 +10,13 @@ export { CAT_DASHBOARD_BANNER_SRC };
  * Centrado bajo «CATEGORIZACIÓN» en banner.jpeg (~76% del ancho del arte).
  */
 const LOGO_CLIENTE_ZONA =
-  "absolute left-[76%] top-[50%] flex h-[38%] w-[min(17vw,10.5rem)] -translate-x-1/2 flex-col items-center justify-center sm:left-[75.5%] sm:w-[min(16vw,11rem)]";
+  "absolute left-[80%] top-[50%] flex h-[44%] w-[min(19.5vw,12.1rem)] -translate-x-1/2 flex-col items-center justify-center sm:left-[79.5%] sm:w-[min(18.4vw,12.65rem)]";
 
 const LOGO_CLIENTE_IMG =
-  "max-h-[92%] max-w-[96%] object-contain object-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]";
+  "max-h-[96%] max-w-full object-contain object-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]";
 
 const LOGO_CLIENTE_IMG_PREVIEW =
-  "max-h-[4.25rem] w-auto max-w-[94%] object-contain object-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)]";
+  "max-h-[4.9rem] w-auto max-w-full object-contain object-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)]";
 
 function BannerBase({
   presentacion = false,
