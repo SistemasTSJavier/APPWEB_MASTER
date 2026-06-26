@@ -223,7 +223,7 @@ export async function procesarEnvioAutomaticoAlertasLegal(): Promise<{
     return { ok: true, enviados: 0, modo: "sin_pendientes" };
   }
 
-  const destinatario = (process.env.LEGAL_ALERTAS_EMAIL_TO ?? "legla@tacticalsupport.com.mx").trim();
+  const destinatario = (process.env.LEGAL_ALERTAS_EMAIL_TO ?? "legal@tacticalsupport.com.mx").trim();
   const mail = await enviarEmailAlertasContratosLegal(pendientes);
   if (!mail.ok) {
     return { ok: false, enviados: 0, error: mail.error, modo: mail.modo };

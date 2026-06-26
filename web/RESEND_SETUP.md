@@ -18,10 +18,10 @@ RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 EMAIL_FROM=onboarding@resend.dev
 
 # Destino alertas legales (contratos)
-LEGAL_ALERTAS_EMAIL_TO=gerentelegal@tacticalsupport.com.mx
+LEGAL_ALERTAS_EMAIL_TO=legal@tacticalsupport.com.mx
 
 # Destino notificaciones MOPER completados (recomendado: Nóminas)
-MOPER_CONTABILIDAD_EMAIL_TO=nominas@tacticalsupport.com.mx
+MOPER_CONTABILIDAD_EMAIL_TO=pagos@tacticalsupport.com.mx
 
 # Enlaces en el correo MOPER (obligatorio en producción)
 APP_URL=https://tu-dominio.vercel.app
@@ -132,6 +132,18 @@ Cuerpo:
 
 - En pruebas: usa `EMAIL_FROM=onboarding@resend.dev`
 - En producción: verifica tu dominio en Resend **Domains**
+
+### ❌ "Recipient not found" / destinatario no existe
+
+- El envío **salió de Resend**, pero el **buzón de correo no existe** en el servidor de `tacticalsupport.com.mx`.
+- `nominas@tacticalsupport.com.mx` puede ser válido para **iniciar sesión en la app** (Supabase) y aun así **no tener buzón** para recibir correos.
+- Confirma con sistemas/IT el correo real de Nóminas (ej. `nomina@...`, un alias, o un buzón compartido).
+- Actualiza en `.env.local`:
+  ```env
+  MOPER_CONTABILIDAD_EMAIL_TO=correo-que-si-recibe@tacticalsupport.com.mx
+  ```
+- Prueba: `node --env-file=.env.local scripts/verificar-resend-moper.mjs`
+- Mientras tanto puedes usar un buzón que sí exista (ej. `sistemas@tacticalsupport.com.mx`).
 
 ### ❌ "No llega el email"
 

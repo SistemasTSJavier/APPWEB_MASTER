@@ -17,7 +17,7 @@ import { plantaExpedienteColaborador, normPlantaCatalogo } from "@/lib/colaborad
 import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
 
 /** Destino de alertas automáticas (contratos por vencer). */
-export const LEGAL_CONTRATOS_ALERTA_EMAIL = "legla@tacticalsupport.com.mx";
+export const LEGAL_CONTRATOS_ALERTA_EMAIL = "legal@tacticalsupport.com.mx";
 
 export const MESES_PRUEBA_ADMIN = 3;
 export const MESES_PRUEBA_OPERATIVA = 2;

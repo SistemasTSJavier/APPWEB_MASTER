@@ -12,7 +12,7 @@ const from = (process.env.EMAIL_FROM ?? "onboarding@resend.dev").trim();
 const to = (
   process.env.MOPER_CONTABILIDAD_EMAIL_TO ??
   process.env.MOPER_NOTIFICACION_EMAIL_TO ??
-  "nominas@tacticalsupport.com.mx"
+  "pagos@tacticalsupport.com.mx"
 ).trim();
 const appUrl = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
   /\/$/,

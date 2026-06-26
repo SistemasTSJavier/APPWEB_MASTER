@@ -44,8 +44,8 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 # Correo (Resend) — alertas legales y notificaciones MOPER:
 # RESEND_API_KEY=re_xxxxxxxx
 # EMAIL_FROM=onboarding@resend.dev
-# LEGAL_ALERTAS_EMAIL_TO=gerentelegal@tacticalsupport.com.mx
-# MOPER_CONTABILIDAD_EMAIL_TO=nominas@tacticalsupport.com.mx
+# LEGAL_ALERTAS_EMAIL_TO=legal@tacticalsupport.com.mx
+# MOPER_CONTABILIDAD_EMAIL_TO=pagos@tacticalsupport.com.mx
 # APP_URL=http://localhost:3000
 # Guía completa: web/RESEND_SETUP.md
 # Prueba: node --env-file=.env.local scripts/verificar-resend-moper.mjs

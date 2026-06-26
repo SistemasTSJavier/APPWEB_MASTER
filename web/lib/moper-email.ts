@@ -49,7 +49,7 @@ export async function enviarEmailMoperContabilidad(
     console.warn("[moper-email] RESEND_API_KEY no configurada; MOPER", registro.id, "sin notificar a", to);
     return {
       ok: false,
-      error: "RESEND_API_KEY no configurada. Usa web/.env.local y reinicia npm run dev.",
+      error: "RESEND_API_KEY no configurada. Añádela en web/.env.local (o .env) y reinicia npm run dev.",
       modo: "sin_configurar",
     };
   }
@@ -117,7 +117,11 @@ export async function enviarEmailMoperContabilidad(
 
   if (!r.ok) {
     const t = await r.text();
-    return { ok: false, error: mensajeErrorResend(r.status, t), modo: "resend" };
+    let error = mensajeErrorResend(r.status, t);
+    if (/recipient not found|mailbox not found|user unknown|doesn't exist/i.test(t)) {
+      error = `El correo destino "${to}" no existe o no recibe correo. Revisa MOPER_CONTABILIDAD_EMAIL_TO en .env.local (debe ser un buzón real, no solo el usuario de login en la app). Detalle Resend: ${error}`;
+    }
+    return { ok: false, error, modo: "resend" };
   }
 
   return { ok: true, modo: "resend" };
