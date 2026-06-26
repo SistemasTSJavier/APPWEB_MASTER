@@ -41,8 +41,11 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 #   capacitacion@tacticalsupport.com.mx → {"app_role":"capacitacion"}
 # Site URL / Redirect URLs: incluye http://localhost:3000 y tu dominio de producción; ruta de callback: /auth/callback
 #
-# Correo (Resend) — alertas legales y notificaciones MOPER a contabilidad:
+# Correo (Resend) — alertas legales y notificaciones MOPER:
 # RESEND_API_KEY=re_xxxxxxxx
-# EMAIL_FROM=notificaciones@tacticalsupport.com.mx   (o onboarding@resend.dev en pruebas)
-# MOPER_CONTABILIDAD_EMAIL_TO=contabilidad@tacticalsupport.com.mx
-# APP_URL=https://tu-dominio.com   (enlaces en correos MOPER; en Vercel también usa VERCEL_URL)
+# EMAIL_FROM=onboarding@resend.dev
+# LEGAL_ALERTAS_EMAIL_TO=gerentelegal@tacticalsupport.com.mx
+# MOPER_CONTABILIDAD_EMAIL_TO=nominas@tacticalsupport.com.mx
+# APP_URL=http://localhost:3000
+# Guía completa: web/RESEND_SETUP.md
+# Prueba: node --env-file=.env.local scripts/verificar-resend-moper.mjs

@@ -1,48 +1,95 @@
-# 📧 Configuración de Resend para Alertas de Contratos
+# 📧 Configuración de Resend (Alertas Legal + MOPER)
 
 ## Paso 1: Crear API Key en Resend
 
-1. Ve a [resend.com](https://resend.com)
-2. En el dashboard, ve a **API Keys**
-3. Crea una nueva clave (empieza con `re_`)
-4. Copia la clave completa
+1. Ve a [resend.com](https://resend.com) e inicia sesión (o crea cuenta).
+2. En el dashboard → **API Keys** → **Create API Key**.
+3. Copia la clave completa (empieza con `re_`).
 
-## Paso 2: Configurar `.env.local`
+## Paso 2: Configurar `web/.env.local`
 
-En la raíz de `/web`, crea o edita `.env.local`:
+En la carpeta **`web`**, crea el archivo `.env.local` (junto a `package.json`) con al menos:
 
 ```env
-# Resend API Key (obtener de https://resend.com/api-keys)
+# ── Resend (correo) ─────────────────────────────────────────────
 RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# Email remitente - DEBE estar verificado en Resend
-# Para pruebas: EMAIL_FROM=onboarding@resend.dev (dominio de prueba incluido)
-# Para producción: EMAIL_FROM=noreply@tudominio.com (verificar el dominio en Resend)
+# Remitente — en PRUEBAS usa el dominio de Resend (ya verificado):
 EMAIL_FROM=onboarding@resend.dev
 
-# Email destinatario para alertas de contratos vencidos
-LEGAL_ALERTAS_EMAIL_TO=legla@tacticalsupport.com.mx
+# Destino alertas legales (contratos)
+LEGAL_ALERTAS_EMAIL_TO=gerentelegal@tacticalsupport.com.mx
+
+# Destino notificaciones MOPER completados (recomendado: Nóminas)
+MOPER_CONTABILIDAD_EMAIL_TO=nominas@tacticalsupport.com.mx
+
+# Enlaces en el correo MOPER (obligatorio en producción)
+APP_URL=https://tu-dominio.vercel.app
+# En local:
+# APP_URL=http://localhost:3000
 ```
 
-## Paso 3: Verificar Dominio (Producción)
+> **Importante:** Sin comillas en los valores. Después de guardar, **reinicia** `npm run dev`.
 
-Si usas tu dominio propio en producción:
+### Modo prueba vs producción
 
-1. Ve a **Domains** en Resend
-2. Añade tu dominio
-3. Verifica los registros DNS DKIM/SPF/DMARC
-4. Una vez verificado, usa `EMAIL_FROM=noreply@tudominio.com`
+| Variable | Pruebas | Producción |
+|----------|---------|------------|
+| `EMAIL_FROM` | `onboarding@resend.dev` | `notificaciones@tacticalsupport.com.mx` (dominio verificado) |
+| `MOPER_CONTABILIDAD_EMAIL_TO` | Correo de tu cuenta Resend* | `nominas@tacticalsupport.com.mx` |
 
-## Paso 4: Prueba Manual
+\* Con `onboarding@resend.dev`, Resend **solo entrega** al email con el que creaste la cuenta en Resend. Para enviar a `nominas@...` debes **verificar el dominio** `tacticalsupport.com.mx`.
 
-Para verificar que todo está correcto:
+## Paso 3: Verificar dominio (producción)
+
+1. Resend → **Domains** → **Add Domain** → `tacticalsupport.com.mx`
+2. Añade en tu DNS los registros **SPF**, **DKIM** y **DMARC** que muestra Resend.
+3. Cuando el dominio esté **Verified**, cambia en `.env.local` y en Vercel:
+
+```env
+EMAIL_FROM=notificaciones@tacticalsupport.com.mx
+```
+
+## Paso 4: Probar envío
 
 ```bash
 cd web
+
+# Prueba alertas legal
 node --env-file=.env.local scripts/verificar-resend-legal.mjs
+
+# Prueba notificaciones MOPER
+node --env-file=.env.local scripts/verificar-resend-moper.mjs
 ```
 
-## Cómo Funciona el Envío
+Si ambos scripts muestran `OK`, Resend está listo.
+
+## Paso 5: Variables en Vercel (producción)
+
+En el proyecto de Vercel → **Settings** → **Environment Variables**, añade las mismas claves:
+
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+- `LEGAL_ALERTAS_EMAIL_TO`
+- `MOPER_CONTABILIDAD_EMAIL_TO`
+- `APP_URL` (URL pública de la app, sin barra final)
+
+Redeploy después de guardar.
+
+---
+
+## Cómo se envían los correos MOPER
+
+| Cuándo | Qué pasa |
+|--------|----------|
+| **Automático** | Al registrarse la **última firma** de un MOPER → correo a `MOPER_CONTABILIDAD_EMAIL_TO` con enlace `/moper?registro={id}` |
+| **Manual** | Admin/RH en MOPER → botón **Recordar** / **Reenviar** en un registro pendiente |
+
+Archivos: `lib/moper-email.ts`, `lib/moper-registros-server.ts` (`notificarContabilidadMoperPorId`).
+
+---
+
+## Cómo Funciona el Envío (Alertas Legal)
 
 ### Automático (Diario)
 
