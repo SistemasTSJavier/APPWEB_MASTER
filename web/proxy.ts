@@ -15,7 +15,7 @@ import {
 import { isSafeLoginRedirect, loginUrlWithNext } from "@/lib/login-redirect";
 
 function publicApiPath(pathname: string, method: string): boolean {
-  if (pathname === "/api/supabase/status" || pathname === "/api/auth/me") return true;
+  if (pathname === "/api/supabase/status" || pathname === "/api/auth/me" || pathname === "/api/resend/status") return true;
   return isMoperPublicApi(pathname, method);
 }
 

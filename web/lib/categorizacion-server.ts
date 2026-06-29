@@ -620,7 +620,51 @@ function errorPareceRpcCatEvaluacionFalta(message: string): boolean {
   return m.includes("could not find the function") && m.includes("cat_");
 }
 
-function mensajeErrorCatEvaluacionSchema(message: string): string {
+function errorPareceFkCatPersonal(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("cat_evaluacion_no_empleado_fkey") || (m.includes("foreign key") && m.includes("cat_personal"));
+}
+
+function mensajeErrorFkCatPersonal(noEmpleado: string): string {
+  const no = normalizarNoEmpleado(noEmpleado);
+  return (
+    `El colaborador ${no} no está en el catálogo Personal de categorización. ` +
+    "Verifique que exista en Colaboradores, esté activo y use «Sincronizar personal» en el módulo Personal si aplica."
+  );
+}
+
+/**
+ * cat_evaluacion.no_empleado referencia cat_personal. Si falta la fila, la crea desde expedientes.
+ */
+async function ensureCatPersonalForEvaluacion(
+  client: SupabaseClient,
+  noEmpleado: string,
+): Promise<void> {
+  const no = normalizarNoEmpleado(noEmpleado);
+  if (!no) throw new Error("Número de empleado requerido.");
+
+  const { data, error } = await client.from("cat_personal").select("no_empleado").eq("no_empleado", no).maybeSingle();
+  if (error) throw new Error(hintSupabaseClientError(error.message));
+  if (data) return;
+
+  const colaboradores = await fetchAllColaboradoresCompletos(client);
+  const col = colaboradores.find((c) => normalizarNoEmpleado(c.noEmpleado) === no);
+  if (!col) {
+    throw new Error(
+      `El N.º ${no} no está en Colaboradores. Regístrelo en expedientes antes de calificar en categorización.`,
+    );
+  }
+  if (!colaboradorEstaActivoEnOperacion(col)) {
+    throw new Error(`El colaborador ${no} tiene baja o estatus inactivo; no se puede calificar.`);
+  }
+
+  await upsertCatPersonal(colaboradorToCatPersonal(col, ""), client);
+}
+
+function mensajeErrorCatEvaluacionSchema(message: string, noEmpleado?: string): string {
+  if (noEmpleado && errorPareceFkCatPersonal(message)) {
+    return mensajeErrorFkCatPersonal(noEmpleado);
+  }
   if (errorPareceSchemaCacheColumnas(message) || errorPareceRpcCatEvaluacionFalta(message)) {
     return `${message} — Ejecuta en Supabase SQL Editor: web/supabase/migrations/025_cat_evaluacion_rpc.sql (incluye columnas + funciones RPC). Espera 20 s y guarda de nuevo. Si persiste, reinicia el proyecto en Supabase → Settings → General → Restart project.`;
   }
@@ -814,6 +858,8 @@ export async function upsertCatEvaluacion(
   }
   const promedio = promedioDeScores(filtered);
 
+  await ensureCatPersonalForEvaluacion(client, noEmpleado);
+
   try {
     return await upsertCatEvaluacionViaRpc(
       client,
@@ -828,7 +874,7 @@ export async function upsertCatEvaluacion(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
-      throw new Error(mensajeErrorCatEvaluacionSchema(msg));
+      throw new Error(mensajeErrorCatEvaluacionSchema(msg, noEmpleado));
     }
   }
 
@@ -854,7 +900,7 @@ export async function upsertCatEvaluacion(
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(hintSupabaseClientError(msg));
+    throw new Error(mensajeErrorCatEvaluacionSchema(msg, noEmpleado));
   }
 }
 

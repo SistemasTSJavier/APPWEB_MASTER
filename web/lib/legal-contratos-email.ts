@@ -4,6 +4,7 @@ import {
   leerResendApiKey,
   leerVariableEntorno,
   mensajeErrorResend,
+  mensajeResendApiKeyNoConfigurada,
   resendApiKeyPareceValida,
 } from "@/lib/env-resend";
 
@@ -66,7 +67,7 @@ export async function enviarEmailAlertasContratosLegal(filas: LegalContratoFila[
     return {
       ok: false,
       enviados: 0,
-      error: "RESEND_API_KEY no configurada. Usa web/.env.local y reinicia npm run dev.",
+      error: mensajeResendApiKeyNoConfigurada(),
       modo: "sin_configurar",
     };
   }

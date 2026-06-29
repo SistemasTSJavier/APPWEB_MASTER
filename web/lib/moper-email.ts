@@ -4,6 +4,7 @@ import {
   leerResendApiKey,
   leerVariableEntorno,
   mensajeErrorResend,
+  mensajeResendApiKeyNoConfigurada,
   resendApiKeyPareceValida,
 } from "@/lib/env-resend";
 import { moperRegistroUrl } from "@/lib/moper-app-url";
@@ -49,7 +50,7 @@ export async function enviarEmailMoperContabilidad(
     console.warn("[moper-email] RESEND_API_KEY no configurada; MOPER", registro.id, "sin notificar a", to);
     return {
       ok: false,
-      error: "RESEND_API_KEY no configurada. Añádela en web/.env.local (o .env) y reinicia npm run dev.",
+      error: mensajeResendApiKeyNoConfigurada(),
       modo: "sin_configurar",
     };
   }

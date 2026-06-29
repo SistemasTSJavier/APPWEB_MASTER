@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { leerResendApiKey, leerVariableEntorno, resendApiKeyPareceValida } from "@/lib/env-resend";
+import { leerResendApiKey, leerVariableEntorno, mensajeResendApiKeyNoConfigurada, resendApiKeyPareceValida } from "@/lib/env-resend";
 import { destinatarioContabilidadMoper } from "@/lib/moper-email";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,6 @@ export async function GET() {
     moperNotificacionTo: moperTo,
     legalAlertasTo: legalTo,
     appUrl,
-    hint: !apiKey
-      ? "Falta RESEND_API_KEY en web/.env.local — reinicia npm run dev después de guardar."
-      : undefined,
+    hint: !apiKey ? mensajeResendApiKeyNoConfigurada() : undefined,
   });
 }

@@ -18,6 +18,18 @@ export function resendApiKeyPareceValida(key: string): boolean {
   return /^re_[A-Za-z0-9_]+$/.test(key);
 }
 
+export function mensajeResendApiKeyNoConfigurada(): string {
+  if (process.env.VERCEL === "1" || process.env.VERCEL_ENV) {
+    return (
+      "RESEND_API_KEY no configurada en Vercel. Ve a Project → Settings → Environment Variables, " +
+      "añade RESEND_API_KEY (y EMAIL_FROM, LEGAL_ALERTAS_EMAIL_TO, MOPER_CONTABILIDAD_EMAIL_TO, APP_URL) y haz Redeploy."
+    );
+  }
+  return (
+    "RESEND_API_KEY no configurada. Añádela en web/.env.local (carpeta web, junto a package.json), guarda y reinicia npm run dev."
+  );
+}
+
 /** Mensaje claro para errores JSON de Resend (401 invalid key, etc.). */
 export function mensajeErrorResend(status: number, body: string): string {
   try {
