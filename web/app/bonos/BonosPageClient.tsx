@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/app-role";
 import { BONOS_MILESTONES, type BonosFila, type BonosMilestone } from "@/lib/bonos-types";
 import { servicioCoincideFiltroCat } from "@/lib/categorizacion-filtros-servicio";
 import { formatoDesdeYyyyMmDd } from "@/lib/fecha-formato-display";
+import { agruparFilasPorBono } from "@/lib/bonos-agrupar";
 import { addDays, mondayOfWeek, semanaDesdeLunes } from "@/lib/semana-lun-dom";
 import { BonosEmailDialog } from "./BonosEmailDialog";
 
@@ -83,6 +84,8 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
     });
   }, [filas, busqueda]);
 
+  const gruposBonos = useMemo(() => agruparFilasPorBono(filtradas), [filtradas]);
+
   const filasSeleccionadas = useMemo(
     () => filtradas.filter((f) => seleccion.has(filaKey(f))),
     [filtradas, seleccion],
@@ -127,8 +130,8 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
     <div className="min-w-0 space-y-5">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Módulo</p>
-        <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">Bonos</h1>
-        <p className="mt-1 max-w-3xl text-sm font-medium leading-relaxed text-slate-700">
+        <h1 className="page-title uppercase">Bonos</h1>
+        <p className="page-lead text-sm">
           Solo colaboradores <strong>activos</strong> y <strong>LOCAL</strong> en servicios operativos. El bono
           depende de la <strong>antigüedad desde el ingreso</strong>: se revisa cuadrícula del{" "}
           <strong>ingreso al día de cumplimiento</strong> (ingreso + 15, 30, 60 o 90 días).{" "}
@@ -136,13 +139,13 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
           los <strong>4 bonos</strong>. Bono 15: 15–29 días · 30: 30–59 · 60: 60–89 · 90: 90–119 días.
         </p>
         {fechaReferencia ? (
-          <p className="mt-2 text-xs font-semibold text-violet-900">
+          <p className="mt-2 text-xs font-semibold text-blue-900">
             Fecha de referencia del cálculo: {fmtFecha(fechaReferencia)}
           </p>
         ) : null}
       </div>
 
-      <section className="card space-y-4 border-violet-200/60 bg-gradient-to-br from-white to-violet-50/30">
+      <section className="callout-accent space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold uppercase text-slate-900">Periodo de evaluación (semana)</h2>
@@ -170,7 +173,7 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
             ← Semana anterior
           </button>
           <div className="min-w-0 flex-1 text-center">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700">Semana de evaluación</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-blue-900">Semana de evaluación</p>
             <p className="mt-1 text-base font-bold text-slate-900">{semana.etiqueta}</p>
           </div>
           <button
@@ -235,7 +238,7 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
           </span>
           <span>· {totalConBono} con cumplimiento en esta semana</span>
           <span>· {totalActivos} elegible(s) LOCAL</span>
-          {seleccion.size > 0 ? <span className="text-violet-800">· {seleccion.size} seleccionado(s)</span> : null}
+          {seleccion.size > 0 ? <span className="text-blue-900">· {seleccion.size} seleccionado(s)</span> : null}
           {generadoEn ? (
             <span>
               · Actualizado{" "}
@@ -244,6 +247,14 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
           ) : null}
           <button type="button" className="btn-secondary text-xs uppercase" disabled={busy} onClick={() => void load()}>
             {busy ? "Cargando…" : "Actualizar"}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary text-xs uppercase"
+            disabled={filtradas.length === 0}
+            onClick={toggleTodasVisibles}
+          >
+            {todasVisiblesSeleccionadas ? "Quitar selección" : "Seleccionar todos"}
           </button>
           <button
             type="button"
@@ -261,7 +272,7 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
               .map(({ servicio, count }) => (
                 <span
                   key={servicio}
-                  className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase"
+                  className="badge-muted gap-1 uppercase"
                 >
                   {servicio} <span className="font-mono">{count}</span>
                 </span>
@@ -282,81 +293,82 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
         </p>
       ) : null}
 
-      <section className="card overflow-hidden p-0">
+      <section className="space-y-6">
         {busy && filas.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-500">Calculando bonos desde cuadrícula…</p>
+          <div className="card py-8 text-center text-sm text-slate-500">Calculando bonos desde cuadrícula…</div>
         ) : null}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-xs">
-            <thead className="border-b border-indigo-200/80 bg-gradient-to-r from-indigo-950 to-indigo-800 text-[10px] font-bold uppercase tracking-wide text-white">
-              <tr>
-                <th className="w-10 p-2">
-                  <input
-                    type="checkbox"
-                    className="size-4 rounded border-white/30 accent-violet-500"
-                    checked={todasVisiblesSeleccionadas}
-                    onChange={toggleTodasVisibles}
-                    aria-label="Seleccionar todos los visibles"
-                    disabled={filtradas.length === 0}
-                  />
-                </th>
-                <th className="p-2.5">N° empleado</th>
-                <th className="p-2.5">F. ingreso</th>
-                <th className="p-2.5">Servicio</th>
-                <th className="p-2.5">Local / foráneo</th>
-                <th className="p-2.5">Periodo evaluado</th>
-                <th className="p-2.5">Bono (días)</th>
-                <th className="p-2.5">Cumplimiento</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtradas.map((f) => {
-                const k = filaKey(f);
-                const sel = seleccion.has(k);
-                return (
-                  <tr
-                    key={k}
-                    className={`border-b border-slate-100 transition-colors ${sel ? "bg-violet-50/80" : "hover:bg-slate-50"}`}
-                  >
-                    <td className="p-2">
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded accent-violet-600"
-                        checked={sel}
-                        onChange={() => toggleFila(f)}
-                        aria-label={`Seleccionar ${f.nombre || f.noEmpleado}`}
-                      />
-                    </td>
-                    <td className="p-2.5">
-                      <span className="font-mono font-bold text-slate-900">{f.noEmpleado}</span>
-                      {f.nombre ? (
-                        <span className="mt-0.5 block text-[10px] font-medium normal-case text-slate-600">
-                          {f.nombre}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="p-2.5">{fmtFecha(f.fechaIngreso)}</td>
-                    <td className="p-2.5 uppercase">{f.servicio || "—"}</td>
-                    <td className="p-2.5 uppercase">{f.localForaneo || "—"}</td>
-                    <td className="p-2.5 whitespace-nowrap text-[11px] text-slate-700">
-                      {fmtFecha(f.periodoEvaluadoDesde)} → {fmtFecha(f.periodoEvaluadoHasta)}
-                    </td>
-                    <td className="p-2.5">
-                      <span className="inline-flex min-w-[2rem] justify-center rounded-md bg-indigo-100 px-2 py-0.5 font-mono font-bold text-indigo-900">
-                        {f.bonoDias}
-                      </span>
-                    </td>
-                    <td className="p-2.5 font-semibold text-violet-900">{fmtFecha(f.fechaCumplimiento)}</td>
+
+        {gruposBonos.map((grupo) => (
+          <div key={grupo.hito} className="table-wrap overflow-hidden p-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-900 px-4 py-3 text-white">
+              <h3 className="border-l-4 border-blue-500 pl-3 text-sm font-bold uppercase tracking-wide">
+                {grupo.titulo}
+              </h3>
+              <span className="rounded-md bg-white/10 px-3 py-0.5 text-[11px] font-semibold text-sky-200">
+                {grupo.filas.length} colaborador{grupo.filas.length === 1 ? "" : "es"}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] text-left text-xs">
+                <thead className="table-head">
+                  <tr>
+                    <th className="w-10 p-2">
+                      <span className="sr-only">Seleccionar</span>
+                    </th>
+                    <th className="table-cell py-2.5">N° empleado</th>
+                    <th className="table-cell py-2.5">F. ingreso</th>
+                    <th className="table-cell py-2.5">Servicio</th>
+                    <th className="table-cell py-2.5">Local / foráneo</th>
+                    <th className="table-cell py-2.5">Periodo evaluado</th>
+                    <th className="table-cell py-2.5">Cumplimiento</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {grupo.filas.map((f) => {
+                    const k = filaKey(f);
+                    const sel = seleccion.has(k);
+                    return (
+                      <tr
+                        key={k}
+                        className={`table-row-hover ${sel ? "bg-blue-50" : ""}`}
+                      >
+                        <td className="table-cell py-2">
+                          <input
+                            type="checkbox"
+                            className="size-4 rounded border-slate-300 accent-blue-900"
+                            checked={sel}
+                            onChange={() => toggleFila(f)}
+                            aria-label={`Seleccionar ${f.nombre || f.noEmpleado}`}
+                          />
+                        </td>
+                        <td className="table-cell py-2.5">
+                          <span className="font-mono font-bold text-slate-950">{f.noEmpleado}</span>
+                          {f.nombre ? (
+                            <span className="mt-0.5 block text-[10px] font-medium normal-case text-slate-600">
+                              {f.nombre}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="table-cell py-2.5">{fmtFecha(f.fechaIngreso)}</td>
+                        <td className="table-cell py-2.5 uppercase">{f.servicio || "—"}</td>
+                        <td className="table-cell py-2.5 uppercase">{f.localForaneo || "—"}</td>
+                        <td className="table-cell whitespace-nowrap py-2.5 text-[11px] text-slate-600">
+                          {fmtFecha(f.periodoEvaluadoDesde)} → {fmtFecha(f.periodoEvaluadoHasta)}
+                        </td>
+                        <td className="table-cell py-2.5 font-semibold text-blue-900">{fmtFecha(f.fechaCumplimiento)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+
         {!busy && filtradas.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-500">
+          <div className="card py-10 text-center text-sm text-slate-500">
             Sin bonos con cumplimiento en <strong>{semana.etiqueta}</strong>. Cambie de semana o revise filtros.
-          </p>
+          </div>
         ) : null}
       </section>
 

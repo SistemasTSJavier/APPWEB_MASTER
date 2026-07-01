@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { agruparFilasPorBono } from "@/lib/bonos-agrupar";
 import type { BonosFila } from "@/lib/bonos-types";
 import type { SemanaLunDom } from "@/lib/semana-lun-dom";
 import { formatoDesdeYyyyMmDd } from "@/lib/fecha-formato-display";
@@ -17,6 +18,8 @@ export function BonosEmailDialog({ open, onClose, filas, semana, onEnviado }: Pr
   const [destinatarios, setDestinatarios] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const grupos = useMemo(() => agruparFilasPorBono(filas), [filas]);
 
   const rango = useMemo(
     () => `${formatoDesdeYyyyMmDd(semana.lunesYmd)} al ${formatoDesdeYyyyMmDd(semana.domingoYmd)}`,
@@ -57,19 +60,19 @@ export function BonosEmailDialog({ open, onClose, filas, semana, onEnviado }: Pr
       aria-modal="true"
       aria-labelledby="bonos-email-title"
     >
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <div className="bg-gradient-to-br from-indigo-900 via-indigo-700 to-violet-600 px-6 py-5 text-white">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-200">Enviar por correo</p>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="border-b-4 border-blue-900 bg-slate-900 px-6 py-5 text-white">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-200">Enviar por correo</p>
           <h2 id="bonos-email-title" className="mt-1 text-xl font-bold">
             Relación de bonos — semana {rango}
           </h2>
-          <p className="mt-2 text-sm text-indigo-100">
+          <p className="mt-2 text-sm text-slate-300">
             {filas.length} colaborador(es) seleccionado(s). El mensaje incluye la tabla con sus datos.
           </p>
         </div>
 
         <div className="space-y-4 overflow-y-auto px-6 py-5" style={{ maxHeight: "calc(90vh - 180px)" }}>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-700">
+          <div className="callout-accent px-4 py-3 text-sm leading-relaxed">
             <p className="font-semibold text-slate-900">Vista previa del mensaje</p>
             <p className="mt-2 whitespace-pre-line">
               {`Buen dia!\nComparto la relacion de bonos a pagar correspondiente a esta semana (${rango}).`}
@@ -88,29 +91,39 @@ export function BonosEmailDialog({ open, onClose, filas, semana, onEnviado }: Pr
             <p className="text-[11px] text-slate-500">Separe varios correos con coma, punto y coma o espacio.</p>
           </label>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full min-w-[640px] text-left text-[11px]">
-              <thead className="bg-slate-100 text-[10px] font-bold uppercase text-slate-600">
-                <tr>
-                  <th className="p-2">N°</th>
-                  <th className="p-2">Nombre</th>
-                  <th className="p-2">Servicio</th>
-                  <th className="p-2">Bono</th>
-                  <th className="p-2">Cumplimiento</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filas.map((f) => (
-                  <tr key={`${f.noEmpleado}-${f.fechaCumplimiento}`} className="border-t border-slate-100">
-                    <td className="p-2 font-mono font-semibold">{f.noEmpleado}</td>
-                    <td className="p-2">{f.nombre}</td>
-                    <td className="p-2 uppercase">{f.servicio}</td>
-                    <td className="p-2 font-mono">{f.bonoDias} d</td>
-                    <td className="p-2">{formatoDesdeYyyyMmDd(f.fechaCumplimiento)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-4">
+            {grupos.map((grupo) => (
+              <div key={grupo.hito} className="table-wrap overflow-hidden">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-900 px-3 py-2">
+                  <span className="border-l-4 border-blue-500 pl-2 text-[11px] font-bold uppercase text-white">
+                    {grupo.titulo}
+                  </span>
+                  <span className="text-[10px] font-semibold text-sky-200">{grupo.filas.length}</span>
+                </div>
+                <table className="w-full min-w-[640px] text-left text-[11px]">
+                  <thead className="table-head">
+                    <tr>
+                      <th className="table-cell py-2">N°</th>
+                      <th className="table-cell py-2">Nombre</th>
+                      <th className="table-cell py-2">Servicio</th>
+                      <th className="table-cell py-2">Cumplimiento</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grupo.filas.map((f) => (
+                      <tr key={`${f.noEmpleado}-${f.fechaCumplimiento}`} className="table-row-hover">
+                        <td className="table-cell py-2 font-mono font-semibold">{f.noEmpleado}</td>
+                        <td className="table-cell py-2">{f.nombre}</td>
+                        <td className="table-cell py-2 uppercase">{f.servicio}</td>
+                        <td className="table-cell py-2 font-semibold text-blue-900">
+                          {formatoDesdeYyyyMmDd(f.fechaCumplimiento)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
 
           {error ? (
