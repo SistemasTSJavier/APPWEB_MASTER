@@ -32,4 +32,10 @@ export type BonosPayload = {
   totalConBono: number;
   /** Fecha de referencia del cálculo (hoy). */
   fechaReferencia: string;
+  /** Semana lun–dom del filtro (cumplimiento dentro del rango). */
+  semanaEvaluacion?: {
+    lunesYmd: string;
+    domingoYmd: string;
+    etiqueta: string;
+  };
 };

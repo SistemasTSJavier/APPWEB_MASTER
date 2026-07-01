@@ -27,6 +27,7 @@ import {
   type BonosMilestone,
   type BonosPayload,
 } from "@/lib/bonos-types";
+import { fechaYmdEnSemana, semanaDesdeIso } from "@/lib/semana-lun-dom";
 
 const MS_DIA = 86_400_000;
 
@@ -188,10 +189,14 @@ function evaluarColaboradorBonos(
 
 export async function buildBonosReport(
   admin: SupabaseClient,
-  opts?: { servicio?: string; bonoDias?: BonosMilestone | null },
+  opts?: { servicio?: string; bonoDias?: BonosMilestone | null; weekStartIso?: string | null },
 ): Promise<BonosPayload> {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
+
+  const semanaEvaluacion = opts?.weekStartIso?.trim()
+    ? semanaDesdeIso(opts.weekStartIso.trim())
+    : null;
 
   const colaboradores = await fetchAllColaboradoresCompletos(admin);
   const elegibles = colaboradores.filter((c) => colaboradorElegibleBonos(c));
@@ -239,7 +244,13 @@ export async function buildBonosReport(
     });
   }
 
-  filas.sort((a, b) => {
+  let filasFiltradas = filas;
+  if (semanaEvaluacion) {
+    filasFiltradas = filas.filter((f) => fechaYmdEnSemana(f.fechaCumplimiento, semanaEvaluacion));
+  }
+
+  filasFiltradas.sort((a, b) => {
+    if (a.bonoDias !== b.bonoDias) return a.bonoDias - b.bonoDias;
     const cmp = a.fechaCumplimiento.localeCompare(b.fechaCumplimiento, "es");
     if (cmp !== 0) return cmp;
     return a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" });
@@ -252,12 +263,19 @@ export async function buildBonosReport(
   }
 
   return {
-    filas,
+    filas: filasFiltradas,
     servicios: [...serviciosSet].sort((a, b) => a.localeCompare(b, "es", { numeric: true })),
     generadoEn: new Date().toISOString(),
     totalActivos: elegibles.length,
-    totalConBono: filas.length,
+    totalConBono: filasFiltradas.length,
     fechaReferencia: dateToIsoYmd(hoy),
+    semanaEvaluacion: semanaEvaluacion
+      ? {
+          lunesYmd: semanaEvaluacion.lunesYmd,
+          domingoYmd: semanaEvaluacion.domingoYmd,
+          etiqueta: semanaEvaluacion.etiqueta,
+        }
+      : undefined,
   };
 }
 
