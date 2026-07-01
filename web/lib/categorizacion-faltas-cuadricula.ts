@@ -2,6 +2,7 @@
  * Faltas del mes desde cuadrícula de asistencia (Supabase `cuadricula_asistencia`).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { attendanceRowEmpKey } from "@/lib/attendance-integrity";
 import { hintSupabaseClientError } from "@/lib/supabase/admin";
 
 export type FaltasMesEmpleado = {
@@ -77,10 +78,7 @@ function normalizarNoEmpleado(raw: string): string {
 }
 
 function empNoDesdeFila(o: Record<string, unknown>): string {
-  const direct = typeof o.employeeNo === "string" ? o.employeeNo.trim() : "";
-  if (direct) return normalizarNoEmpleado(direct);
-  const id = typeof o.id === "string" ? o.id.trim() : "";
-  return id ? normalizarNoEmpleado(id) : "";
+  return attendanceRowEmpKey(o);
 }
 
 type ShiftDay = Partial<Record<(typeof TURNS)[number], string>>;

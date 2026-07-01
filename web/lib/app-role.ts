@@ -185,6 +185,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/sgc": ["admin", "mejora_continua"],
   "/gestores-proceso": ["admin", "rh", "gerente_rh"],
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
+  "/bonos": ["admin", "nominas", "gerente_rh"],
 };
 
 export function mayAccessFichaTecnica(role: AppRole, _email?: string | null): boolean {
@@ -197,6 +198,11 @@ export function roleMayAccessCategorizacion(role: AppRole, email?: string | null
   if (role === "admin" || role === "gerente_rh" || role === "capacitacion") return true;
   const e = (email ?? "").trim().toLowerCase();
   return e === CAPACITACION_EMAIL.toLowerCase();
+}
+
+/** Bonos por asistencia: Administrador, Nóminas y Gerente RH. */
+export function roleMayAccessBonos(role: AppRole): boolean {
+  return role === "admin" || role === "nominas" || role === "gerente_rh";
 }
 
 export function roleEsClienteEnfoque(role: AppRole): boolean {
@@ -524,6 +530,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       href: "/categorizacion",
       label: "Categorización",
       roles: ["admin", "gerente_rh", "capacitacion"],
+    },
+    {
+      href: "/bonos",
+      label: "Bonos",
+      roles: ["admin", "nominas", "gerente_rh"],
     },
   ];
   return items.filter((i) => {
