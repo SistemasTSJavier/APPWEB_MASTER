@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  CatFiltroPlanta,
   CatFiltroServicio,
   CatListaFiltro,
   CatResumenServicios,
@@ -13,7 +14,7 @@ import type { CatPersonalRow, CatResumenEmpleado } from "@/lib/categorizacion-ty
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
 import { fetchColaboradoresActivosCat } from "@/lib/categorizacion-colaboradores-client";
 
-type ResumenConServicio = CatResumenEmpleado & { servicio: string };
+type ResumenConServicio = CatResumenEmpleado & { servicio: string; planta?: string };
 
 export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestaciones" }) {
   const [rows, setRows] = useState<ResumenConServicio[]>([]);
@@ -22,10 +23,11 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
   const [msg, setMsg] = useState<string | null>(null);
   const [filtroTabla, setFiltroTabla] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
+  const [filtroPlanta, setFiltroPlanta] = useState("");
 
   const rowsPorServicio = useMemo(
-    () => filtrarPorServicio(rows, filtroServicio),
-    [rows, filtroServicio],
+    () => filtrarPorServicio(rows, filtroServicio, filtroPlanta),
+    [rows, filtroServicio, filtroPlanta],
   );
 
   const rowsFiltrados = useMemo(() => {
@@ -49,9 +51,13 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
       const servicioPorNo = new Map(
         activosRows.map((p) => [p.noEmpleado.trim().toUpperCase(), p.servicio ?? ""]),
       );
+      const plantaPorNo = new Map(
+        activosRows.map((p) => [p.noEmpleado.trim().toUpperCase(), p.planta ?? ""]),
+      );
       const merged: ResumenConServicio[] = (j.rows ?? []).map((row: CatResumenEmpleado) => ({
         ...row,
         servicio: servicioPorNo.get(row.noEmpleado.trim().toUpperCase()) ?? "",
+        planta: plantaPorNo.get(row.noEmpleado.trim().toUpperCase()) ?? "",
       }));
       setRows(merged);
       setNota(String(j.nota ?? ""));
@@ -96,15 +102,24 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
         </div>
         {busy ? <p className="text-sm text-slate-500">Cargando…</p> : null}
         <CatResumenServicios
-          personal={rows.map((r) => ({ servicio: r.servicio }))}
+          personal={rows.map((r) => ({ servicio: r.servicio, planta: r.planta }))}
           servicioFiltro={filtroServicio}
           className="mb-3"
         />
-        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <CatFiltroServicio
             value={filtroServicio}
-            onChange={setFiltroServicio}
-            personal={rows.map((r) => ({ servicio: r.servicio }))}
+            onChange={(v) => {
+              setFiltroServicio(v);
+              setFiltroPlanta("");
+            }}
+            personal={rows.map((r) => ({ servicio: r.servicio, planta: r.planta }))}
+          />
+          <CatFiltroPlanta
+            servicioFiltro={filtroServicio}
+            value={filtroPlanta}
+            onChange={setFiltroPlanta}
+            personal={rows.map((r) => ({ servicio: r.servicio, planta: r.planta }))}
           />
           <div className="sm:col-span-2">
             <CatListaFiltro

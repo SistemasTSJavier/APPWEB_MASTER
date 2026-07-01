@@ -12,6 +12,7 @@ export type CatDashboardEmpleado = {
   noEmpleado: string;
   nombre: string;
   servicio: string;
+  planta: string;
   puesto: string;
   periodoEvaluacion: string;
   fechaIngreso: string;

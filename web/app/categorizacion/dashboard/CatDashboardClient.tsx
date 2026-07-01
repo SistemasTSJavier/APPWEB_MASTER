@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppModuleShell } from "@/components/app-module-shell";
-import { CatEmpleadoBuscador, conteoActivosPorServicio, serviciosCoincidenCat } from "@/components/categorizacion/CatEmpleadoBuscador";
+import { CatEmpleadoBuscador, CatFiltroPlanta, conteoActivosPorServicio, filtrarPorServicio, serviciosCoincidenCat } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatDashboardView } from "@/components/categorizacion/CatDashboardView";
 import { CategorizacionHero } from "@/components/categorizacion/categorizacion-ui";
 import type { CatDashboardEmpleado, CatDashboardPayload } from "@/lib/categorizacion-dashboard-types";
@@ -21,7 +21,7 @@ const LOOP_MS = 20_000;
 const PDF_MARGIN_MM = 10;
 const PDF_HEADER_MM = 8;
 const PDF_JPEG_QUALITY = 0.92;
-const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v4";
+const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v5";
 const DASHBOARD_CACHE_MS = 5 * 60_000;
 
 type DashboardCache = CatDashboardPayload & { cachedAt: number };
@@ -144,6 +144,7 @@ export function CatDashboardClient({
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [servicio, setServicio] = useState(initialServicio?.trim() || "");
+  const [planta, setPlanta] = useState("");
   const [noSel, setNoSel] = useState(initialNo?.trim().toUpperCase() || "");
   const [mostrar, setMostrar] = useState(Boolean(initialNo?.trim()));
   const [pantallaCompleta, setPantallaCompleta] = useState(Boolean(initialNo?.trim()));
@@ -255,8 +256,8 @@ export function CatDashboardClient({
   const empleadosServicio = useMemo(() => {
     if (!data) return [];
     if (!servicio) return data.empleados;
-    return data.empleados.filter((e) => serviciosCoincidenCat(e.servicio, servicio));
-  }, [data, servicio]);
+    return filtrarPorServicio(data.empleados, servicio, planta);
+  }, [data, servicio, planta]);
 
   const conteosServicio = useMemo(
     () => (data ? conteoActivosPorServicio(data.empleados) : []),
@@ -563,7 +564,8 @@ export function CatDashboardClient({
             </div>
           ) : null}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <label className="space-y-1">
+            <div className="space-y-3">
+            <label className="space-y-1 block">
               <span className="form-label">Servicio</span>
               {esClienteConsulta ? (
                 <p className="form-control uppercase bg-slate-50 font-semibold text-slate-800">{servicio || "—"}</p>
@@ -573,6 +575,7 @@ export function CatDashboardClient({
                 value={servicio}
                 onChange={(e) => {
                   setServicio(e.target.value);
+                  setPlanta("");
                   setNoSel("");
                   setMostrar(false);
                   detenerLoop();
@@ -590,6 +593,20 @@ export function CatDashboardClient({
                 {empleadosServicio.length} colaborador(es) activo(s) en el filtro
               </p>
             </label>
+            {!esClienteConsulta ? (
+              <CatFiltroPlanta
+                servicioFiltro={servicio}
+                value={planta}
+                onChange={(v) => {
+                  setPlanta(v);
+                  setNoSel("");
+                  setMostrar(false);
+                  detenerLoop();
+                }}
+                personal={data?.empleados ?? []}
+              />
+            ) : null}
+            </div>
             <CatEmpleadoBuscador
               label="Colaborador (opcional en loop)"
               hint="Vacío + servicio = recorrido automático cada 20 s."

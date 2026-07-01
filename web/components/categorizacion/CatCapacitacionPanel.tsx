@@ -6,6 +6,7 @@ import type { CatCapacitacionCurso, CatCapacitacionRegistro, CatColaboradorActiv
 import { cursoDisponibleParaRegistro } from "@/lib/categorizacion-capacitacion-curso";
 import {
   CatEmpleadoBuscador,
+  CatFiltroPlanta,
   CatFiltroServicio,
   CatListaFiltro,
   CatResumenServicios,
@@ -27,10 +28,11 @@ export function CatCapacitacionPanel() {
   const [regComentarios, setRegComentarios] = useState("");
   const [filtroHistorial, setFiltroHistorial] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
+  const [filtroPlanta, setFiltroPlanta] = useState("");
 
   const personalVisible = useMemo(
-    () => filtrarPorServicio(activos, filtroServicio),
-    [activos, filtroServicio],
+    () => filtrarPorServicio(activos, filtroServicio, filtroPlanta),
+    [activos, filtroServicio, filtroPlanta],
   );
 
   const opcionesPersonal = useMemo(
@@ -139,9 +141,22 @@ export function CatCapacitacionPanel() {
       <section className="card space-y-3">
         <h2 className="text-sm font-bold uppercase">Registrar colaborador a capacitación</h2>
         <CatResumenServicios personal={activos} servicioFiltro={filtroServicio} />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activos} />
-          <div className="sm:col-span-2 lg:col-span-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <CatFiltroServicio
+            value={filtroServicio}
+            onChange={(v) => {
+              setFiltroServicio(v);
+              setFiltroPlanta("");
+            }}
+            personal={activos}
+          />
+          <CatFiltroPlanta
+            servicioFiltro={filtroServicio}
+            value={filtroPlanta}
+            onChange={setFiltroPlanta}
+            personal={activos}
+          />
+          <div className="sm:col-span-2">
             <CatEmpleadoBuscador
               label="Empleado (activo en Colaboradores)"
               hint="Datos en vivo desde expedientes activos. Escribe N° o nombre."

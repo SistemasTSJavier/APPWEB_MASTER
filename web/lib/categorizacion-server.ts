@@ -33,8 +33,8 @@ import {
 import {
   filtrarCatPersonalCalificable,
   servicioCatPersonalEsCalificable,
-  serviciosCoincidenCat,
 } from "@/lib/categorizacion-servicios-calificables";
+import { servicioCoincideFiltroCat } from "@/lib/categorizacion-filtros-servicio";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import {
@@ -121,6 +121,7 @@ export function mapColaboradorActivoCategorizacion(c: ColaboradorCompleto): CatC
     nombre: String(c.nombreCompleto ?? f.nombreCompleto ?? "").trim(),
     servicio: servicioVigenteColaboradorCategorizacion(c),
     puesto: String(c.puesto ?? f.puesto ?? "").trim(),
+    planta: String(f.planta ?? "").trim(),
   };
 }
 
@@ -151,7 +152,7 @@ export function activosCategorizacionDesdeColaboradores(
     .filter((c) => {
       if (!colaboradorEstaActivoEnOperacion(c)) return false;
       if (opts?.soloCalificables !== false && !colaboradorCalificableEnCategorizacion(c)) return false;
-      if (srv && !serviciosCoincidenCat(servicioVigenteColaboradorCategorizacion(c), srv)) return false;
+      if (srv && !servicioCoincideFiltroCat(servicioVigenteColaboradorCategorizacion(c), srv)) return false;
       return true;
     })
     .map(mapColaboradorActivoCategorizacion);

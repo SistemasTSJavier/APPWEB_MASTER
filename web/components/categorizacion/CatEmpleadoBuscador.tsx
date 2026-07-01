@@ -2,6 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  conteoActivosPorPlanta,
+  conteoActivosPorServicioAgrupado,
+  filtrarPorServicioYPlanta,
+  PLANTA_FILTRO_SIN_REGISTRO,
+  plantasDisponiblesParaServicio,
+  servicioCoincideFiltroCat,
+  servicioUsaFiltroPlanta,
+  servicioClaveFiltroCat,
+  serviciosAgrupadosUnicosDesdePersonal,
+} from "@/lib/categorizacion-filtros-servicio";
+import {
   puestoEsJefeTurno,
   puestoEsOficialOperaciones,
 } from "@/lib/categorizacion-operaciones-roles";
@@ -235,39 +246,32 @@ export function normalizarServicioCatFiltro(s: string): string {
 }
 
 export function serviciosCoincidenCat(a: string, b: string): boolean {
-  return normServicioFiltro(a) === normServicioFiltro(b);
+  const ka = servicioClaveFiltroCat(a);
+  const kb = servicioClaveFiltroCat(b);
+  if (!ka || !kb) return false;
+  return ka === kb;
 }
 
 export function conteoActivosPorServicio<T extends { servicio?: string }>(
   rows: T[],
 ): { servicio: string; count: number }[] {
-  const map = new Map<string, number>();
-  for (const r of rows) {
-    const s = normServicioFiltro(String(r.servicio ?? ""));
-    const key = s || "SIN SERVICIO";
-    map.set(key, (map.get(key) ?? 0) + 1);
-  }
-  return [...map.entries()]
-    .map(([servicio, count]) => ({ servicio, count }))
-    .sort((a, b) => a.servicio.localeCompare(b.servicio, "es", { numeric: true }));
+  return conteoActivosPorServicioAgrupado(rows);
 }
 
-/** Filtra solo por servicio (sin texto de búsqueda). */
-export function filtrarPorServicio<T extends { servicio?: string }>(rows: T[], servicioFiltro: string): T[] {
-  const srv = normServicioFiltro(servicioFiltro);
-  if (!srv) return rows;
-  return rows.filter((r) => normServicioFiltro(String(r.servicio ?? "")) === srv);
+/** Filtra por servicio (agrupado CAT/U-ERRE) y opcionalmente por planta. */
+export function filtrarPorServicio<T extends { servicio?: string; planta?: string }>(
+  rows: T[],
+  servicioFiltro: string,
+  plantaFiltro = "",
+): T[] {
+  return filtrarPorServicioYPlanta(rows, servicioFiltro, plantaFiltro);
 }
 
-/** Filtro por servicio (exacto) y texto (N°, nombre o servicio). */
+/** Filtro por servicio, planta (CAT/U-ERRE) y texto (N°, nombre o servicio). */
 export function filtrarPersonalListado<
-  T extends CatEmpleadoOpcion & { servicio?: string },
->(rows: T[], busqueda: string, servicioFiltro: string): T[] {
-  let out = rows;
-  const srv = normServicioFiltro(servicioFiltro);
-  if (srv) {
-    out = out.filter((r) => normServicioFiltro(String(r.servicio ?? "")) === srv);
-  }
+  T extends CatEmpleadoOpcion & { servicio?: string; planta?: string },
+>(rows: T[], busqueda: string, servicioFiltro: string, plantaFiltro = ""): T[] {
+  let out = filtrarPorServicioYPlanta(rows, servicioFiltro, plantaFiltro);
   const q = busqueda.trim();
   if (!q) return out;
   const n = q.toLowerCase();
@@ -277,17 +281,15 @@ export function filtrarPersonalListado<
       r.nombre.toLowerCase().includes(n) ||
       String(r.servicio ?? "")
         .toLowerCase()
+        .includes(n) ||
+      String(r.planta ?? "")
+        .toLowerCase()
         .includes(n),
   );
 }
 
 export function serviciosUnicosDesdePersonal<T extends { servicio?: string }>(rows: T[]): string[] {
-  const set = new Set<string>();
-  for (const r of rows) {
-    const s = normServicioFiltro(String(r.servicio ?? ""));
-    if (s) set.add(s);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+  return serviciosAgrupadosUnicosDesdePersonal(rows);
 }
 
 /** Resumen compacto: activos por servicio. */
@@ -338,12 +340,16 @@ export function CatSelectorServicioObligatorio({
   personal,
   disabled,
   className = "",
+  plantaFiltro = "",
+  onPlantaChange,
 }: {
   value: string;
   onChange: (servicio: string) => void;
-  personal: { servicio?: string; puesto?: string }[];
+  personal: { servicio?: string; puesto?: string; planta?: string }[];
   disabled?: boolean;
   className?: string;
+  plantaFiltro?: string;
+  onPlantaChange?: (planta: string) => void;
 }) {
   const resumen = useMemo(() => {
     const map = new Map<
@@ -351,19 +357,34 @@ export function CatSelectorServicioObligatorio({
       { servicio: string; oficiales: number; jefesTurno: number; total: number }
     >();
     for (const r of personal) {
-      const s = normServicioFiltro(String(r.servicio ?? ""));
-      if (!s) continue;
-      const row = map.get(s) ?? { servicio: s, oficiales: 0, jefesTurno: 0, total: 0 };
+      const clave = servicioClaveFiltroCat(String(r.servicio ?? ""));
+      if (!clave) continue;
+      const row = map.get(clave) ?? { servicio: clave, oficiales: 0, jefesTurno: 0, total: 0 };
       row.total++;
       const puesto = String(r.puesto ?? "");
       if (puestoEsJefeTurno(puesto)) row.jefesTurno++;
       else if (puestoEsOficialOperaciones(puesto)) row.oficiales++;
-      map.set(s, row);
+      map.set(clave, row);
     }
     return [...map.values()].sort((a, b) =>
       a.servicio.localeCompare(b.servicio, "es", { numeric: true }),
     );
   }, [personal]);
+
+  const personalServicio = useMemo(
+    () => filtrarPorServicioYPlanta(personal, value, plantaFiltro),
+    [personal, value, plantaFiltro],
+  );
+
+  const conteoServicioSeleccionado = useMemo(() => {
+    let oficiales = 0;
+    let jefesTurno = 0;
+    for (const p of personalServicio) {
+      if (puestoEsJefeTurno(p.puesto ?? "")) jefesTurno++;
+      else if (puestoEsOficialOperaciones(p.puesto ?? "")) oficiales++;
+    }
+    return { oficiales, jefesTurno, total: personalServicio.length };
+  }, [personalServicio]);
 
   if (resumen.length === 0) {
     return (
@@ -391,6 +412,20 @@ export function CatSelectorServicioObligatorio({
           ))}
         </select>
       </label>
+      {value && onPlantaChange ? (
+        <CatFiltroPlanta
+          servicioFiltro={value}
+          value={plantaFiltro}
+          onChange={onPlantaChange}
+          personal={personal}
+        />
+      ) : null}
+      {value ? (
+        <p className="text-[11px] font-medium text-slate-600">
+          {conteoServicioSeleccionado.total} colaborador(es) en el filtro
+          {servicioUsaFiltroPlanta(value) && !plantaFiltro ? " (todas las plantas)" : ""}
+        </p>
+      ) : null}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {resumen.map((r) => {
           const activo = value && serviciosCoincidenCat(value, r.servicio);
@@ -419,7 +454,7 @@ export function CatSelectorServicioObligatorio({
   );
 }
 
-/** Selector de servicio (mismo criterio que Personal). */
+/** Selector de servicio (agrupa CAT / U-ERRE). */
 export function CatFiltroServicio({
   value,
   onChange,
@@ -431,9 +466,9 @@ export function CatFiltroServicio({
   personal: { servicio?: string }[];
   className?: string;
 }) {
-  const conteos = useMemo(() => conteoActivosPorServicio(personal), [personal]);
+  const conteos = useMemo(() => conteoActivosPorServicioAgrupado(personal), [personal]);
   const mapConteo = useMemo(() => new Map(conteos.map((c) => [c.servicio, c.count])), [conteos]);
-  const opciones = useMemo(() => serviciosUnicosDesdePersonal(personal), [personal]);
+  const opciones = useMemo(() => serviciosAgrupadosUnicosDesdePersonal(personal), [personal]);
   return (
     <label className={`space-y-1 ${className}`.trim()}>
       <span className="form-label">Filtrar por servicio</span>
@@ -442,6 +477,62 @@ export function CatFiltroServicio({
         {opciones.map((s) => (
           <option key={s} value={s}>
             {s} ({mapConteo.get(s) ?? 0})
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Planta (solo visible cuando el servicio es CAT o U-ERRE). */
+export function CatFiltroPlanta({
+  servicioFiltro,
+  value,
+  onChange,
+  personal,
+  className = "",
+}: {
+  servicioFiltro: string;
+  value: string;
+  onChange: (v: string) => void;
+  personal: { servicio?: string; planta?: string }[];
+  className?: string;
+}) {
+  const visible = servicioUsaFiltroPlanta(servicioFiltro);
+  const { labels, haySinPlanta } = useMemo(
+    () => plantasDisponiblesParaServicio(personal, servicioFiltro),
+    [personal, servicioFiltro],
+  );
+  const conteos = useMemo(
+    () => conteoActivosPorPlanta(personal, servicioFiltro),
+    [personal, servicioFiltro],
+  );
+  const mapConteo = useMemo(() => new Map(conteos.map((c) => [c.planta, c.count])), [conteos]);
+  const totalServicio = useMemo(
+    () => filtrarPorServicioYPlanta(personal, servicioFiltro).length,
+    [personal, servicioFiltro],
+  );
+
+  if (!visible) return null;
+
+  return (
+    <label className={`space-y-1 ${className}`.trim()}>
+      <span className="form-label">Filtrar por planta (CAT / U-ERRE)</span>
+      <select
+        className="form-control uppercase"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={!servicioFiltro.trim()}
+      >
+        <option value="">Todas las plantas ({totalServicio})</option>
+        {haySinPlanta ? (
+          <option value={PLANTA_FILTRO_SIN_REGISTRO}>
+            SIN PLANTA ({mapConteo.get(PLANTA_FILTRO_SIN_REGISTRO) ?? 0})
+          </option>
+        ) : null}
+        {labels.map((p) => (
+          <option key={p} value={p}>
+            {p} ({mapConteo.get(p) ?? 0})
           </option>
         ))}
       </select>

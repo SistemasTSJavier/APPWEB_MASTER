@@ -23,6 +23,7 @@ import {
 import type { CatColaboradorActivoOpcion } from "@/lib/categorizacion-types";
 import {
   CatEmpleadoBuscador,
+  CatFiltroPlanta,
   CatFiltroServicio,
   CatListaFiltro,
   CatResumenServicios,
@@ -30,6 +31,7 @@ import {
   filtrarPersonalListado,
   filtrarPorServicio,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
+import { servicioUsaFiltroPlanta } from "@/lib/categorizacion-filtros-servicio";
 import { CatMsg, CatPromedioBadge, CatRatingGrid } from "@/components/categorizacion/cat-form-ui";
 import type { AppRole } from "@/lib/app-role";
 import { roleEsClienteEnfoque } from "@/lib/app-role";
@@ -72,10 +74,12 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   const [msg, setMsg] = useState<string | null>(null);
   const [filtroTabla, setFiltroTabla] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
+  const [filtroPlanta, setFiltroPlanta] = useState("");
   const [enfoqueClienteServicio, setEnfoqueClienteServicio] = useState("");
   const [enfoqueClienteFin, setEnfoqueClienteFin] = useState("");
 
   const filtroPorServicio = false;
+  const mostrarFiltrosServicioResumen = !esOperaciones && !esEnfoque;
   const servicioEnfoqueElegido = esEnfoque
     ? esClienteEnfoque
       ? enfoqueClienteServicio.trim()
@@ -87,8 +91,11 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   const necesitaServicioOperaciones = esOperaciones && !servicioOperacionesElegido;
 
   const activosEnServicioOperaciones = useMemo(
-    () => (servicioOperacionesElegido ? filtrarPorServicio(activos, servicioOperacionesElegido) : []),
-    [activos, servicioOperacionesElegido],
+    () =>
+      servicioOperacionesElegido
+        ? filtrarPorServicio(activos, servicioOperacionesElegido, filtroPlanta)
+        : [],
+    [activos, servicioOperacionesElegido, filtroPlanta],
   );
 
   const conteoServicioOperaciones = useMemo(() => {
@@ -103,6 +110,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
 
   function elegirServicioOperaciones(servicio: string) {
     setFiltroServicio(servicio.trim());
+    setFiltroPlanta("");
     setNoSel("");
     setCalificadoPorSel("");
     setFiltroTabla("");
@@ -120,6 +128,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
 
   function elegirServicioEnfoque(servicio: string) {
     setFiltroServicio(servicio.trim());
+    setFiltroPlanta("");
     setNoSel("");
     setFiltroTabla("");
     setMsg(null);
@@ -152,31 +161,40 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     if (!esOperaciones) {
       if (esEnfoque) {
         if (!servicioEnfoqueElegido) return [];
-        return filtrarPorServicio(activos, servicioEnfoqueElegido);
+        return filtrarPorServicio(activos, servicioEnfoqueElegido, filtroPlanta);
       }
       return activos;
     }
     const porRol = activos.filter((p) => personalCoincideRolOperaciones(p.puesto, rolOperaciones));
     if (!servicioOperacionesElegido) return [];
-    return filtrarPorServicio(porRol, servicioOperacionesElegido);
-  }, [activos, esOperaciones, esEnfoque, rolOperaciones, servicioOperacionesElegido, servicioEnfoqueElegido]);
+    return filtrarPorServicio(porRol, servicioOperacionesElegido, filtroPlanta);
+  }, [activos, esOperaciones, esEnfoque, rolOperaciones, servicioOperacionesElegido, servicioEnfoqueElegido, filtroPlanta]);
 
   const personalPorServicio = useMemo(
     () =>
       esOperaciones || esEnfoque
         ? activosPorRol
-        : filtrarPorServicio(activosPorRol, filtroServicio),
-    [activosPorRol, filtroServicio, esOperaciones, esEnfoque],
+        : filtrarPorServicio(activosPorRol, filtroServicio, filtroPlanta),
+    [activosPorRol, filtroServicio, filtroPlanta, esOperaciones, esEnfoque],
   );
 
   const personalFiltrado = useMemo(
     () =>
       esOperaciones
-        ? filtrarPersonalListado(activosPorRol, filtroTabla, servicioOperacionesElegido)
+        ? filtrarPersonalListado(activosPorRol, filtroTabla, servicioOperacionesElegido, filtroPlanta)
         : esEnfoque
-          ? filtrarPersonalListado(activosPorRol, filtroTabla, servicioEnfoqueElegido)
-          : filtrarPersonalListado(activosPorRol, filtroTabla, filtroServicio),
-    [activosPorRol, filtroTabla, filtroServicio, esOperaciones, esEnfoque, servicioOperacionesElegido, servicioEnfoqueElegido],
+          ? filtrarPersonalListado(activosPorRol, filtroTabla, servicioEnfoqueElegido, filtroPlanta)
+          : filtrarPersonalListado(activosPorRol, filtroTabla, filtroServicio, filtroPlanta),
+    [
+      activosPorRol,
+      filtroTabla,
+      filtroServicio,
+      filtroPlanta,
+      esOperaciones,
+      esEnfoque,
+      servicioOperacionesElegido,
+      servicioEnfoqueElegido,
+    ],
   );
 
   const opciones = useMemo(
@@ -492,18 +510,30 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
             onChange={elegirServicioEnfoque}
             personal={activos}
             disabled={busy}
+            plantaFiltro={filtroPlanta}
+            onPlantaChange={setFiltroPlanta}
           />
         </section>
       ) : null}
 
       {esEnfoque && !necesitaServicioEnfoque && !esClienteEnfoque ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
-          <p className="text-xs font-semibold text-violet-950">
-            Servicio: <strong className="uppercase">{servicioEnfoqueElegido}</strong>
-          </p>
-          <button type="button" className="btn-secondary text-[10px] uppercase" onClick={() => elegirServicioEnfoque("")}>
-            Cambiar servicio
-          </button>
+        <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-violet-950">
+              Servicio: <strong className="uppercase">{servicioEnfoqueElegido}</strong>
+            </p>
+            <button type="button" className="btn-secondary text-[10px] uppercase" onClick={() => elegirServicioEnfoque("")}>
+              Cambiar servicio
+            </button>
+          </div>
+          {servicioUsaFiltroPlanta(servicioEnfoqueElegido) ? (
+            <CatFiltroPlanta
+              servicioFiltro={servicioEnfoqueElegido}
+              value={filtroPlanta}
+              onChange={setFiltroPlanta}
+              personal={activos}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -524,26 +554,38 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
             onChange={elegirServicioOperaciones}
             personal={activos}
             disabled={busy}
+            plantaFiltro={filtroPlanta}
+            onPlantaChange={setFiltroPlanta}
           />
         </section>
       ) : null}
 
       {esOperaciones && !necesitaServicioOperaciones ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
-          <p className="text-xs font-semibold text-violet-950">
-            Servicio: <strong className="uppercase">{servicioOperacionesElegido}</strong>
-            <span className="ml-2 font-normal text-slate-600">
-              {conteoServicioOperaciones.oficiales} oficial
-              {conteoServicioOperaciones.oficiales === 1 ? "" : "es"} · {conteoServicioOperaciones.jefesTurno} JT
-            </span>
-          </p>
-          <button
-            type="button"
-            className="btn-secondary text-[10px] uppercase"
-            onClick={cambiarServicioOperaciones}
-          >
-            Cambiar servicio
-          </button>
+        <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-violet-950">
+              Servicio: <strong className="uppercase">{servicioOperacionesElegido}</strong>
+              <span className="ml-2 font-normal text-slate-600">
+                {conteoServicioOperaciones.oficiales} oficial
+                {conteoServicioOperaciones.oficiales === 1 ? "" : "es"} · {conteoServicioOperaciones.jefesTurno} JT
+              </span>
+            </p>
+            <button
+              type="button"
+              className="btn-secondary text-[10px] uppercase"
+              onClick={cambiarServicioOperaciones}
+            >
+              Cambiar servicio
+            </button>
+          </div>
+          {servicioUsaFiltroPlanta(servicioOperacionesElegido) ? (
+            <CatFiltroPlanta
+              servicioFiltro={servicioOperacionesElegido}
+              value={filtroPlanta}
+              onChange={setFiltroPlanta}
+              personal={activos}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -729,30 +771,36 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           </p>
         ) : (
           <>
-        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtroPorServicio ? (
-            <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activosPorRol} />
-          ) : (
-            <div className="sm:col-span-3">
-              <CatListaFiltro
-                value={filtroTabla}
-                onChange={setFiltroTabla}
-                total={personalPorServicio.length}
-                filtrados={personalFiltrado.length}
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {mostrarFiltrosServicioResumen ? (
+            <>
+              <CatFiltroServicio
+                value={filtroServicio}
+                onChange={(v) => {
+                  setFiltroServicio(v);
+                  setFiltroPlanta("");
+                }}
+                personal={activosPorRol}
               />
-            </div>
-          )}
-          {filtroPorServicio ? (
-            <div className="sm:col-span-2">
-              <CatListaFiltro
-                value={filtroTabla}
-                onChange={setFiltroTabla}
-                total={personalPorServicio.length}
-                filtrados={personalFiltrado.length}
-                totalCatalogo={filtroServicio ? activosPorRol.length : undefined}
+              <CatFiltroPlanta
+                servicioFiltro={filtroServicio}
+                value={filtroPlanta}
+                onChange={setFiltroPlanta}
+                personal={activosPorRol}
               />
-            </div>
+            </>
           ) : null}
+          <div className={mostrarFiltrosServicioResumen ? "sm:col-span-2" : "sm:col-span-3"}>
+            <CatListaFiltro
+              value={filtroTabla}
+              onChange={setFiltroTabla}
+              total={personalPorServicio.length}
+              filtrados={personalFiltrado.length}
+              totalCatalogo={
+                mostrarFiltrosServicioResumen && filtroServicio ? activosPorRol.length : undefined
+              }
+            />
+          </div>
         </div>
         <div className="max-h-[min(70vh,36rem)] overflow-auto rounded-lg border border-slate-100">
           <table className="w-full min-w-[640px] text-xs">

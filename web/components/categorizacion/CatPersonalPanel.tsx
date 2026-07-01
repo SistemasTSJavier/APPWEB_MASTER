@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CatColaboradorActivoOpcion, CatPersonalRow } from "@/lib/categorizacion-types";
 import {
+  CatFiltroPlanta,
   CatFiltroServicio,
   CatListaFiltro,
   CatResumenServicios,
@@ -37,6 +38,7 @@ export function CatPersonalPanel() {
   const [edit, setEdit] = useState<CatPersonalRow | null>(null);
   const [filtroTabla, setFiltroTabla] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
+  const [filtroPlanta, setFiltroPlanta] = useState("");
 
   const rows = useMemo(() => {
     const catMap = new Map(catRows.map((p) => [p.noEmpleado, p]));
@@ -67,14 +69,19 @@ export function CatPersonalPanel() {
     });
   }, [activos, catRows]);
 
+  const rowsConPlanta = useMemo(() => {
+    const plantaPorNo = new Map(activos.map((a) => [a.noEmpleado, a.planta ?? ""]));
+    return rows.map((r) => ({ ...r, planta: plantaPorNo.get(r.noEmpleado) ?? "" }));
+  }, [rows, activos]);
+
   const personalPorServicio = useMemo(
-    () => filtrarPorServicio(rows, filtroServicio),
-    [rows, filtroServicio],
+    () => filtrarPorServicio(rowsConPlanta, filtroServicio, filtroPlanta),
+    [rowsConPlanta, filtroServicio, filtroPlanta],
   );
 
   const rowsFiltrados = useMemo(
-    () => filtrarPersonalListado(rows, filtroTabla, filtroServicio),
-    [rows, filtroTabla, filtroServicio],
+    () => filtrarPersonalListado(rowsConPlanta, filtroTabla, filtroServicio, filtroPlanta),
+    [rowsConPlanta, filtroTabla, filtroServicio, filtroPlanta],
   );
 
   const sincronizarActivos = useCallback(
@@ -217,8 +224,21 @@ export function CatPersonalPanel() {
 
         <CatResumenServicios personal={activos} servicioFiltro={filtroServicio} className="mb-3" />
 
-        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <CatFiltroServicio value={filtroServicio} onChange={setFiltroServicio} personal={activos} />
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <CatFiltroServicio
+            value={filtroServicio}
+            onChange={(v) => {
+              setFiltroServicio(v);
+              setFiltroPlanta("");
+            }}
+            personal={activos}
+          />
+          <CatFiltroPlanta
+            servicioFiltro={filtroServicio}
+            value={filtroPlanta}
+            onChange={setFiltroPlanta}
+            personal={activos}
+          />
           <div className="sm:col-span-2">
             <CatListaFiltro
               value={filtroTabla}

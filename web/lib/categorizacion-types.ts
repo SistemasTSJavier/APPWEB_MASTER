@@ -21,6 +21,8 @@ export type CatColaboradorActivoOpcion = {
   nombre: string;
   servicio: string;
   puesto: string;
+  /** Planta en expediente (relevante para filtro CAT / U-ERRE). */
+  planta?: string;
 };
 
 export type CatEvaluacionRow = {

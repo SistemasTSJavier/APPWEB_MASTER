@@ -25,6 +25,7 @@ import {
 } from "@/lib/categorizacion-server";
 import { listLogosServicioDashboard } from "@/lib/cat-dashboard-logo-servicio";
 import { fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
+import { servicioClaveFiltroCat } from "@/lib/categorizacion-filtros-servicio";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
@@ -129,6 +130,7 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     fechaBaja: "",
   }));
   const colabMap = new Map(colaboradores.map((c) => [c.noEmpleado.trim().toUpperCase(), c]));
+  const activosMap = new Map(activos.map((a) => [a.noEmpleado.trim().toUpperCase(), a]));
   const resumenMap = new Map(resumen.map((r) => [r.noEmpleado.trim().toUpperCase(), r]));
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado.trim().toUpperCase(), r.scores]));
 
@@ -139,7 +141,9 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     const key = p.noEmpleado.trim().toUpperCase();
     const r = resumenMap.get(key);
     const servicio = p.servicio.trim() || "SIN SERVICIO";
-    serviciosSet.add(servicio);
+    serviciosSet.add(servicioClaveFiltroCat(servicio) || servicio);
+    const activo = activosMap.get(key);
+    const planta = String(activo?.planta ?? colab?.form?.planta ?? "").trim();
 
     const fechaIngreso = fechaIngresoEfectiva(p, colab);
 
@@ -166,6 +170,7 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       noEmpleado: p.noEmpleado,
       nombre: p.nombre,
       servicio,
+      planta,
       puesto: p.puesto,
       periodoEvaluacion: p.periodoEvaluacion,
       fechaIngreso,

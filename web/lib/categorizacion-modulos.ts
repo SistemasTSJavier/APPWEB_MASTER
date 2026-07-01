@@ -3,7 +3,7 @@ export const CATEGORIZACION_MODULOS = [
   {
     id: "personal",
     label: "Personal",
-    description: "Colaboradores activos sincronizados desde expedientes. Filtro por servicio y búsqueda.",
+    description: "Colaboradores activos sincronizados desde expedientes. Filtro por servicio, planta (CAT/U-ERRE) y búsqueda.",
     icon: "👤",
   },
   {
