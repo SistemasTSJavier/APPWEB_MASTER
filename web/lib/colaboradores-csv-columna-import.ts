@@ -13,7 +13,7 @@ import {
 } from "@/lib/altas-import-partes";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
 import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
-import { alinearColaboradorTrasImportColumnaServicio } from "@/lib/servicio-agrupacion";
+import { alinearColaboradorTrasImportColumnaPuesto, alinearColaboradorTrasImportColumnaServicio } from "@/lib/servicio-agrupacion";
 
 function g(p: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
   return (p[k] ?? "").trim();
@@ -161,6 +161,12 @@ export function procesarCsvActualizacionUnaColumna(
             : g(picked, "ultimoServicio");
       if (valorServicio) {
         merged = alinearColaboradorTrasImportColumnaServicio(merged, valorServicio);
+      }
+    }
+    if (dataFieldKey === "puesto") {
+      const valorPuesto = g(picked, "puesto");
+      if (valorPuesto) {
+        merged = alinearColaboradorTrasImportColumnaPuesto(merged, valorPuesto);
       }
     }
     if (dataFieldKey === "noServicio") {

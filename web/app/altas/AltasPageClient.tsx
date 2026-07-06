@@ -4,6 +4,7 @@ import { type ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } fro
 import Link from "next/link";
 import {
   findColaboradorCompletoByNo,
+  invalidateColaboradoresListCache,
   listColaboradoresCompletos,
   upsertColaboradorCompleto,
   type ColaboradorCompleto,
@@ -514,6 +515,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         })),
       });
       listadoColaboradoresCacheRef.current = null;
+      invalidateColaboradoresListCache();
       try {
         const list = await listColaboradoresCompletos({ forceRefresh: true });
         listadoColaboradoresCacheRef.current = list;
@@ -596,6 +598,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           throw new Error(j.error ?? `Error ${r.status}`);
         }
         listadoColaboradoresCacheRef.current = null;
+      invalidateColaboradoresListCache();
         setImportResultado({
           imported: Number(j.imported ?? 0),
           skippedEmpty: Number(j.skippedEmpty ?? 0),
@@ -619,6 +622,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
           preserveMoper: preserveMoperEnImport,
         });
         listadoColaboradoresCacheRef.current = null;
+      invalidateColaboradoresListCache();
         setImportResultado({
           imported: res.imported,
           skippedEmpty: res.skippedEmpty,
@@ -687,6 +691,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         throw new Error(j.error ?? `Error ${r.status}`);
       }
       listadoColaboradoresCacheRef.current = null;
+      invalidateColaboradoresListCache();
       const campo = String(j.fieldKey ?? "");
       const ok = Number(j.actualizados ?? 0);
       const sinExp = Number(j.sinExpediente ?? 0);
@@ -759,6 +764,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         throw new Error(j.error ?? `Error ${r.status}`);
       }
       listadoColaboradoresCacheRef.current = null;
+      invalidateColaboradoresListCache();
       const n = Number(j.renumerados ?? 0);
       const avisos = Array.isArray(j.avisos) ? j.avisos : [];
       const base = `${n} EXPEDIENTE(S) RENUMERADO(S).`;

@@ -89,3 +89,28 @@ export function alinearColaboradorTrasImportColumnaServicio(c: ColaboradorComple
     },
   };
 }
+
+/**
+ * La lista prioriza `moperActual.puesto` sobre expediente (`puesto`).
+ * Tras importar CSV de una sola columna de puesto, sin esto el dato queda en `form`/`puesto`
+ * pero sigue viéndose el puesto MOPER anterior.
+ */
+export function alinearColaboradorTrasImportColumnaPuesto(c: ColaboradorCompleto, puestoTexto: string): ColaboradorCompleto {
+  const p = puestoTexto.trim();
+  if (!p) return c;
+  const servicioLinea = (c.moperActual?.servicio ?? c.servicioAsignado ?? c.ultimoServicio ?? "").trim();
+  const form = {
+    ...c.form,
+    puesto: p,
+    puestoFinal: p,
+  };
+  return {
+    ...c,
+    puesto: p,
+    form,
+    moperActual: {
+      servicio: servicioLinea,
+      puesto: p,
+    },
+  };
+}
