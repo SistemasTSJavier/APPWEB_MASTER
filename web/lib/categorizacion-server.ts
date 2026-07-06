@@ -562,12 +562,27 @@ function rowToCatEvaluacion(r: Record<string, unknown>, modulo: CatEvalModuloId)
   };
 }
 
+/** Promedio operaciones oficial = media de los promedios de cada JT evaluador. */
+export function mapaPromedioOperacionesOficial(rows: CatEvaluacionRow[]): Map<string, number | null> {
+  const porOficial = new Map<string, number[]>();
+  for (const r of rows) {
+    if (r.submodulo !== "oficial" || r.promedio == null || !Number.isFinite(r.promedio)) continue;
+    const list = porOficial.get(r.noEmpleado) ?? [];
+    list.push(r.promedio);
+    porOficial.set(r.noEmpleado, list);
+  }
+  const out = new Map<string, number | null>();
+  for (const [no, proms] of porOficial) {
+    out.set(no, promedioAcumuladoEvaluaciones(proms));
+  }
+  return out;
+}
+
 /** Promedio operaciones JT = media de los promedios de cada oficial evaluador. */
 export function mapaPromedioOperacionesJefeTurno(rows: CatEvaluacionRow[]): Map<string, number | null> {
   const porJefe = new Map<string, number[]>();
   for (const r of rows) {
-    const esJt = r.submodulo === "jefe_turno" || Boolean(r.calificadoPor);
-    if (!esJt || r.promedio == null || !Number.isFinite(r.promedio)) continue;
+    if (r.submodulo !== "jefe_turno" || r.promedio == null || !Number.isFinite(r.promedio)) continue;
     const list = porJefe.get(r.noEmpleado) ?? [];
     list.push(r.promedio);
     porJefe.set(r.noEmpleado, list);
@@ -778,12 +793,12 @@ export async function loadMapasPromedioOperaciones(
     listCatEvaluacionesModulo("operaciones", admin, { submodulo: "jefe_turno" }),
   ]);
   return {
-    oficial: new Map(opOficialList.map((r) => [r.noEmpleado, r.promedio])),
+    oficial: mapaPromedioOperacionesOficial(opOficialList),
     jefeTurno: mapaPromedioOperacionesJefeTurno(opJefeList),
   };
 }
 
-/** Oficial: promedio de su evaluación. JT: media de los promedios de cada oficial calificador. */
+/** Oficial: media de los promedios de cada JT calificador. JT: media de los promedios de cada oficial calificador. */
 export function promedioOperacionesParaEmpleado(
   noEmpleado: string,
   puesto: string,
@@ -848,8 +863,8 @@ export async function upsertCatEvaluacion(
   if (sub === "jefe_turno" && !calificadoPor) {
     throw new Error("Indique el N.º del oficial (calificado por) para jefe de turno.");
   }
-  if (sub === "oficial" && calificadoPor) {
-    throw new Error("El perfil oficial no usa calificado por.");
+  if (sub === "oficial" && !calificadoPor) {
+    throw new Error("Indique el N.º del jefe de turno (calificado por) para oficial.");
   }
   const campos = camposPorModulo(modulo, modulo === "operaciones" ? { rolOperaciones: rolOp } : undefined);
   const filtered: Record<string, number> = {};

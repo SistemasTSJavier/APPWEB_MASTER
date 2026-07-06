@@ -30,7 +30,7 @@ export type CatEvaluacionRow = {
   modulo: CatEvalModuloId;
   /** En operaciones: oficial | jefe_turno; vacío en otros módulos. */
   submodulo?: string;
-  /** N.º del oficial evaluador (solo jefe de turno). */
+  /** N.º del evaluador: oficial (JT→oficial) o jefe de turno (oficial→JT). */
   calificadoPor?: string;
   scores: Record<string, number>;
   comentarios: string;

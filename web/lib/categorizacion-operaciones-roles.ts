@@ -11,7 +11,7 @@ export const CAT_OPERACIONES_ROLES: {
   {
     id: "oficial",
     label: "Oficial",
-    hint: "15 criterios operativos estándar (perfil oficial).",
+    hint: "15 criterios operativos. Cada jefe de turno del servicio califica por separado; el promedio operaciones es la media de esas calificaciones.",
   },
   {
     id: "jefe_turno",
@@ -149,6 +149,18 @@ export function filtrarOficialesParaCalificarJefe(
         puestoEsOficialOperaciones(p.puesto) &&
         (!svc || p.servicio.trim() === svc),
     )
+    .map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre }))
+    .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+}
+
+/** Jefes de turno del mismo servicio que pueden calificar a un oficial. */
+export function filtrarJefesTurnoParaCalificarOficial(
+  personal: Array<{ noEmpleado: string; nombre: string; puesto: string; servicio: string }>,
+  servicio: string,
+): Array<{ noEmpleado: string; nombre: string }> {
+  const svc = servicio.trim();
+  return personal
+    .filter((p) => puestoEsJefeTurno(p.puesto) && (!svc || p.servicio.trim() === svc))
     .map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre }))
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
 }

@@ -6,6 +6,7 @@ import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
 import { CAT_RH_AUSENTISMOS_LABEL, camposPorModulo, labelModuloEval } from "@/lib/categorizacion-campos";
 import {
   CAT_OPERACIONES_ROLES,
+  filtrarJefesTurnoParaCalificarOficial,
   filtrarOficialesParaCalificarJefe,
   personalCoincideRolOperaciones,
   puestoEsJefeTurno,
@@ -63,7 +64,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   );
   const [activos, setActivos] = useState<CatColaboradorActivoOpcion[]>([]);
   const [evalMap, setEvalMap] = useState<Map<string, EvalRow>>(new Map());
-  const [jefeEvalMap, setJefeEvalMap] = useState<Map<string, EvalRow[]>>(new Map());
+  const [multiEvalMap, setMultiEvalMap] = useState<Map<string, EvalRow[]>>(new Map());
   const [calificadoPorSel, setCalificadoPorSel] = useState("");
   const [faltasMap, setFaltasMap] = useState<FaltasMesMap>({});
   const [faltasMesYm, setFaltasMesYm] = useState("");
@@ -87,6 +88,8 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     : "";
   const necesitaServicioEnfoque = esEnfoque && !servicioEnfoqueElegido && !esClienteEnfoque;
   const esJefeTurno = esOperaciones && rolOperaciones === "jefe_turno";
+  const esOficialOperaciones = esOperaciones && rolOperaciones === "oficial";
+  const usaEvalMultiCalificador = esOperaciones;
   const servicioOperacionesElegido = esOperaciones ? filtroServicio.trim() : "";
   const necesitaServicioOperaciones = esOperaciones && !servicioOperacionesElegido;
 
@@ -125,6 +128,13 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     () => filtrarOficialesParaCalificarJefe(activosEnServicioOperaciones, servicioOperacionesElegido),
     [activosEnServicioOperaciones, servicioOperacionesElegido],
   );
+
+  const jefesTurnoOpciones = useMemo(
+    () => filtrarJefesTurnoParaCalificarOficial(activosEnServicioOperaciones, servicioOperacionesElegido),
+    [activosEnServicioOperaciones, servicioOperacionesElegido],
+  );
+
+  const calificadoresOpciones = esOficialOperaciones ? jefesTurnoOpciones : oficialesOpciones;
 
   function elegirServicioEnfoque(servicio: string) {
     setFiltroServicio(servicio.trim());
@@ -223,8 +233,8 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   const evaluadosCount = useMemo(() => {
     let n = 0;
     for (const p of personalFiltrado) {
-      if (esJefeTurno) {
-        const evals = jefeEvalMap.get(noKey(p.noEmpleado)) ?? [];
+      if (usaEvalMultiCalificador) {
+        const evals = multiEvalMap.get(noKey(p.noEmpleado)) ?? [];
         if (promedioAcumuladoEvaluaciones(evals.map((e) => e.promedio)) != null) n++;
       } else {
         const ev = evalMap.get(noKey(p.noEmpleado));
@@ -232,18 +242,18 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       }
     }
     return n;
-  }, [personalFiltrado, evalMap, jefeEvalMap, esJefeTurno]);
+  }, [personalFiltrado, evalMap, multiEvalMap, usaEvalMultiCalificador]);
 
-  const acumuladoJefeSel = useMemo(() => {
-    if (!esJefeTurno || !noSel) return null;
-    const evals = jefeEvalMap.get(noKey(noSel)) ?? [];
+  const acumuladoMultiSel = useMemo(() => {
+    if (!usaEvalMultiCalificador || !noSel) return null;
+    const evals = multiEvalMap.get(noKey(noSel)) ?? [];
     return promedioAcumuladoEvaluaciones(evals.map((e) => e.promedio));
-  }, [esJefeTurno, noSel, jefeEvalMap]);
+  }, [usaEvalMultiCalificador, noSel, multiEvalMap]);
 
-  const evalsJefeSel = useMemo(() => {
-    if (!esJefeTurno || !noSel) return [];
-    return jefeEvalMap.get(noKey(noSel)) ?? [];
-  }, [esJefeTurno, noSel, jefeEvalMap]);
+  const evalsMultiSel = useMemo(() => {
+    if (!usaEvalMultiCalificador || !noSel) return [];
+    return multiEvalMap.get(noKey(noSel)) ?? [];
+  }, [usaEvalMultiCalificador, noSel, multiEvalMap]);
 
   const aplicarFilasEvaluacion = useCallback(
     (rows: Array<{
@@ -253,20 +263,20 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       promedio?: number | null;
       calificadoPor?: string;
     }>) => {
-      if (esJefeTurno) {
-        const porJefe = new Map<string, EvalRow[]>();
+      if (usaEvalMultiCalificador) {
+        const porEmpleado = new Map<string, EvalRow[]>();
         for (const row of rows) {
           const key = noKey(row.noEmpleado);
-          const list = porJefe.get(key) ?? [];
+          const list = porEmpleado.get(key) ?? [];
           list.push({
             scores: row.scores ?? {},
             comentarios: row.comentarios ?? "",
             promedio: promedioEvaluacionModulo(row.scores, row.promedio),
             calificadoPor: row.calificadoPor ? noKey(row.calificadoPor) : "",
           });
-          porJefe.set(key, list);
+          porEmpleado.set(key, list);
         }
-        setJefeEvalMap(porJefe);
+        setMultiEvalMap(porEmpleado);
         setEvalMap(new Map());
         return;
       }
@@ -280,9 +290,9 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
         });
       }
       setEvalMap(m);
-      setJefeEvalMap(new Map());
+      setMultiEvalMap(new Map());
     },
-    [esJefeTurno],
+    [usaEvalMultiCalificador],
   );
 
   const load = useCallback(async () => {
@@ -310,7 +320,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       } catch (e) {
         avisos.push(e instanceof Error ? e.message.toUpperCase() : "ERROR AL CARGAR EVALUACIONES.");
         setEvalMap(new Map());
-        setJefeEvalMap(new Map());
+        setMultiEvalMap(new Map());
       }
 
       if (esRh) {
@@ -352,13 +362,13 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       return;
     }
     let ex: EvalRow | undefined;
-    if (esJefeTurno) {
+    if (usaEvalMultiCalificador) {
       if (!calificadoPorSel) {
         setScores({});
         setComentarios("");
         return;
       }
-      ex = (jefeEvalMap.get(noKey(noSel)) ?? []).find(
+      ex = (multiEvalMap.get(noKey(noSel)) ?? []).find(
         (e) => e.calificadoPor === noKey(calificadoPorSel),
       );
     } else {
@@ -370,7 +380,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     }
     setScores(init);
     setComentarios(ex?.comentarios ?? "");
-  }, [noSel, calificadoPorSel, evalMap, jefeEvalMap, campos, esJefeTurno]);
+  }, [noSel, calificadoPorSel, evalMap, multiEvalMap, campos, usaEvalMultiCalificador]);
 
   function seleccionarEmpleado(no: string) {
     setNoSel(noKey(no));
@@ -386,13 +396,17 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       setMsg("SELECCIONA UN SERVICIO.");
       return;
     }
-    if (esJefeTurno) {
+    if (usaEvalMultiCalificador) {
       if (!servicioOperacionesElegido) {
         setMsg("SELECCIONA UN SERVICIO.");
         return;
       }
       if (!calificadoPorSel) {
-        setMsg("SELECCIONA EL OFICIAL (CALIFICADO POR).");
+        setMsg(
+          esOficialOperaciones
+            ? "SELECCIONA EL JEFE DE TURNO (CALIFICADO POR)."
+            : "SELECCIONA EL OFICIAL (CALIFICADO POR).",
+        );
         return;
       }
     }
@@ -415,25 +429,26 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           noEmpleado: noKey(noSel),
           modulo,
           submodulo: esOperaciones ? submoduloOperaciones(rolOperaciones) : undefined,
-          calificadoPor: esJefeTurno ? noKey(calificadoPorSel) : undefined,
+          calificadoPor: usaEvalMultiCalificador ? noKey(calificadoPorSel) : undefined,
           scores: nums,
           comentarios,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
-      const acumJefe =
-        esJefeTurno && noSel
+      const acumMulti =
+        usaEvalMultiCalificador && noSel
           ? promedioAcumuladoEvaluaciones(
-              (jefeEvalMap.get(noKey(noSel)) ?? [])
+              (multiEvalMap.get(noKey(noSel)) ?? [])
                 .filter((e) => e.calificadoPor !== noKey(calificadoPorSel))
                 .map((e) => e.promedio)
                 .concat(prom != null ? [prom] : []),
             )
           : null;
+      const etiquetaCalificador = esOficialOperaciones ? "JT" : "OFICIAL";
       setMsg(
-        esJefeTurno
-          ? `CALIFICACIÓN DEL OFICIAL ${noKey(calificadoPorSel)} GUARDADA.${acumJefe != null ? ` PROMEDIO ACUMULADO DEL JT: ${acumJefe.toFixed(2)}` : ""}`
+        usaEvalMultiCalificador
+          ? `CALIFICACIÓN DEL ${etiquetaCalificador} ${noKey(calificadoPorSel)} GUARDADA.${acumMulti != null ? ` PROMEDIO ACUMULADO: ${acumMulti.toFixed(2)}` : ""}`
           : prom != null
             ? `EVALUACIÓN GUARDADA. PROMEDIO ${esRh ? "RH" : ""}: ${prom.toFixed(2)}`.trim()
             : "EVALUACIÓN GUARDADA.",
@@ -458,8 +473,9 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
         ) : esOperaciones ? (
           <>
             Elija primero el <strong>servicio</strong>. Después podrá calificar <strong>oficiales</strong> (15
-            criterios) o <strong>jefes de turno</strong> (24 criterios; cada oficial del servicio califica al JT y el
-            promedio es la media de esas calificaciones).
+            criterios; cada jefe de turno del servicio califica al oficial y el promedio es la media de esas
+            calificaciones) o <strong>jefes de turno</strong> (24 criterios; cada oficial califica al JT y el promedio
+            es la media de esas calificaciones).
           </>
         ) : esEnfoque ? (
           esClienteEnfoque ? (
@@ -629,7 +645,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           ) : null}
           <div className={filtroPorServicio ? "sm:col-span-2" : "sm:col-span-3"}>
             <CatEmpleadoBuscador
-              label={esJefeTurno ? "Jefe de turno (JT) a calificar" : "Empleado (activo en Colaboradores)"}
+              label={esJefeTurno ? "Jefe de turno (JT) a calificar" : esOficialOperaciones ? "Oficial a calificar" : "Empleado (activo en Colaboradores)"}
               hint="Datos en vivo desde expedientes activos. Escribe N° o nombre."
               value={noSel}
               onChange={seleccionarEmpleado}
@@ -639,39 +655,49 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
             />
           </div>
         </div>
-        {esJefeTurno && noSel ? (
+        {usaEvalMultiCalificador && noSel ? (
           <CatEmpleadoBuscador
-            label="Calificado por (oficial del servicio)"
+            label={esOficialOperaciones ? "Calificado por (jefe de turno del servicio)" : "Calificado por (oficial del servicio)"}
             value={calificadoPorSel}
             onChange={(no) => {
               setCalificadoPorSel(noKey(no));
               setMsg(null);
             }}
-            opciones={oficialesOpciones}
-            listId={`cat-eval-${modulo}-oficial`}
-            disabled={busy || oficialesOpciones.length === 0}
-            hint="Cada oficial califica una vez al JT. Puede editar su propia calificación."
+            opciones={calificadoresOpciones}
+            listId={`cat-eval-${modulo}-calificador`}
+            disabled={busy || calificadoresOpciones.length === 0}
+            hint={
+              esOficialOperaciones
+                ? `Cada JT califica una vez al oficial. El servicio tiene ${jefesTurnoOpciones.length} JT. Puede editar su propia calificación.`
+                : "Cada oficial califica una vez al JT. Puede editar su propia calificación."
+            }
           />
         ) : null}
-        {esJefeTurno && noSel && evalsJefeSel.length > 0 ? (
+        {usaEvalMultiCalificador && noSel && evalsMultiSel.length > 0 ? (
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-800">
             <p className="font-bold uppercase text-slate-600">Calificaciones registradas</p>
             <ul className="mt-1 space-y-0.5">
-              {evalsJefeSel.map((e) => {
-                const of = activos.find((p) => noKey(p.noEmpleado) === e.calificadoPor);
+              {evalsMultiSel.map((e) => {
+                const cal = activos.find((p) => noKey(p.noEmpleado) === e.calificadoPor);
+                const rolLabel = esOficialOperaciones ? "JT" : "Oficial";
                 return (
                   <li key={e.calificadoPor}>
-                    Oficial <span className="font-mono">{e.calificadoPor}</span>
-                    {of ? ` — ${of.nombre}` : ""}:{" "}
+                    {rolLabel} <span className="font-mono">{e.calificadoPor}</span>
+                    {cal ? ` — ${cal.nombre}` : ""}:{" "}
                     <strong>{e.promedio != null ? e.promedio.toFixed(2) : "—"}</strong>
                   </li>
                 );
               })}
             </ul>
-            {acumuladoJefeSel != null ? (
+            {acumuladoMultiSel != null ? (
               <p className="mt-2 font-bold text-violet-950">
-                Promedio acumulado operaciones: {acumuladoJefeSel.toFixed(2)} ({evalsJefeSel.length} oficial
-                {evalsJefeSel.length === 1 ? "" : "es"})
+                Promedio acumulado operaciones: {acumuladoMultiSel.toFixed(2)} ({evalsMultiSel.length}{" "}
+                {esOficialOperaciones ? "JT" : "oficial"}
+                {evalsMultiSel.length === 1 ? "" : "es"}
+                {esOficialOperaciones && jefesTurnoOpciones.length > 0
+                  ? ` de ${jefesTurnoOpciones.length} en el servicio`
+                  : ""}
+                )
               </p>
             ) : null}
           </div>
@@ -684,15 +710,25 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
             No hay oficiales activos en el servicio «{servicioOperacionesElegido}». Revise puestos en Colaboradores.
           </p>
         ) : null}
-        {!noSel || (esJefeTurno && !calificadoPorSel) ? (
+        {esOficialOperaciones && servicioOperacionesElegido && jefesTurnoOpciones.length === 0 ? (
+          <p className="text-xs font-medium text-amber-800">
+            No hay jefes de turno activos en el servicio «{servicioOperacionesElegido}». Revise puestos en
+            Colaboradores.
+          </p>
+        ) : null}
+        {!noSel || (usaEvalMultiCalificador && !calificadoPorSel) ? (
           <p className="rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2 text-xs font-medium text-violet-900">
-            {esJefeTurno
-              ? "Elige jefe de turno y el oficial que califica."
+            {usaEvalMultiCalificador
+              ? esOficialOperaciones
+                ? "Elige oficial y el jefe de turno que califica."
+                : "Elige jefe de turno y el oficial que califica."
               : "Elige un empleado de la lista para calificar."}{" "}
-            {!esJefeTurno ? (
-              <strong>{campos.map((c) => c.label).join(" · ")}</strong>
+            {usaEvalMultiCalificador ? (
+              <strong>
+                {campos.length} criterios {esOficialOperaciones ? "operativos" : "de liderazgo"} (1–5 cada uno).
+              </strong>
             ) : (
-              <strong>{campos.length} criterios de liderazgo (1–5 cada uno).</strong>
+              <strong>{campos.map((c) => c.label).join(" · ")}</strong>
             )}
             {esRh ? ` · ${CAT_RH_AUSENTISMOS_LABEL} (automático)` : ""}
           </p>
@@ -731,12 +767,12 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
               />
             </label>
             <div className="flex flex-wrap items-center gap-3">
-              <CatPromedioBadge promedio={promedioPreview} label={esJefeTurno ? "Prom. esta calificación" : undefined} />
-              {esJefeTurno && acumuladoJefeSel != null ? (
-                <CatPromedioBadge promedio={acumuladoJefeSel} label="Prom. acumulado JT" />
+              <CatPromedioBadge promedio={promedioPreview} label={usaEvalMultiCalificador ? "Prom. esta calificación" : undefined} />
+              {usaEvalMultiCalificador && acumuladoMultiSel != null ? (
+                <CatPromedioBadge promedio={acumuladoMultiSel} label="Prom. acumulado" />
               ) : null}
               <button type="button" className="btn-primary uppercase" disabled={busy} onClick={() => void guardar()}>
-                {esJefeTurno ? "Guardar calificación del oficial" : "Guardar y promediar"}
+                {usaEvalMultiCalificador ? "Guardar calificación" : "Guardar y promediar"}
               </button>
               {!esClienteEnfoque ? (
                 <Link
@@ -819,6 +855,11 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
                     <th className="p-2 text-center">Oficiales</th>
                     <th className="p-2 text-center">Prom. acum.</th>
                   </>
+                ) : esOficialOperaciones ? (
+                  <>
+                    <th className="p-2 text-center">JT</th>
+                    <th className="p-2 text-center">Prom. acum.</th>
+                  </>
                 ) : (
                   campos.map((c) => (
                     <th key={c.key} className="p-2 text-center" title={c.label}>
@@ -826,16 +867,16 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
                     </th>
                   ))
                 )}
-                {!esJefeTurno ? <th className="p-2 text-center">Prom.</th> : null}
+                {!usaEvalMultiCalificador ? <th className="p-2 text-center">Prom.</th> : null}
                 <th className="p-2" />
               </tr>
             </thead>
             <tbody>
               {personalFiltrado.map((p) => {
-                const evalsJefe = jefeEvalMap.get(noKey(p.noEmpleado)) ?? [];
+                const evalsMulti = multiEvalMap.get(noKey(p.noEmpleado)) ?? [];
                 const ev = evalMap.get(noKey(p.noEmpleado));
-                const prom = esJefeTurno
-                  ? promedioAcumuladoEvaluaciones(evalsJefe.map((e) => e.promedio))
+                const prom = usaEvalMultiCalificador
+                  ? promedioAcumuladoEvaluaciones(evalsMulti.map((e) => e.promedio))
                   : promedioEvaluacionModulo(ev?.scores, ev?.promedio);
                 const activo = noKey(p.noEmpleado) === noKey(noSel);
                 const faltas = esRh ? faltasMesParaEmpleado(faltasMap, p.noEmpleado) : null;
@@ -856,9 +897,9 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
                         {faltas?.total ?? 0}
                       </td>
                     ) : null}
-                    {esJefeTurno ? (
+                    {usaEvalMultiCalificador ? (
                       <>
-                        <td className="p-2 text-center font-mono">{evalsJefe.length}</td>
+                        <td className="p-2 text-center font-mono">{evalsMulti.length}</td>
                         <td className="p-2 text-center text-sm font-bold text-violet-950">
                           {prom != null ? prom.toFixed(2) : "—"}
                         </td>
