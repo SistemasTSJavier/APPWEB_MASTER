@@ -228,6 +228,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         setForm((prev) => ({
           ...prev,
           numeroFolio: prev.numeroFolio.trim() ? prev.numeroFolio : nextFolio,
+          noEmpleado1: prev.noEmpleado1.trim() ? prev.noEmpleado1 : nextNo,
         }));
         setSecuenciasCargadas(true);
       } catch {
@@ -516,11 +517,12 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       try {
         const list = await listColaboradoresCompletos({ forceRefresh: true });
         listadoColaboradoresCacheRef.current = list;
-        setSiguienteNoSugerido(calcularSiguienteNoEmpleado(list));
+        const nextNo = calcularSiguienteNoEmpleado(list);
+        setSiguienteNoSugerido(nextNo);
         setForm((prev) => ({
           ...prev,
           numeroFolio: calcularSiguienteNumeroFolio(list),
-          noEmpleado1: "",
+          noEmpleado1: nextNo,
           servicio: "",
           noServicio: "",
           planta: "",
@@ -1223,7 +1225,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                   label="NO DE EMPLEADO"
                   value={form.noEmpleado1}
                   placeholder={siguienteNoSugerido}
-                  hint="Vacío = siguiente consecutivo del sistema"
+                  hint="Consecutivo del último alta registrado (+1); editable"
                   onChange={(v) => updateField("noEmpleado1", v)}
                 />
                 <Field

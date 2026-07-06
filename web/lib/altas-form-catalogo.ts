@@ -1,3 +1,4 @@
+import { fechaIngresoNormalizadaColaborador } from "@/lib/colaboradores-baja";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 
 /** Envío / Reyna — mismo catálogo. */
@@ -92,14 +93,53 @@ function numeroDesdeTexto(raw: string): number | null {
   return null;
 }
 
-/** Siguiente N.º de empleado numérico según el máximo en expedientes. */
-export function calcularSiguienteNoEmpleado(list: ColaboradorCompleto[]): string {
-  let max = 0;
-  for (const c of list) {
-    const n = numeroDesdeTexto(c.noEmpleado);
-    if (n != null && n > max) max = n;
+/** N.º de empleado canónico (snapshot o PARTE 1 del expediente). */
+export function noEmpleadoEfectivoDesdeColaborador(c: ColaboradorCompleto): string {
+  return String(c.noEmpleado ?? "").trim() || String(c.form?.noEmpleado1 ?? "").trim();
+}
+
+/** Solo consecutivos puros (dígitos); excluye PTE y folios alfanuméricos. */
+function numeroConsecutivoAlta(raw: string): number | null {
+  const t = String(raw ?? "").trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number.parseInt(t, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function instanteUltimoIngresoRegistrado(c: ColaboradorCompleto): number {
+  for (const raw of [String(c.registeredAt ?? "").trim(), String(c.form?.registeredAt ?? "").trim()]) {
+    if (!raw) continue;
+    const t = Date.parse(raw);
+    if (Number.isFinite(t)) return t;
   }
-  return String(max + 1);
+  const fi = fechaIngresoNormalizadaColaborador(c);
+  if (fi) {
+    const t = Date.parse(`${fi}T23:59:59`);
+    if (Number.isFinite(t)) return t;
+  }
+  return 0;
+}
+
+/**
+ * Siguiente N.º de empleado: +1 respecto al último alta registrado
+ * (por `registeredAt`, o fecha de ingreso si no hay registro).
+ */
+export function calcularSiguienteNoEmpleado(list: ColaboradorCompleto[]): string {
+  let ultimoInstante = -1;
+  let ultimoNo: number | null = null;
+
+  for (const c of list) {
+    const n = numeroConsecutivoAlta(noEmpleadoEfectivoDesdeColaborador(c));
+    if (n == null) continue;
+    const instante = instanteUltimoIngresoRegistrado(c);
+    if (instante > ultimoInstante || (instante === ultimoInstante && (ultimoNo == null || n > ultimoNo))) {
+      ultimoInstante = instante;
+      ultimoNo = n;
+    }
+  }
+
+  if (ultimoNo != null) return String(ultimoNo + 1);
+  return "1";
 }
 
 /** Formato expediente: SPT/T-9167/PE (prefijo / T-consecutivo / sufijo). */
