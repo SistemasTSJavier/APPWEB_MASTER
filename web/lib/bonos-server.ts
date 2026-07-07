@@ -17,9 +17,8 @@ import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import {
   cargarIncidenciasCuadriculaEnRango,
   clavesAsistenciaColaborador,
-  colaboradorTieneIncidenciaAsistenciaEnPeriodo,
+  colaboradorIncumpleBonoEnPeriodo,
   dateToIsoYmd,
-  periodoDesdeIngresoHasta,
 } from "@/lib/cuadricula-incidencias-asistencia";
 import {
   BONOS_ANTIGUEDAD_TOPE_90,
@@ -143,12 +142,18 @@ function evaluarHitoAntiguedad(
   hito: BonosMilestone,
   diasActivos: number,
   hoy: Date,
+  incidencias: Awaited<ReturnType<typeof cargarIncidenciasCuadriculaEnRango>>,
+  claves: string[],
 ): HitoCumplido | null {
   if (!antiguedadEnRangoHito(diasActivos, hito)) return null;
 
   const periodo = periodoBonoDesdeIngreso(fechaIngreso, hito);
   if (!periodo) return null;
   if (periodo.fin > hoy) return null;
+
+  if (colaboradorIncumpleBonoEnPeriodo(incidencias, claves, periodo)) {
+    return null;
+  }
 
   return {
     bonoDias: hito,
@@ -171,20 +176,13 @@ function evaluarColaboradorBonos(
   const claves = clavesAsistenciaColaborador(c);
   if (claves.length === 0) return null;
 
-  const periodoVida = periodoDesdeIngresoHasta(fechaIngreso, hoy);
-  if (!periodoVida) return null;
-
-  if (colaboradorTieneIncidenciaAsistenciaEnPeriodo(incidencias, claves, periodoVida)) {
-    return null;
-  }
-
   if (bonoFiltro != null) {
-    return evaluarHitoAntiguedad(fechaIngreso, bonoFiltro, diasActivos, hoy);
+    return evaluarHitoAntiguedad(fechaIngreso, bonoFiltro, diasActivos, hoy, incidencias, claves);
   }
 
   const hito = hitoVigentePorAntiguedad(diasActivos);
   if (!hito) return null;
-  return evaluarHitoAntiguedad(fechaIngreso, hito, diasActivos, hoy);
+  return evaluarHitoAntiguedad(fechaIngreso, hito, diasActivos, hoy, incidencias, claves);
 }
 
 export async function buildBonosReport(

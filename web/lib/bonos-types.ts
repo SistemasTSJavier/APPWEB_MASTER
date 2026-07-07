@@ -1,4 +1,4 @@
-/** Hitos de bono por antigüedad desde ingreso (15, 30, 60 o 90 días sin F ni PSGS). */
+/** Hitos de bono por antigüedad desde ingreso (15, 30, 60 o 90 días). Solo F y PSGS descalifican en el periodo del hito. */
 export const BONOS_MILESTONES = [15, 30, 60, 90] as const;
 
 export type BonosMilestone = (typeof BONOS_MILESTONES)[number];

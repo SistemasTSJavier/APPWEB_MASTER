@@ -134,9 +134,10 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
         <p className="page-lead text-sm">
           Solo colaboradores <strong>activos</strong> y <strong>LOCAL</strong> en servicios operativos. El bono
           depende de la <strong>antigüedad desde el ingreso</strong>: se revisa cuadrícula del{" "}
-          <strong>ingreso al día de cumplimiento</strong> (ingreso + 15, 30, 60 o 90 días).{" "}
-          <strong>Una sola falta (F)</strong> o <strong>PSGS</strong> en cuadrícula desde el ingreso hasta hoy elimina
-          los <strong>4 bonos</strong>. Bono 15: 15–29 días · 30: 30–59 · 60: 60–89 · 90: 90–119 días.
+          <strong>ingreso al día de cumplimiento</strong> de cada hito (ingreso + 15, 30, 60 o 90 días).{" "}
+          <strong>Solo descalifican falta (F)</strong> o <strong>PSGS</strong> en ese periodo;{" "}
+          <strong>CAP</strong>, INC, VAC y PCGS <strong>no afectan</strong> el cumplimiento. Bono 15: 15–29 días ·
+          30: 30–59 · 60: 60–89 · 90: 90–119 días.
         </p>
         {fechaReferencia ? (
           <p className="mt-2 text-xs font-semibold text-blue-900">

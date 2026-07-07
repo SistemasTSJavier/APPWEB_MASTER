@@ -7,7 +7,7 @@ import { dateToIsoYmd, mondayOfWeek } from "@/lib/semana-lun-dom";
 
 export const dynamic = "force-dynamic";
 
-/** GET: reporte de bonos por asistencia (sin faltas ni PSGS en hitos 15/30/60/90 días). */
+/** GET: reporte de bonos por asistencia (sin F ni PSGS en el periodo de cada hito; CAP no descalifica). */
 export async function GET(req: Request) {
   const auth = await getAuthedUserWithRole();
   if (!auth) return NextResponse.json({ error: "No autorizado" }, { status: 401 });

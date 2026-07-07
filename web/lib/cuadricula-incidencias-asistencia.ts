@@ -1,6 +1,6 @@
 /**
  * Faltas (F / F1…) y PSGS desde cuadrícula de asistencia (`cuadricula_asistencia`).
- * Misma lectura de códigos y claves de empleado que el módulo Cuadrícula.
+ * Bonos: solo F y PSGS descalifican; CAP, INC, VAC y PCGS no afectan el cumplimiento.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { attendanceRowEmpKey } from "@/lib/attendance-integrity";
@@ -73,8 +73,39 @@ function celdaAsistencia(raw: unknown): string {
   return String(raw ?? "").trim();
 }
 
+/** Normaliza código de celda (mayúsculas, sin puntuación final). */
+export function normalizarCodigoAsistenciaCelda(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[.,;]+$/g, "");
+}
+
+/** Tokens en una celda (p. ej. «CAP» o «D/CAP»). */
+export function codigosEnCeldaAsistencia(raw: string): string[] {
+  const v = celdaAsistencia(raw);
+  if (!v) return [];
+  if (/[+/|]/.test(v)) {
+    return v
+      .split(/[+/|]/)
+      .map((p) => normalizarCodigoAsistenciaCelda(p))
+      .filter(Boolean);
+  }
+  const norm = normalizarCodigoAsistenciaCelda(v);
+  return norm ? [norm] : [];
+}
+
+/**
+ * Bonos: únicamente falta (F / F1…) o PSGS eliminan el cumplimiento.
+ * CAP, INC, VAC, PCGS y demás códigos no descalifican.
+ */
+export function codigoDescalificaCumplimientoBono(raw: string): boolean {
+  return codigosEnCeldaAsistencia(raw).some((c) => isFaltaCodigoAsistencia(c) || c === "PSGS");
+}
+
 function isPsgsCodigo(raw: string): boolean {
-  return raw.trim().toUpperCase() === "PSGS";
+  return codigosEnCeldaAsistencia(raw).some((c) => c === "PSGS");
+}
+
+function isFaltaCodigoCelda(raw: string): boolean {
+  return codigosEnCeldaAsistencia(raw).some((c) => isFaltaCodigoAsistencia(c));
 }
 
 type ShiftDay = Partial<Record<(typeof TURNS)[number], unknown>>;
@@ -97,8 +128,9 @@ function incidenciasFilaEnRango(
     for (const turn of TURNS) {
       const v = celdaAsistencia(day[turn]);
       if (!v) continue;
-      if (isFaltaCodigoAsistencia(v)) tieneFalta = true;
-      else if (isPsgsCodigo(v)) tienePsgs = true;
+      if (!codigoDescalificaCumplimientoBono(v)) continue;
+      if (isFaltaCodigoCelda(v)) tieneFalta = true;
+      if (isPsgsCodigo(v)) tienePsgs = true;
     }
     if (tieneFalta) out.push({ ymd, kind: "falta" });
     if (tienePsgs) out.push({ ymd, kind: "psgs" });
@@ -222,6 +254,15 @@ export function colaboradorTieneIncidenciaAsistenciaEnPeriodo(
 ): boolean {
   const { faltas, psgs } = incidenciasEnPeriodo(map, clavesEmpleado, periodo);
   return faltas >= 1 || psgs >= 1;
+}
+
+/** Bonos: true si hay falta o PSGS en el periodo (CAP/INC/VAC/PCGS no cuentan). */
+export function colaboradorIncumpleBonoEnPeriodo(
+  map: Map<string, IncidenciaAsistenciaDia[]>,
+  clavesEmpleado: string[],
+  periodo: PeriodoAsistencia,
+): boolean {
+  return colaboradorTieneIncidenciaAsistenciaEnPeriodo(map, clavesEmpleado, periodo);
 }
 
 export function periodoDesdeIngresoHasta(fechaIngreso: string, fin: Date): PeriodoAsistencia | null {
