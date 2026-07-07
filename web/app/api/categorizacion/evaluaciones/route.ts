@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { roleEsClienteEnfoque } from "@/lib/app-role";
 import {
   assertModuloPermitidoClienteEnfoque,
+  requireCategorizacionAdminApi,
   requireCategorizacionApi,
   servicioScopeCategorizacion,
 } from "@/lib/categorizacion-api-auth";
 import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
 import { colaboradorPerteneceServicioEnfoque, syncCatPersonalActivosPorServicio } from "@/lib/categorizacion-enfoque-acceso";
 import {
+  deleteCatEvaluacion,
   getCatEvaluacion,
   listCatEvaluacionesModulo,
   listColaboradoresActivosParaCategorizacion,
@@ -63,6 +65,32 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, rows });
     }
     return NextResponse.json({ error: "Parametro modulo requerido" }, { status: 400 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  const gate = await requireCategorizacionAdminApi();
+  if ("error" in gate) return gate.error;
+  if (!isSupabaseServerConfigured()) {
+    return NextResponse.json({ error: "Supabase no configurado", missingEnv: supabaseServerEnvMissing() }, { status: 503 });
+  }
+  const url = new URL(req.url);
+  const modulo = parseModulo(url.searchParams.get("modulo"));
+  const no = url.searchParams.get("no_empleado")?.trim().toUpperCase();
+  const submodulo = url.searchParams.get("submodulo")?.trim() || undefined;
+  const calificadoPor = url.searchParams.get("calificado_por")?.trim() || undefined;
+
+  if (!modulo || !no || !MODULOS.includes(modulo)) {
+    return NextResponse.json({ error: "no_empleado y modulo validos requeridos" }, { status: 400 });
+  }
+  const denied = assertModuloPermitidoClienteEnfoque(gate.auth, modulo);
+  if (denied) return denied;
+
+  try {
+    await deleteCatEvaluacion(no, modulo, null, { submodulo, calificadoPor });
+    return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 });
   }

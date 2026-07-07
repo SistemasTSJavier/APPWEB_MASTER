@@ -594,6 +594,114 @@ export function mapaPromedioOperacionesJefeTurno(rows: CatEvaluacionRow[]): Map<
   return out;
 }
 
+async function deleteCatEvaluacionModern(
+  client: SupabaseClient,
+  no: string,
+  modulo: CatEvalModuloId,
+  sub: string,
+  calificadoPor: string,
+): Promise<boolean> {
+  let q = client.from("cat_evaluacion").delete().eq("no_empleado", no).eq("modulo", modulo);
+  if (modulo === "operaciones") {
+    q = q.eq("submodulo", sub).eq("calificado_por", calificadoPor);
+  }
+  const { data, error } = await q.select("no_empleado");
+  if (error) throw new Error(error.message);
+  return (data?.length ?? 0) > 0;
+}
+
+async function deleteCatEvaluacionLegacyJtJson(
+  client: SupabaseClient,
+  noEmpleado: string,
+  calificadoPor: string,
+): Promise<boolean> {
+  const no = noEmpleado.trim().toUpperCase();
+  const { data: existing, error: readErr } = await client
+    .from("cat_evaluacion")
+    .select("scores")
+    .eq("no_empleado", no)
+    .eq("modulo", "operaciones")
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!existing?.scores || typeof existing.scores !== "object") return false;
+
+  const rawScores = { ...(existing.scores as Record<string, unknown>) };
+  const jtBucket = parseJtBucketRaw(rawScores);
+  if (!jtBucket[calificadoPor]) return false;
+  delete jtBucket[calificadoPor];
+
+  if (Object.keys(jtBucket).length === 0) {
+    delete rawScores[CAT_JT_EVALS_SCORES_KEY];
+  } else {
+    rawScores[CAT_JT_EVALS_SCORES_KEY] = jtBucket;
+  }
+
+  const flatScores = parseScores(rawScores);
+  const sinDatos = Object.keys(flatScores).length === 0 && !rawScores[CAT_JT_EVALS_SCORES_KEY];
+  if (sinDatos) {
+    const { error } = await client.from("cat_evaluacion").delete().eq("no_empleado", no).eq("modulo", "operaciones");
+    if (error) throw new Error(error.message);
+    return true;
+  }
+
+  const { error } = await client
+    .from("cat_evaluacion")
+    .update({ scores: rawScores, updated_at: new Date().toISOString() })
+    .eq("no_empleado", no)
+    .eq("modulo", "operaciones");
+  if (error) throw new Error(error.message);
+  return true;
+}
+
+async function deleteCatEvaluacionLegacyMinimal(
+  client: SupabaseClient,
+  no: string,
+  modulo: CatEvalModuloId,
+): Promise<boolean> {
+  const { data, error } = await client
+    .from("cat_evaluacion")
+    .delete()
+    .eq("no_empleado", no)
+    .eq("modulo", modulo)
+    .select("no_empleado");
+  if (error) throw new Error(error.message);
+  return (data?.length ?? 0) > 0;
+}
+
+/** Elimina una calificación (admin). Operaciones: por submodulo + calificado_por; RH/Enfoque: fila única. */
+export async function deleteCatEvaluacion(
+  noEmpleado: string,
+  modulo: CatEvalModuloId,
+  admin?: SupabaseClient | null,
+  opts?: { submodulo?: string; calificadoPor?: string },
+): Promise<void> {
+  const client = admin ?? db();
+  if (!client) throw new Error("Supabase no configurado");
+  const no = normalizarNoEmpleado(noEmpleado);
+  if (!no) throw new Error("Número de empleado requerido.");
+  const sub = submoduloDbParaModulo(modulo, opts?.submodulo);
+  const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
+
+  try {
+    if (await deleteCatEvaluacionModern(client, no, modulo, sub, calificadoPor)) return;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
+      throw new Error(mensajeErrorCatEvaluacionSchema(msg, no));
+    }
+  }
+
+  if (modulo === "operaciones" && sub === "jefe_turno" && calificadoPor) {
+    if (await deleteCatEvaluacionLegacyJtJson(client, no, calificadoPor)) return;
+  }
+
+  if (modulo !== "operaciones" || sub === "oficial") {
+    if (await deleteCatEvaluacionLegacyMinimal(client, no, modulo)) return;
+  }
+
+  throw new Error("No se encontró la calificación a eliminar.");
+}
+
 export async function getCatEvaluacion(
   noEmpleado: string,
   modulo: CatEvalModuloId,

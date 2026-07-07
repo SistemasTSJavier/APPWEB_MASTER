@@ -57,6 +57,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   const esEnfoque = modulo === "enfoque_cliente";
   const esClienteEnfoque = roleEsClienteEnfoque(appRole);
   const esAdminEnfoque = puedeAdministrarAccesosEnfoque(appRole);
+  const esAdmin = appRole === "admin";
   const [rolOperaciones, setRolOperaciones] = useState<CatOperacionesRolId>("oficial");
   const campos = useMemo(
     () => camposPorModulo(modulo, esOperaciones ? { rolOperaciones } : undefined),
@@ -255,6 +256,13 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     return multiEvalMap.get(noKey(noSel)) ?? [];
   }, [usaEvalMultiCalificador, noSel, multiEvalMap]);
 
+  const tieneEvaluacionGuardadaSel = useMemo(() => {
+    if (!noSel) return false;
+    if (usaEvalMultiCalificador) return evalsMultiSel.length > 0;
+    const ev = evalMap.get(noKey(noSel));
+    return promedioEvaluacionModulo(ev?.scores, ev?.promedio) != null;
+  }, [noSel, usaEvalMultiCalificador, evalsMultiSel, evalMap]);
+
   const aplicarFilasEvaluacion = useCallback(
     (rows: Array<{
       noEmpleado: string;
@@ -385,6 +393,88 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   function seleccionarEmpleado(no: string) {
     setNoSel(noKey(no));
     setMsg(null);
+  }
+
+  function evalRowKey(calificadoPor: string): string {
+    return calificadoPor || "__legacy__";
+  }
+
+  function esCalificadorFantasma(calNo: string): boolean {
+    const key = noKey(calNo);
+    if (!key) return true;
+    if (esOficialOperaciones) {
+      return !jefesTurnoOpciones.some((j) => noKey(j.noEmpleado) === key);
+    }
+    if (esJefeTurno) {
+      return !oficialesOpciones.some((o) => noKey(o.noEmpleado) === key);
+    }
+    return false;
+  }
+
+  async function eliminarRegistroCalificacion(calificadoPor: string) {
+    if (!esAdmin || !noSel) return;
+    const calKey = noKey(calificadoPor);
+    const etiqueta = calKey
+      ? `${esOficialOperaciones ? "JT" : "oficial"} ${calKey}`
+      : "registro anterior (sin calificador)";
+    if (
+      !window.confirm(
+        `¿Eliminar la calificación de ${etiqueta} para el empleado ${noKey(noSel)}? El promedio se recalculará sin este registro.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const params = new URLSearchParams({
+        modulo,
+        no_empleado: noKey(noSel),
+      });
+      if (esOperaciones) params.set("submodulo", submoduloOperaciones(rolOperaciones));
+      if (usaEvalMultiCalificador) params.set("calificado_por", calKey);
+      const r = await fetch(`/api/categorizacion/evaluaciones?${params.toString()}`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      if (noKey(calificadoPorSel) === calKey) {
+        setCalificadoPorSel("");
+        setScores({});
+        setComentarios("");
+      }
+      setMsg(`CALIFICACIÓN ELIMINADA (${etiqueta}).`);
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL ELIMINAR.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function eliminarEvaluacionEmpleado() {
+    if (!esAdmin || !noSel || usaEvalMultiCalificador) return;
+    if (
+      !window.confirm(
+        `¿Eliminar toda la evaluación de ${labelModuloEval(modulo)} del empleado ${noKey(noSel)}?`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const params = new URLSearchParams({ modulo, no_empleado: noKey(noSel) });
+      const r = await fetch(`/api/categorizacion/evaluaciones?${params.toString()}`, { method: "DELETE" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      setScores({});
+      setComentarios("");
+      setMsg("EVALUACIÓN ELIMINADA.");
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL ELIMINAR.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function guardar() {
@@ -676,15 +766,44 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
         {usaEvalMultiCalificador && noSel && evalsMultiSel.length > 0 ? (
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-800">
             <p className="font-bold uppercase text-slate-600">Calificaciones registradas</p>
-            <ul className="mt-1 space-y-0.5">
+            {esAdmin ? (
+              <p className="mt-0.5 text-[10px] font-medium text-amber-900">
+                Admin: puede eliminar registros erróneos o fantasmas (JT/oficial no vigente en el servicio).
+              </p>
+            ) : null}
+            <ul className="mt-1 space-y-1">
               {evalsMultiSel.map((e) => {
                 const cal = activos.find((p) => noKey(p.noEmpleado) === e.calificadoPor);
                 const rolLabel = esOficialOperaciones ? "JT" : "Oficial";
+                const fantasma = esCalificadorFantasma(e.calificadoPor ?? "");
+                const rowKey = evalRowKey(e.calificadoPor ?? "");
                 return (
-                  <li key={e.calificadoPor}>
-                    {rolLabel} <span className="font-mono">{e.calificadoPor}</span>
-                    {cal ? ` — ${cal.nombre}` : ""}:{" "}
-                    <strong>{e.promedio != null ? e.promedio.toFixed(2) : "—"}</strong>
+                  <li key={rowKey} className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      {rolLabel}{" "}
+                      {e.calificadoPor ? (
+                        <span className="font-mono">{e.calificadoPor}</span>
+                      ) : (
+                        <span className="font-semibold text-amber-800">(sin calificador / legacy)</span>
+                      )}
+                      {cal ? ` — ${cal.nombre}` : fantasma && e.calificadoPor ? " — no está en el servicio" : ""}
+                      {fantasma ? (
+                        <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold uppercase text-amber-900">
+                          fantasma
+                        </span>
+                      ) : null}
+                      : <strong>{e.promedio != null ? e.promedio.toFixed(2) : "—"}</strong>
+                    </span>
+                    {esAdmin ? (
+                      <button
+                        type="button"
+                        className="shrink-0 text-[10px] font-bold uppercase text-red-700 hover:text-red-900"
+                        disabled={busy}
+                        onClick={() => void eliminarRegistroCalificacion(e.calificadoPor ?? "")}
+                      >
+                        Eliminar
+                      </button>
+                    ) : null}
                   </li>
                 );
               })}
@@ -774,6 +893,16 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
               <button type="button" className="btn-primary uppercase" disabled={busy} onClick={() => void guardar()}>
                 {usaEvalMultiCalificador ? "Guardar calificación" : "Guardar y promediar"}
               </button>
+              {esAdmin && !usaEvalMultiCalificador && tieneEvaluacionGuardadaSel ? (
+                <button
+                  type="button"
+                  className="btn-secondary uppercase text-red-800"
+                  disabled={busy}
+                  onClick={() => void eliminarEvaluacionEmpleado()}
+                >
+                  Eliminar evaluación
+                </button>
+              ) : null}
               {!esClienteEnfoque ? (
                 <Link
                   href={`/categorizacion/dashboard?no=${encodeURIComponent(noSel)}`}
