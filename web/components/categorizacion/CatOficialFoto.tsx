@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { FICHA_FOTO_MAX_BYTES, optimizarFichaFotoParaSubida } from "@/lib/ficha-foto-optimizar-client";
 import { fotoProxySrc } from "@/lib/cat-foto-proxy";
 
@@ -26,6 +26,23 @@ export function CatOficialFoto({
   const inputRef = useRef<HTMLInputElement>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // Candidatos de origen para la foto: primero el proxy same-origin (evita CORS y
+  // buckets sin lectura pública), y como respaldo la URL directa guardada.
+  const candidatos = useMemo(() => {
+    const raw = String(fotoUrl ?? "").trim();
+    if (!raw) return [] as string[];
+    const proxy = fotoProxySrc(raw);
+    const lista = [proxy, raw].filter((v): v is string => Boolean(v));
+    return Array.from(new Set(lista));
+  }, [fotoUrl]);
+
+  const [intento, setIntento] = useState(0);
+  useEffect(() => {
+    setIntento(0);
+  }, [fotoUrl]);
+
+  const imgSrc = intento < candidatos.length ? candidatos[intento] : null;
 
   async function onFile(ev: ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0];
@@ -71,8 +88,6 @@ export function CatOficialFoto({
     }
   }
 
-  const imgSrc = fotoProxySrc(fotoUrl);
-
   const frameClass = presentacion
     ? `aspect-[3/4] h-[7.75rem] w-[5.8rem] shrink-0 sm:h-[8.25rem] sm:w-[6.2rem] xl:h-[8.75rem] xl:w-[6.55rem] ${className}`
     : `aspect-[3/4] w-[10.45rem] sm:w-[11.55rem] ${className}`;
@@ -88,11 +103,13 @@ export function CatOficialFoto({
         {imgSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
+            key={imgSrc}
             src={imgSrc}
             alt={nombre}
             className="h-full w-full object-cover object-[center_12%]"
             decoding="async"
             fetchPriority={presentacion ? "high" : "auto"}
+            onError={() => setIntento((n) => n + 1)}
           />
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center px-2 text-center text-[10px] font-semibold uppercase leading-tight text-slate-400 sm:text-[11px]">
