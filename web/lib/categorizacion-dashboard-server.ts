@@ -31,6 +31,7 @@ import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fet
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { FICHA_FOTO_FORM_KEY } from "@/lib/ficha-tecnica-keys";
+import { mapaFotosStoragePorEmpleado } from "@/lib/cat-fotos-storage";
 import {
   createSupabaseServiceRoleClient,
   isSupabaseServerConfigured,
@@ -131,6 +132,12 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
   }));
   const colabMap = new Map(colaboradores.map((c) => [c.noEmpleado.trim().toUpperCase(), c]));
   const activosMap = new Map(activos.map((a) => [a.noEmpleado.trim().toUpperCase(), a]));
+
+  // Índice de fotos en Storage: respaldo para expedientes sin URL guardada.
+  const fotosStorage = await mapaFotosStoragePorEmpleado(
+    client,
+    personal.map((p) => p.noEmpleado),
+  ).catch(() => new Map<string, string>());
   const resumenMap = new Map(resumen.map((r) => [r.noEmpleado.trim().toUpperCase(), r]));
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado.trim().toUpperCase(), r.scores]));
 
@@ -164,7 +171,8 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     ]);
 
     const faltas = faltasMesParaEmpleado(faltasMes.faltas, key);
-    const fotoUrl = colab ? String(colab.form?.[FICHA_FOTO_FORM_KEY] ?? "").trim() || null : null;
+    const fotoExpediente = colab ? String(colab.form?.[FICHA_FOTO_FORM_KEY] ?? "").trim() : "";
+    const fotoUrl = fotoExpediente || fotosStorage.get(key) || null;
 
     return {
       noEmpleado: p.noEmpleado,
