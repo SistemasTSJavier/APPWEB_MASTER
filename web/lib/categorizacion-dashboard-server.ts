@@ -172,7 +172,8 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
 
     const faltas = faltasMesParaEmpleado(faltasMes.faltas, key);
     const fotoExpediente = colab ? String(colab.form?.[FICHA_FOTO_FORM_KEY] ?? "").trim() : "";
-    const fotoUrl = fotoExpediente || fotosStorage.get(key) || null;
+    // Storage es fuente de verdad: el expediente puede guardar URLs obsoletas (404).
+    const fotoUrl = fotosStorage.get(key) || fotoExpediente || null;
 
     return {
       noEmpleado: p.noEmpleado,

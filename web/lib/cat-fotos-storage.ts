@@ -26,13 +26,13 @@ function urlPublica(client: SupabaseClient, path: string): string {
   return data.publicUrl;
 }
 
-/** En Supabase Storage, las carpetas se listan con `id` nulo; los archivos traen `id`. */
-function esArchivo(item: StorageItem): boolean {
-  return Boolean(item.name) && !item.name.endsWith("/") && Boolean(item.id);
+function esArchivoImagen(name: string): boolean {
+  return IMG_EXT.test(name);
 }
 
-function esCarpeta(item: StorageItem): boolean {
-  return Boolean(item.name) && !item.id;
+/** Carpetas de empleado en la raíz del bucket: solo dígitos (p. ej. 7444). */
+function esCarpetaEmpleado(name: string): boolean {
+  return /^\d+$/.test(name.trim());
 }
 
 function fechaOrden(item: StorageItem): number {
@@ -42,17 +42,27 @@ function fechaOrden(item: StorageItem): number {
 }
 
 /** Foto más reciente dentro de la carpeta de un empleado. */
-async function fotoDeCarpeta(
+export async function fotoStoragePorEmpleado(
   client: SupabaseClient,
-  carpeta: string,
+  noEmpleado: string,
 ): Promise<string | null> {
+  const no = noEmpleado.trim();
+  if (!no) return null;
+  const url = await fotoDeCarpeta(client, no);
+  if (url) return url;
+  const mayus = no.toUpperCase();
+  if (mayus !== no) return fotoDeCarpeta(client, mayus);
+  return null;
+}
+
+async function fotoDeCarpeta(client: SupabaseClient, carpeta: string): Promise<string | null> {
   const { data, error } = await client.storage.from(FOTOS_BUCKET).list(carpeta, {
     limit: 100,
     sortBy: { column: "updated_at", order: "desc" },
   });
   if (error || !data?.length) return null;
 
-  const imagenes = (data as StorageItem[]).filter((it) => esArchivo(it) && IMG_EXT.test(it.name));
+  const imagenes = (data as StorageItem[]).filter((it) => esArchivoImagen(it.name));
   if (!imagenes.length) return null;
 
   imagenes.sort((a, b) => fechaOrden(b) - fechaOrden(a));
@@ -85,9 +95,8 @@ export async function mapaFotosStoragePorEmpleado(
   if (error || !raiz?.length) return mapa;
 
   const carpetas = (raiz as StorageItem[])
-    .filter(esCarpeta)
     .map((it) => it.name.replace(/\/$/, ""))
-    .filter(Boolean);
+    .filter((name) => esCarpetaEmpleado(name));
 
   const filtro = soloEmpleados
     ? new Set(Array.from(soloEmpleados, (e) => e.trim().toUpperCase()).filter(Boolean))

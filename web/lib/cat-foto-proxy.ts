@@ -26,3 +26,10 @@ export function fotoProxySrc(url: string | null | undefined): string | null {
   }
   return src;
 }
+
+/** Proxy que resuelve la foto más reciente en Storage por N.º de empleado. */
+export function fotoProxyPorEmpleado(noEmpleado: string): string | null {
+  const no = noEmpleado.trim().toUpperCase();
+  if (!no) return null;
+  return `/api/categorizacion/dashboard/foto?no_empleado=${encodeURIComponent(no)}`;
+}

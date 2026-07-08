@@ -2,7 +2,7 @@
 
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { FICHA_FOTO_MAX_BYTES, optimizarFichaFotoParaSubida } from "@/lib/ficha-foto-optimizar-client";
-import { fotoProxySrc } from "@/lib/cat-foto-proxy";
+import { fotoProxySrc, fotoProxyPorEmpleado } from "@/lib/cat-foto-proxy";
 
 const MAX_MB_API = 2;
 
@@ -27,15 +27,17 @@ export function CatOficialFoto({
   const [subiendo, setSubiendo] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // Candidatos de origen para la foto: primero el proxy same-origin (evita CORS y
-  // buckets sin lectura pública), y como respaldo la URL directa guardada.
+  // Solo proxy same-origin: nunca URL directa de Supabase (evita ORB y 404 visibles).
   const candidatos = useMemo(() => {
     const raw = String(fotoUrl ?? "").trim();
-    if (!raw) return [] as string[];
-    const proxy = fotoProxySrc(raw);
-    const lista = [proxy, raw].filter((v): v is string => Boolean(v));
+    const no = noEmpleado.trim().toUpperCase();
+    const lista: string[] = [];
+    const proxyUrl = raw ? fotoProxySrc(raw) : null;
+    if (proxyUrl) lista.push(proxyUrl);
+    const proxyNo = no ? fotoProxyPorEmpleado(no) : null;
+    if (proxyNo && proxyNo !== proxyUrl) lista.push(proxyNo);
     return Array.from(new Set(lista));
-  }, [fotoUrl]);
+  }, [fotoUrl, noEmpleado]);
 
   const [intento, setIntento] = useState(0);
   useEffect(() => {

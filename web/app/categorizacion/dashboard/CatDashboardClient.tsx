@@ -21,7 +21,7 @@ const LOOP_MS = 20_000;
 const PDF_MARGIN_MM = 10;
 const PDF_HEADER_MM = 8;
 const PDF_JPEG_QUALITY = 0.92;
-const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v5";
+const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v6";
 const DASHBOARD_CACHE_MS = 5 * 60_000;
 
 type DashboardCache = CatDashboardPayload & { cachedAt: number };

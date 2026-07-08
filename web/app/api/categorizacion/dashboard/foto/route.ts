@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireCategorizacionApi } from "@/lib/categorizacion-api-auth";
+import { fotoStoragePorEmpleado } from "@/lib/cat-fotos-storage";
 import {
   createSupabaseServiceRoleClient,
   isSupabaseServerConfigured,
 } from "@/lib/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
@@ -54,19 +56,40 @@ function esUrlImagenPermitida(url: string, appOrigin: string): boolean {
   }
 }
 
+async function descargarStorage(
+  admin: SupabaseClient,
+  bucket: string,
+  path: string,
+): Promise<{ buf: Buffer; mime: string } | null> {
+  const intentar = async (p: string) => {
+    const { data, error } = await admin.storage.from(bucket).download(p);
+    if (error || !data) return null;
+    const buf = Buffer.from(await data.arrayBuffer());
+    if (buf.length === 0 || buf.length > MAX_BYTES) return null;
+    const mime = (data.type || mimeDesdePath(p)).split(";")[0]?.trim() || "image/jpeg";
+    if (!ALLOWED_MIME.has(mime)) return null;
+    return { buf, mime };
+  };
+
+  const directo = await intentar(path);
+  if (directo) return directo;
+
+  const parts = path.split("/");
+  if (parts.length !== 2) return null;
+  const [carpeta, archivo] = parts;
+  const { data: lista } = await admin.storage.from(bucket).list(carpeta, { limit: 100 });
+  const match = lista?.find((it) => it.name.toLowerCase() === archivo.toLowerCase());
+  if (!match?.name) return null;
+  return intentar(`${carpeta}/${match.name}`);
+}
+
 async function leerImagenBytes(abs: string): Promise<{ buf: Buffer; mime: string } | null> {
   const storage = storageDesdeUrlPublica(abs);
   if (storage && isSupabaseServerConfigured()) {
     const admin = createSupabaseServiceRoleClient();
     if (admin) {
-      const { data, error } = await admin.storage.from(storage.bucket).download(storage.path);
-      if (!error && data) {
-        const buf = Buffer.from(await data.arrayBuffer());
-        if (buf.length > 0 && buf.length <= MAX_BYTES) {
-          const mime = (data.type || mimeDesdePath(storage.path)).split(";")[0]?.trim() || "image/jpeg";
-          if (ALLOWED_MIME.has(mime)) return { buf, mime };
-        }
-      }
+      const desdeStorage = await descargarStorage(admin, storage.bucket, storage.path);
+      if (desdeStorage) return desdeStorage;
     }
   }
 
@@ -83,20 +106,45 @@ async function leerImagenBytes(abs: string): Promise<{ buf: Buffer; mime: string
   }
 }
 
-/** GET ?url= — reenvía la imagen desde el mismo origen (evita CORS y buckets no públicos). */
+function respuestaImagen(imagen: { buf: Buffer; mime: string }): NextResponse {
+  return new NextResponse(new Uint8Array(imagen.buf), {
+    status: 200,
+    headers: {
+      "Content-Type": imagen.mime,
+      "Content-Length": String(imagen.buf.length),
+      "Cache-Control": "private, max-age=3600",
+    },
+  });
+}
+
+/** GET ?url= o ?no_empleado= — reenvía la imagen desde el mismo origen. */
 export async function GET(req: Request) {
   const gate = await requireCategorizacionApi();
   if ("error" in gate) return gate.error;
 
+  const { searchParams } = new URL(req.url);
   const appOrigin = new URL(req.url).origin;
-  const raw = new URL(req.url).searchParams.get("url")?.trim() ?? "";
-  if (!raw) {
-    return NextResponse.json({ error: "url requerida" }, { status: 400 });
+  const noEmpleado = searchParams.get("no_empleado")?.trim() ?? "";
+  const rawUrl = searchParams.get("url")?.trim() ?? "";
+
+  if (noEmpleado && isSupabaseServerConfigured()) {
+    const admin = createSupabaseServiceRoleClient();
+    if (admin) {
+      const urlStorage = await fotoStoragePorEmpleado(admin, noEmpleado);
+      if (urlStorage) {
+        const imagen = await leerImagenBytes(urlStorage);
+        if (imagen) return respuestaImagen(imagen);
+      }
+    }
   }
 
-  let abs = raw;
+  if (!rawUrl) {
+    return NextResponse.json({ error: "url o no_empleado requerido" }, { status: 400 });
+  }
+
+  let abs = rawUrl;
   try {
-    abs = new URL(raw, appOrigin).href;
+    abs = new URL(rawUrl, appOrigin).href;
   } catch {
     return NextResponse.json({ error: "url invalida" }, { status: 400 });
   }
@@ -107,15 +155,11 @@ export async function GET(req: Request) {
 
   const imagen = await leerImagenBytes(abs);
   if (!imagen) {
+    if (noEmpleado) {
+      return NextResponse.json({ error: "imagen no encontrada" }, { status: 404 });
+    }
     return NextResponse.json({ error: "imagen no encontrada" }, { status: 404 });
   }
 
-  return new NextResponse(new Uint8Array(imagen.buf), {
-    status: 200,
-    headers: {
-      "Content-Type": imagen.mime,
-      "Content-Length": String(imagen.buf.length),
-      "Cache-Control": "private, max-age=3600",
-    },
-  });
+  return respuestaImagen(imagen);
 }
