@@ -2,6 +2,7 @@
 
 import { type ChangeEvent, useRef, useState } from "react";
 import { FICHA_FOTO_MAX_BYTES, optimizarFichaFotoParaSubida } from "@/lib/ficha-foto-optimizar-client";
+import { fotoProxySrc } from "@/lib/cat-foto-proxy";
 
 const MAX_MB_API = 2;
 
@@ -70,6 +71,8 @@ export function CatOficialFoto({
     }
   }
 
+  const imgSrc = fotoProxySrc(fotoUrl);
+
   const frameClass = presentacion
     ? `aspect-[3/4] h-[7.75rem] w-[5.8rem] shrink-0 sm:h-[8.25rem] sm:w-[6.2rem] xl:h-[8.75rem] xl:w-[6.55rem] ${className}`
     : `aspect-[3/4] w-[10.45rem] sm:w-[11.55rem] ${className}`;
@@ -82,12 +85,11 @@ export function CatOficialFoto({
       <div
         className={`relative flex ${frameClass} items-center justify-center overflow-hidden rounded-xl border-2 border-slate-300 bg-slate-100 shadow-md`}
       >
-        {fotoUrl ? (
+        {imgSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={fotoUrl}
+            src={imgSrc}
             alt={nombre}
-            crossOrigin="anonymous"
             className="h-full w-full object-cover object-[center_12%]"
             decoding="async"
             fetchPriority={presentacion ? "high" : "auto"}

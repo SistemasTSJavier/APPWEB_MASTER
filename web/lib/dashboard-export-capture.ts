@@ -54,7 +54,11 @@ export async function urlImagenADataUrl(url: string): Promise<string> {
   }
 
   try {
-    const res = await fetch(abs, { mode: "cors", credentials: "omit", cache: "no-store" });
+    const res = await fetch(abs, {
+      mode: mismoOrigen ? "same-origin" : "cors",
+      credentials: mismoOrigen ? "include" : "omit",
+      cache: "no-store",
+    });
     if (res.ok) {
       return await blobADataUrl(await res.blob());
     }
