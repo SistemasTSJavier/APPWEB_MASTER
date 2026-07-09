@@ -46,6 +46,7 @@ import {
   ALTAS_GESTORES_PROCESO_OPCIONES,
   calcularSiguienteNoEmpleado,
   calcularSiguienteNumeroFolio,
+  incrementarNumeroFolioExpediente,
   nombreCompletoDesdePartes,
   normalizarFamiliaresAltaMayusculas,
   normalizarFormularioAltaMayusculas,
@@ -54,6 +55,7 @@ import {
 } from "@/lib/altas-form-catalogo";
 import type { CurpPdfParseResult } from "@/lib/curp-pdf-parse";
 import { CurpPdfImportModal } from "@/components/altas/CurpPdfImportModal";
+import { opcionesGestorProcesoDesdeColaboradores } from "@/lib/altas-gestores-proceso-opciones";
 
 type Familiar = {
   nombreFamiliar: string;
@@ -62,40 +64,19 @@ type Familiar = {
   beneficiarioBancario: "SI" | "NO";
 };
 
-const PARTS = [
-  "PARTE 1",
-  "PARTE 2",
-  "PARTE 3",
-  "PARTE 4",
-  "PARTE 5",
-] as const;
+const FAMILIAR_VACIO: Familiar = {
+  nombreFamiliar: "",
+  parentesco: "",
+  fechaNacimiento: "",
+  beneficiarioBancario: "NO",
+};
 
-export function AltasPageClient({ appRole }: { appRole: AppRole }) {
-  const puedeEditarAltas = roleMayWriteAltas(appRole);
-  const csvInputRef = useRef<HTMLInputElement>(null);
-  const csvCorreccionDosRef = useRef<HTMLInputElement>(null);
-  const csvRenumeracionRef = useRef<HTMLInputElement>(null);
-  const [preserveMoperEnImport, setPreserveMoperEnImport] = useState(true);
-  const [csvModo, setCsvModo] = useState<"completo" | "parte">("parte");
-  const [csvParteNum, setCsvParteNum] = useState<number>(1);
-  const [importCsvBusy, setImportCsvBusy] = useState(false);
-  const [importResultado, setImportResultado] = useState<{
-    imported: number;
-    skippedEmpty: number;
-    errors: Array<{ row: number; message: string }>;
-    avisos?: Array<{ row: number; message: string }>;
-    lotes?: number;
-    filasCsvValidas?: number;
-    duplicateNosMerged?: number;
-    resolvedByNombre?: number;
-    origen?: string;
-  } | null>(null);
-  const [step, setStep] = useState(0);
-  const [curpPdfOpen, setCurpPdfOpen] = useState(false);
-  const [curpPdfMsg, setCurpPdfMsg] = useState<string | null>(null);
-  const [siguienteNoSugerido, setSiguienteNoSugerido] = useState("");
-  const [secuenciasCargadas, setSecuenciasCargadas] = useState(false);
-  const [form, setForm] = useState({
+function crearFormularioAltaVacio(overrides: Partial<Record<keyof ReturnType<typeof formularioAltaInicial>, string>> = {}) {
+  return { ...formularioAltaInicial(), ...overrides };
+}
+
+function formularioAltaInicial() {
+  return {
     // Parte 1
     noEmpleado1: "",
     fechaIngreso: "",
@@ -154,11 +135,49 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
     gestorProceso: "",
     estudioSocioeconomico: "",
     documentacionOriginal: "",
-  });
+  };
+}
 
-  const [familiares, setFamiliares] = useState<Familiar[]>([
-    { nombreFamiliar: "", parentesco: "", fechaNacimiento: "", beneficiarioBancario: "NO" },
+const PARTS = [
+  "PARTE 1",
+  "PARTE 2",
+  "PARTE 3",
+  "PARTE 4",
+  "PARTE 5",
+] as const;
+
+export function AltasPageClient({ appRole }: { appRole: AppRole }) {
+  const puedeEditarAltas = roleMayWriteAltas(appRole);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const csvCorreccionDosRef = useRef<HTMLInputElement>(null);
+  const csvRenumeracionRef = useRef<HTMLInputElement>(null);
+  const [preserveMoperEnImport, setPreserveMoperEnImport] = useState(true);
+  const [csvModo, setCsvModo] = useState<"completo" | "parte">("parte");
+  const [csvParteNum, setCsvParteNum] = useState<number>(1);
+  const [importCsvBusy, setImportCsvBusy] = useState(false);
+  const [importResultado, setImportResultado] = useState<{
+    imported: number;
+    skippedEmpty: number;
+    errors: Array<{ row: number; message: string }>;
+    avisos?: Array<{ row: number; message: string }>;
+    lotes?: number;
+    filasCsvValidas?: number;
+    duplicateNosMerged?: number;
+    resolvedByNombre?: number;
+    origen?: string;
+  } | null>(null);
+  const [step, setStep] = useState(0);
+  const [curpPdfOpen, setCurpPdfOpen] = useState(false);
+  const [curpPdfMsg, setCurpPdfMsg] = useState<string | null>(null);
+  const [siguienteNoSugerido, setSiguienteNoSugerido] = useState("");
+  const [siguienteFolioSugerido, setSiguienteFolioSugerido] = useState("");
+  const [gestoresProcesoOpciones, setGestoresProcesoOpciones] = useState<string[]>([
+    ...ALTAS_GESTORES_PROCESO_OPCIONES,
   ]);
+  const [secuenciasCargadas, setSecuenciasCargadas] = useState(false);
+  const [form, setForm] = useState(crearFormularioAltaVacio);
+
+  const [familiares, setFamiliares] = useState<Familiar[]>([{ ...FAMILIAR_VACIO }]);
 
   const progress = useMemo(() => `${step + 1} / ${PARTS.length}`, [step]);
   const empleadoClave = useMemo(() => {
@@ -226,6 +245,8 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         const nextNo = calcularSiguienteNoEmpleado(list);
         const nextFolio = calcularSiguienteNumeroFolio(list);
         setSiguienteNoSugerido(nextNo);
+        setSiguienteFolioSugerido(nextFolio);
+        setGestoresProcesoOpciones(opcionesGestorProcesoDesdeColaboradores(list));
         setForm((prev) => ({
           ...prev,
           numeroFolio: prev.numeroFolio.trim() ? prev.numeroFolio : nextFolio,
@@ -413,7 +434,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
   }
 
   function addFamiliar() {
-    setFamiliares((prev) => [...prev, { nombreFamiliar: "", parentesco: "", fechaNacimiento: "", beneficiarioBancario: "NO" }]);
+    setFamiliares((prev) => [...prev, { ...FAMILIAR_VACIO }]);
   }
 
   function removeFamiliar(index: number) {
@@ -426,6 +447,21 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         ? value
         : valorCampoAltaMayusculas(key, value, inputType);
     setFamiliares((prev) => prev.map((f, i) => (i === index ? { ...f, [key]: v } : f)));
+  }
+
+  function reiniciarFlujoNuevaAlta(noEmpleado: string, numeroFolio: string) {
+    setStep(0);
+    setForm(crearFormularioAltaVacio({ noEmpleado1: noEmpleado, numeroFolio }));
+    setFamiliares([{ ...FAMILIAR_VACIO }]);
+    setModoReingreso(false);
+    setExpedienteReingresoOrigen(null);
+    prefillReingresoAplicadoRef.current = null;
+    setExpedientePrevio(null);
+    setCoincidenciaNombreBaja(null);
+    setCurpPdfMsg(null);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
 
   async function submitAll(e: FormEvent) {
@@ -474,6 +510,9 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       Object.fromEntries(Object.entries(form).map(([k, v]) => [k, String(v ?? "")])),
     );
     flatForm.noEmpleado1 = noFinal;
+    if (!flatForm.numeroFolio?.trim() && siguienteFolioSugerido.trim()) {
+      flatForm.numeroFolio = siguienteFolioSugerido;
+    }
     const fnNorm = normalizarFechaParaInputDate(flatForm.fechaNacimiento?.trim() ?? "");
     const edadCalc = fnNorm ? edadAniosAlaFecha(fnNorm) : null;
     if (edadCalc != null) flatForm.edad = String(edadCalc);
@@ -516,27 +555,31 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       });
       listadoColaboradoresCacheRef.current = null;
       invalidateColaboradoresListCache();
+      let nextNo = siguienteNoSugerido;
+      let nextFolio = siguienteFolioSugerido;
       try {
         const list = await listColaboradoresCompletos({ forceRefresh: true });
         listadoColaboradoresCacheRef.current = list;
-        const nextNo = calcularSiguienteNoEmpleado(list);
+        nextNo = calcularSiguienteNoEmpleado(list);
+        nextFolio = calcularSiguienteNumeroFolio(list);
         setSiguienteNoSugerido(nextNo);
-        setForm((prev) => ({
-          ...prev,
-          numeroFolio: calcularSiguienteNumeroFolio(list),
-          noEmpleado1: nextNo,
-          servicio: "",
-          noServicio: "",
-          planta: "",
-          posicion: "",
-        }));
+        setSiguienteFolioSugerido(nextFolio);
+        setGestoresProcesoOpciones(opcionesGestorProcesoDesdeColaboradores(list));
       } catch {
-        setSiguienteNoSugerido((prev) => {
-          const n = Number.parseInt(prev, 10);
-          return Number.isFinite(n) ? String(n + 1) : prev;
-        });
+        const n = Number.parseInt(siguienteNoSugerido, 10);
+        nextNo = Number.isFinite(n) ? String(n + 1) : siguienteNoSugerido;
+        nextFolio =
+          incrementarNumeroFolioExpediente(flatForm.numeroFolio?.trim() ?? form.numeroFolio) ??
+          incrementarNumeroFolioExpediente(siguienteFolioSugerido) ??
+          siguienteFolioSugerido;
+        setSiguienteNoSugerido(nextNo);
+        setSiguienteFolioSugerido(nextFolio);
       }
-      setAltaMsg({ ok: true, text: "EXPEDIENTE GUARDADO EN SUPABASE." });
+      reiniciarFlujoNuevaAlta(nextNo, nextFolio);
+      setAltaMsg({
+        ok: true,
+        text: `EXPEDIENTE N° ${noFinal} GUARDADO. CAPTURE OTRA ALTA DESDE PARTE 1.`,
+      });
     } catch (err) {
       setAltaMsg({
         ok: false,
@@ -1365,12 +1408,28 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                   options={["LOCAL", "FORANEO"]}
                   onChange={(v) => updateField("localForaneo", v)}
                 />
-                <Field
-                  label="NUMERO DE EXPEDIENTE"
-                  value={form.numeroFolio}
-                  hint="Formato SPT/T-9167/PE — consecutivo al último registrado"
-                  onChange={(v) => updateField("numeroFolio", v)}
-                />
+                <div className="space-y-1">
+                  <Field
+                    label="NUMERO DE EXPEDIENTE"
+                    value={form.numeroFolio}
+                    placeholder={siguienteFolioSugerido || "SPT/T-9167/PE"}
+                    hint={
+                      siguienteFolioSugerido
+                        ? `Siguiente sugerido: ${siguienteFolioSugerido} (ultimo alta + 1). Puede editarlo manualmente.`
+                        : "Formato SPT/T-9167/PE — consecutivo al ultimo registrado"
+                    }
+                    onChange={(v) => updateField("numeroFolio", v)}
+                  />
+                  {puedeEditarAltas && siguienteFolioSugerido && form.numeroFolio.trim() !== siguienteFolioSugerido ? (
+                    <button
+                      type="button"
+                      className="text-[10px] font-bold uppercase text-violet-800 underline underline-offset-2 hover:text-violet-950"
+                      onClick={() => updateField("numeroFolio", siguienteFolioSugerido)}
+                    >
+                      Usar sugerido ({siguienteFolioSugerido})
+                    </button>
+                  ) : null}
+                </div>
                 <Field label="CREDITO INFONAVIT" value={form.creditoInfonavit} onChange={(v) => updateField("creditoInfonavit", v)} />
                 <Field label="ESCOLARIDAD" value={form.escolaridad} onChange={(v) => updateField("escolaridad", v)} />
                 <Field label="LICENCIA" value={form.licenciaConducir} onChange={(v) => updateField("licenciaConducir", v)} />
@@ -1511,10 +1570,13 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
                 <SelectField
                   label="GESTOR DEL PROCESO"
                   value={form.gestorProceso}
-                  options={[...ALTAS_GESTORES_PROCESO_OPCIONES]}
+                  options={gestoresProcesoOpciones}
                   allowEmpty
                   onChange={(v) => updateField("gestorProceso", v)}
                 />
+                <p className="text-[10px] font-medium uppercase text-slate-500 md:col-span-2">
+                  Incluye el catalogo fijo y colaboradores con &quot;reclutadora&quot; en el puesto (ej. RECLUTADORA NUEVO LAREDO).
+                </p>
                 <TextAreaField
                   label="ESTUDIO SOCIOECONOMICO"
                   value={form.estudioSocioeconomico}

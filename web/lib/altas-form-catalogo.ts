@@ -171,11 +171,18 @@ export function formatearNumeroFolioExpediente(partes: FolioExpedientePartes): s
   return `${partes.prefijo}/T-${partes.consecutivo}/${partes.sufijo}`;
 }
 
-/**
- * Siguiente folio completo (ej. SPT/T-9168/PE) según el mayor consecutivo en expedientes.
- * Si solo hay números sueltos, usa plantilla SPT/T-N/PE.
- */
-export function calcularSiguienteNumeroFolio(list: ColaboradorCompleto[]): string {
+/** Suma 1 al consecutivo de un folio con formato SPT/T-9167/PE. */
+export function incrementarNumeroFolioExpediente(raw: string): string | null {
+  const parsed = parseNumeroFolioExpediente(raw);
+  if (!parsed) return null;
+  return formatearNumeroFolioExpediente({
+    prefijo: parsed.prefijo,
+    consecutivo: parsed.consecutivo + 1,
+    sufijo: parsed.sufijo,
+  });
+}
+
+function mayorFolioEnLista(list: ColaboradorCompleto[]): FolioExpedientePartes | null {
   let mejor: FolioExpedientePartes | null = null;
   let maxSuelto = 0;
 
@@ -193,18 +200,60 @@ export function calcularSiguienteNumeroFolio(list: ColaboradorCompleto[]): strin
     if (n != null && n > maxSuelto) maxSuelto = n;
   }
 
-  if (mejor) {
+  if (mejor) return mejor;
+  if (maxSuelto > 0) {
+    return {
+      prefijo: FOLIO_EXPEDIENTE_PREFIJO_DEFAULT,
+      consecutivo: maxSuelto,
+      sufijo: FOLIO_EXPEDIENTE_SUFIJO_DEFAULT,
+    };
+  }
+  return null;
+}
+
+function folioUltimoRegistro(list: ColaboradorCompleto[]): FolioExpedientePartes | null {
+  let ultimoInstante = -1;
+  let folioUltimo: FolioExpedientePartes | null = null;
+
+  for (const c of list) {
+    const f = String(c.form?.numeroFolio ?? "").trim();
+    if (!f) continue;
+    const parsed = parseNumeroFolioExpediente(f);
+    if (!parsed) continue;
+    const instante = instanteUltimoIngresoRegistrado(c);
+    if (instante > ultimoInstante) {
+      ultimoInstante = instante;
+      folioUltimo = parsed;
+    }
+  }
+
+  return folioUltimo;
+}
+
+/**
+ * Siguiente folio completo (ej. SPT/T-9168/PE).
+ * Prioriza el folio del último alta registrado (+1); si no hay, el mayor consecutivo en expedientes.
+ */
+export function calcularSiguienteNumeroFolio(list: ColaboradorCompleto[]): string {
+  const desdeUltimo = folioUltimoRegistro(list);
+  const mayorGlobal = mayorFolioEnLista(list);
+
+  const base = desdeUltimo ?? mayorGlobal;
+  if (base) {
+    const consecutivoDesdeUltimo = (desdeUltimo?.consecutivo ?? 0) + 1;
+    const consecutivoDesdeMax = (mayorGlobal?.consecutivo ?? 0) + 1;
+    const prefijo = desdeUltimo?.prefijo ?? mayorGlobal?.prefijo ?? FOLIO_EXPEDIENTE_PREFIJO_DEFAULT;
+    const sufijo = desdeUltimo?.sufijo ?? mayorGlobal?.sufijo ?? FOLIO_EXPEDIENTE_SUFIJO_DEFAULT;
     return formatearNumeroFolioExpediente({
-      prefijo: mejor.prefijo,
-      consecutivo: mejor.consecutivo + 1,
-      sufijo: mejor.sufijo,
+      prefijo,
+      consecutivo: Math.max(consecutivoDesdeUltimo, consecutivoDesdeMax),
+      sufijo,
     });
   }
 
-  const base = maxSuelto > 0 ? maxSuelto + 1 : 1;
   return formatearNumeroFolioExpediente({
     prefijo: FOLIO_EXPEDIENTE_PREFIJO_DEFAULT,
-    consecutivo: base,
+    consecutivo: 1,
     sufijo: FOLIO_EXPEDIENTE_SUFIJO_DEFAULT,
   });
 }

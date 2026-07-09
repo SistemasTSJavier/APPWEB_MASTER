@@ -106,6 +106,12 @@ const MATCH_TONE: Record<
     text: "text-amber-900",
     icon: "~",
   },
+  puesto_reclutadora: {
+    ring: "ring-violet-200",
+    bg: "bg-violet-50",
+    text: "text-violet-900",
+    icon: "R",
+  },
   texto_libre: {
     ring: "ring-slate-200",
     bg: "bg-slate-100",

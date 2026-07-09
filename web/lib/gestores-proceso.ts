@@ -10,6 +10,7 @@ import {
   nombreCompletoExpediente,
   type GestorNombreCandidato,
 } from "@/lib/gestores-proceso-nombre-similitud";
+import { colaboradorGestorPorTextoPuestoReclutadora } from "@/lib/altas-gestores-proceso-opciones";
 
 const TZ = "America/Mexico_City";
 
@@ -19,6 +20,7 @@ export type GestorMatchTipo =
   | "no_empleado"
   | "nombre_exacto"
   | "nombre_similar"
+  | "puesto_reclutadora"
   | "texto_libre"
   | "sin_gestor";
 
@@ -199,7 +201,7 @@ function vinculoDesdeColaborador(c: ColaboradorCompleto): GestorColaboradorVincu
 export function resolverGestorProceso(
   gestorTexto: string,
   index: ColaboradorIndex,
-  _todos?: ColaboradorCompleto[],
+  todos?: ColaboradorCompleto[],
 ): {
   key: string;
   label: string;
@@ -251,6 +253,19 @@ export function resolverGestorProceso(
       matchTipo: mejor.score >= 99.5 ? "nombre_exacto" : "nombre_similar",
       gestorColaborador: vinculoDesdeColaborador(hit),
     };
+  }
+
+  if (todos?.length) {
+    const porPuesto = colaboradorGestorPorTextoPuestoReclutadora(todos, raw);
+    if (porPuesto) {
+      const puestoNorm = normalizarNombreParaCoincidencia(raw);
+      return {
+        key: `puesto:${puestoNorm}`,
+        label: nombreCompletoExpediente(porPuesto),
+        matchTipo: "puesto_reclutadora",
+        gestorColaborador: vinculoDesdeColaborador(porPuesto),
+      };
+    }
   }
 
   return {
@@ -368,6 +383,8 @@ export function matchTipoLabel(t: GestorMatchTipo): string {
       return "Identificado por nombre completo exacto";
     case "nombre_similar":
       return "Identificado por el nombre más parecido en expediente";
+    case "puesto_reclutadora":
+      return "Identificado por puesto de reclutadora en expediente";
     case "texto_libre":
       return "Solo texto en alta; no coincide con ningún colaborador";
     case "sin_gestor":
