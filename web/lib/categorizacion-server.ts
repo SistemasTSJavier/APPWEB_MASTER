@@ -349,9 +349,12 @@ function expandOperacionesLegacyRows(
   const out: CatEvaluacionRow[] = [];
   for (const r of rawRows) {
     const noEmpleado = normalizarNoEmpleado(String(r.no_empleado));
+    const subRaw = String(r.submodulo ?? "").trim();
+    const calificadoPorRow = normalizarNoEmpleado(String(r.calificado_por ?? ""));
     const jtBucket = parseJtBucketRaw(r.scores);
     const jtKeys = Object.keys(jtBucket);
 
+    // Calificaciones oficial→JT guardadas en JSON legacy dentro de scores.
     if (jtKeys.length > 0 && (subOperaciones === "jefe_turno" || subOperaciones == null)) {
       for (const calificadoPor of jtKeys) {
         const e = jtBucket[calificadoPor]!;
@@ -367,6 +370,23 @@ function expandOperacionesLegacyRows(
       }
     }
 
+    // Filas modernas ya tipadas (submodulo + calificado_por).
+    if (subRaw === "jefe_turno" && calificadoPorRow) {
+      if (subOperaciones === "oficial") continue;
+      const scores = parseScores(r.scores);
+      if (Object.keys(scores).length === 0 && jtKeys.length > 0) continue;
+      out.push({
+        noEmpleado,
+        modulo: "operaciones",
+        submodulo: "jefe_turno",
+        calificadoPor: calificadoPorRow,
+        scores,
+        comentarios: String(r.comentarios ?? ""),
+        promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(scores),
+      });
+      continue;
+    }
+
     if (subOperaciones === "jefe_turno") continue;
 
     const flatScores = parseScores(r.scores);
@@ -375,13 +395,32 @@ function expandOperacionesLegacyRows(
       noEmpleado,
       modulo: "operaciones",
       submodulo: "oficial",
-      calificadoPor: "",
+      calificadoPor: subRaw === "oficial" ? calificadoPorRow : "",
       scores: flatScores,
       comentarios: String(r.comentarios ?? ""),
       promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(flatScores),
     });
   }
   return out;
+}
+
+/** Une filas de evaluación; la fuente `primary` gana en duplicados. */
+function mergeCatEvalRows(primary: CatEvaluacionRow[], extra: CatEvaluacionRow[]): CatEvaluacionRow[] {
+  const keyOf = (r: CatEvaluacionRow) =>
+    `${normalizarNoEmpleado(r.noEmpleado)}|${r.submodulo}|${normalizarNoEmpleado(r.calificadoPor ?? "")}`;
+  const map = new Map<string, CatEvaluacionRow>();
+  for (const r of extra) map.set(keyOf(r), r);
+  for (const r of primary) map.set(keyOf(r), r);
+  return [...map.values()];
+}
+
+function filtrarOperacionesPorSub(
+  rows: CatEvaluacionRow[],
+  subOperaciones: string | null,
+): CatEvaluacionRow[] {
+  if (subOperaciones === "oficial") return rows.filter((r) => r.submodulo === "oficial");
+  if (subOperaciones === "jefe_turno") return rows.filter((r) => r.submodulo === "jefe_turno");
+  return rows;
 }
 
 async function getCatEvaluacionLegacyMinimal(
@@ -714,13 +753,24 @@ export async function getCatEvaluacion(
   const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
 
   try {
-    return await getCatEvaluacionViaRpc(client, noEmpleado, modulo, sub, calificadoPor);
+    const viaRpc = await getCatEvaluacionViaRpc(client, noEmpleado, modulo, sub, calificadoPor);
+    if (viaRpc) return viaRpc;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
       throw new Error(mensajeErrorCatEvaluacionSchema(msg));
     }
+  }
+
+  // JT: buscar también en el JSON legacy (__jt_evaluaciones_oficiales__).
+  if (modulo === "operaciones" && sub === "jefe_turno" && calificadoPor) {
     return getCatEvaluacionLegacyMinimal(client, noEmpleado, modulo, sub, calificadoPor);
+  }
+
+  try {
+    return await getCatEvaluacionLegacyMinimal(client, noEmpleado, modulo, sub, calificadoPor);
+  } catch {
+    return null;
   }
 }
 
@@ -867,8 +917,15 @@ export async function listCatEvaluacionesModulo(
       ? submoduloDbParaModulo(modulo, opts.submodulo)
       : null;
 
+  let rows: CatEvaluacionRow[] = [];
+  let rpcOk = false;
+
   try {
-    return await listCatEvaluacionesModuloViaRpc(client, modulo, subOperaciones);
+    // Operaciones: pedir todas las filas (p_submodulo vacío) y filtrar en TS.
+    // Evita RPCs viejas (025) que ocultaban oficiales con calificado_por o JT modernos.
+    const subRpc = modulo === "operaciones" ? "" : subOperaciones;
+    rows = await listCatEvaluacionesModuloViaRpc(client, modulo, subRpc);
+    rpcOk = true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
@@ -877,12 +934,19 @@ export async function listCatEvaluacionesModulo(
   }
 
   if (modulo === "operaciones") {
-    const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
-    const expanded = expandOperacionesLegacyRows(rawRows, subOperaciones);
-    if (subOperaciones === "oficial") return expanded.filter((r) => r.submodulo === "oficial");
-    if (subOperaciones === "jefe_turno") return expanded.filter((r) => r.submodulo === "jefe_turno");
-    return expanded;
+    try {
+      const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
+      const fromLegacy = expandOperacionesLegacyRows(rawRows, subOperaciones);
+      rows = mergeCatEvalRows(rows, fromLegacy);
+    } catch {
+      if (!rpcOk) {
+        /* sin datos */
+      }
+    }
+    return filtrarOperacionesPorSub(rows, subOperaciones);
   }
+
+  if (rpcOk) return rows;
 
   const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
   return rawRows.map((row) => rowToCatEvaluacion(row, modulo));
