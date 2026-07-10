@@ -1040,6 +1040,46 @@ function mergePersonalConActivos(
   return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
 }
 
+async function upsertCatEvaluacionModernTable(
+  client: SupabaseClient,
+  noEmpleado: string,
+  modulo: CatEvalModuloId,
+  sub: string,
+  calificadoPor: string,
+  filtered: Record<string, number>,
+  comentarios: string,
+  promedio: number | null,
+): Promise<CatEvaluacionRow> {
+  const no = noEmpleado.trim().toUpperCase();
+  const cal = normalizarNoEmpleado(calificadoPor);
+  const payload = {
+    no_empleado: no,
+    modulo,
+    submodulo: sub,
+    calificado_por: cal,
+    scores: filtered,
+    comentarios: comentarios.trim(),
+    promedio,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await client
+    .from("cat_evaluacion")
+    .upsert(payload, { onConflict: "no_empleado,modulo,submodulo,calificado_por" })
+    .select("no_empleado, modulo, submodulo, calificado_por, scores, comentarios, promedio")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return rowToCatEvaluacion(data as Record<string, unknown>, modulo);
+  return {
+    noEmpleado: no,
+    modulo,
+    submodulo: sub,
+    calificadoPor: cal,
+    scores: filtered,
+    comentarios: comentarios.trim(),
+    promedio,
+  };
+}
+
 export async function upsertCatEvaluacion(
   noEmpleado: string,
   modulo: CatEvalModuloId,
@@ -1069,6 +1109,7 @@ export async function upsertCatEvaluacion(
 
   await ensureCatPersonalForEvaluacion(client, noEmpleado);
 
+  // 1) RPC (preferido)
   try {
     return await upsertCatEvaluacionViaRpc(
       client,
@@ -1087,7 +1128,29 @@ export async function upsertCatEvaluacion(
     }
   }
 
-  if (modulo === "operaciones" && sub === "jefe_turno") {
+  // 2) Upsert directo con submodulo + calificado_por (no pierde calificaciones multi-evaluador)
+  if (modulo === "operaciones" && calificadoPor) {
+    try {
+      return await upsertCatEvaluacionModernTable(
+        client,
+        noEmpleado,
+        modulo,
+        sub,
+        calificadoPor,
+        filtered,
+        comentarios,
+        promedio,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
+        throw new Error(mensajeErrorCatEvaluacionSchema(msg, noEmpleado));
+      }
+    }
+  }
+
+  // 3) Solo JT: JSON legacy (último recurso)
+  if (modulo === "operaciones" && sub === "jefe_turno" && calificadoPor) {
     return upsertCatEvaluacionJtLegacyJson(
       client,
       noEmpleado,
@@ -1095,6 +1158,13 @@ export async function upsertCatEvaluacion(
       filtered,
       comentarios,
       promedio,
+    );
+  }
+
+  // 4) RH / Enfoque / oficial sin multi-calificador: fila mínima
+  if (modulo === "operaciones" && calificadoPor) {
+    throw new Error(
+      "No se pudo guardar la calificación de operaciones (faltan columnas submodulo/calificado_por). Ejecuta en Supabase: web/supabase/migrations/030_cat_evaluacion_oficial_jt.sql",
     );
   }
 

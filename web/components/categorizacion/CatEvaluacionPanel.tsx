@@ -512,6 +512,18 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     }
   }
 
+  async function reiniciarCapturaSiguiente(mensajeOk: string) {
+    setNoSel("");
+    setCalificadoPorSel("");
+    setScores({});
+    setComentarios("");
+    setFiltroTabla("");
+    setMsg(mensajeOk);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
   async function guardar() {
     if (!noSel) {
       setMsg("SELECCIONA EMPLEADO.");
@@ -544,6 +556,8 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       return;
     }
     const prom = promedioDeScores(nums);
+    const empleadoGuardado = noKey(noSel);
+    const calificadorGuardado = usaEvalMultiCalificador ? noKey(calificadoPorSel) : "";
     setBusy(true);
     setMsg(null);
     try {
@@ -551,34 +565,31 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          noEmpleado: noKey(noSel),
+          noEmpleado: empleadoGuardado,
           modulo,
           submodulo: esOperaciones ? submoduloOperaciones(rolOperaciones) : undefined,
-          calificadoPor: usaEvalMultiCalificador ? noKey(calificadoPorSel) : undefined,
+          rolOperaciones: esOperaciones ? rolOperaciones : undefined,
+          calificadoPor: usaEvalMultiCalificador ? calificadorGuardado : undefined,
           scores: nums,
           comentarios,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
-      const acumMulti =
-        usaEvalMultiCalificador && noSel
-          ? promedioAcumuladoEvaluaciones(
-              (multiEvalMap.get(noKey(noSel)) ?? [])
-                .filter((e) => e.calificadoPor !== noKey(calificadoPorSel))
-                .map((e) => e.promedio)
-                .concat(prom != null ? [prom] : []),
-            )
-          : null;
-      const etiquetaCalificador = esOficialOperaciones ? "JT" : "OFICIAL";
-      setMsg(
-        usaEvalMultiCalificador
-          ? `CALIFICACIÓN DEL ${etiquetaCalificador} ${noKey(calificadoPorSel)} GUARDADA.${acumMulti != null ? ` PROMEDIO ACUMULADO: ${acumMulti.toFixed(2)}` : ""}`
-          : prom != null
-            ? `EVALUACIÓN GUARDADA. PROMEDIO ${esRh ? "RH" : ""}: ${prom.toFixed(2)}`.trim()
-            : "EVALUACIÓN GUARDADA.",
-      );
+
+      // Confirmar en listado antes de limpiar (evita “desaparecer” visualmente).
       await load();
+
+      const etiquetaCalificador = esOficialOperaciones ? "JT" : "OFICIAL";
+      const baseOk = usaEvalMultiCalificador
+        ? `GUARDADO: ${empleadoGuardado} calificado por ${etiquetaCalificador} ${calificadorGuardado}${
+            prom != null ? ` (prom. ${prom.toFixed(2)})` : ""
+          }. LISTO PARA OTRA CAPTURA.`
+        : prom != null
+          ? `EVALUACIÓN DE ${empleadoGuardado} GUARDADA (PROM. ${prom.toFixed(2)}). LISTO PARA OTRA CAPTURA.`
+          : `EVALUACIÓN DE ${empleadoGuardado} GUARDADA. LISTO PARA OTRA CAPTURA.`;
+
+      await reiniciarCapturaSiguiente(baseOk);
     } catch (e) {
       setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL GUARDAR.");
     } finally {

@@ -109,6 +109,7 @@ export async function POST(req: Request) {
     noEmpleado?: string;
     modulo?: string;
     submodulo?: string;
+    rolOperaciones?: string;
     calificadoPor?: string;
     scores?: Record<string, number>;
     comentarios?: string;
@@ -144,7 +145,8 @@ export async function POST(req: Request) {
 
   try {
     const row = await upsertCatEvaluacion(no, modulo, body.scores ?? {}, String(body.comentarios ?? ""), null, {
-      submodulo: body.submodulo,
+      submodulo: body.submodulo ?? body.rolOperaciones,
+      rolOperaciones: body.rolOperaciones as "oficial" | "jefe_turno" | undefined,
       calificadoPor: body.calificadoPor,
     });
     return NextResponse.json({ ok: true, row });
