@@ -97,14 +97,22 @@ export const CAT_OPERACIONES_JEFE_TURNO_CAMPOS: CatCampoDef[] = [
 ];
 
 function normPuesto(puesto: string): string {
-  return puesto.trim().replace(/\s+/g, " ").toUpperCase();
+  return puesto
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
 }
 
 export function puestoEsJefeTurno(puesto: string): boolean {
   const p = normPuesto(puesto);
   if (!p) return false;
+  // JT, J.T., J T, JEFE TURNO, JEFE DE TURNO, etc.
+  if (/(^|[^A-Z])J\.?\s*T\.?([^A-Z]|$)/.test(` ${p} `)) return true;
   if (p === "JT" || p === "JEFE TURNO" || p === "JEFE DE TURNO") return true;
-  return p.includes("JEFE") && p.includes("TURNO");
+  if (p.includes("JEFE") && p.includes("TURNO")) return true;
+  return false;
 }
 
 export function puestoEsOficialOperaciones(puesto: string): boolean {
@@ -141,13 +149,15 @@ export function etiquetaRolOperaciones(rol: CatOperacionesRolId): string {
 export function filtrarOficialesParaCalificarJefe(
   personal: Array<{ noEmpleado: string; nombre: string; puesto: string; servicio: string }>,
   servicio: string,
+  serviciosCoinciden?: (a: string, b: string) => boolean,
 ): Array<{ noEmpleado: string; nombre: string }> {
   const svc = servicio.trim();
+  const coincide = serviciosCoinciden ?? ((a: string, b: string) => a.trim() === b.trim());
   return personal
     .filter(
       (p) =>
         puestoEsOficialOperaciones(p.puesto) &&
-        (!svc || p.servicio.trim() === svc),
+        (!svc || coincide(p.servicio, svc)),
     )
     .map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre }))
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
@@ -157,10 +167,41 @@ export function filtrarOficialesParaCalificarJefe(
 export function filtrarJefesTurnoParaCalificarOficial(
   personal: Array<{ noEmpleado: string; nombre: string; puesto: string; servicio: string }>,
   servicio: string,
+  serviciosCoinciden?: (a: string, b: string) => boolean,
 ): Array<{ noEmpleado: string; nombre: string }> {
   const svc = servicio.trim();
+  const coincide = serviciosCoinciden ?? ((a: string, b: string) => a.trim() === b.trim());
   return personal
-    .filter((p) => puestoEsJefeTurno(p.puesto) && (!svc || p.servicio.trim() === svc))
+    .filter((p) => puestoEsJefeTurno(p.puesto) && (!svc || coincide(p.servicio, svc)))
     .map((p) => ({ noEmpleado: p.noEmpleado, nombre: p.nombre }))
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
+}
+
+/** Claves típicas solo del perfil JT (no del oficial). */
+const JT_SCORE_KEYS_UNICOS = new Set([
+  "explica_funciones_equipo",
+  "resuelve_dudas_oficiales",
+  "explica_ideas_equipo",
+  "comunica_riesgos",
+  "liderazgo_gestion_equipo",
+  "delegar_tareas",
+  "planificacion_organizacion",
+  "gestion_incidencias_conflictos",
+  "equipo_capacitado",
+  "supervisa_cumplimiento",
+  "oficiales_apoyados",
+  "facilita_guia_herramientas",
+  "trato_amable_respetuoso",
+  "conocimiento_procesos_seguridad",
+  "identificar_mitigar_riesgos",
+  "desarrollo_capacitacion",
+]);
+
+/** true si los scores parecen una calificación de oficiales al JT. */
+export function scoresParecenJefeTurno(scores: Record<string, number> | null | undefined): boolean {
+  if (!scores) return false;
+  for (const k of Object.keys(scores)) {
+    if (JT_SCORE_KEYS_UNICOS.has(k)) return true;
+  }
+  return false;
 }

@@ -31,6 +31,7 @@ import {
   CatSelectorServicioObligatorio,
   filtrarPersonalListado,
   filtrarPorServicio,
+  serviciosCoincidenCat,
 } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { servicioUsaFiltroPlanta } from "@/lib/categorizacion-filtros-servicio";
 import { CatMsg, CatPromedioBadge, CatRatingGrid } from "@/components/categorizacion/cat-form-ui";
@@ -126,12 +127,22 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   }
 
   const oficialesOpciones = useMemo(
-    () => filtrarOficialesParaCalificarJefe(activosEnServicioOperaciones, servicioOperacionesElegido),
+    () =>
+      filtrarOficialesParaCalificarJefe(
+        activosEnServicioOperaciones,
+        servicioOperacionesElegido,
+        serviciosCoincidenCat,
+      ),
     [activosEnServicioOperaciones, servicioOperacionesElegido],
   );
 
   const jefesTurnoOpciones = useMemo(
-    () => filtrarJefesTurnoParaCalificarOficial(activosEnServicioOperaciones, servicioOperacionesElegido),
+    () =>
+      filtrarJefesTurnoParaCalificarOficial(
+        activosEnServicioOperaciones,
+        servicioOperacionesElegido,
+        serviciosCoincidenCat,
+      ),
     [activosEnServicioOperaciones, servicioOperacionesElegido],
   );
 
@@ -176,10 +187,34 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       }
       return activos;
     }
-    const porRol = activos.filter((p) => personalCoincideRolOperaciones(p.puesto, rolOperaciones));
     if (!servicioOperacionesElegido) return [];
-    return filtrarPorServicio(porRol, servicioOperacionesElegido, filtroPlanta);
-  }, [activos, esOperaciones, esEnfoque, rolOperaciones, servicioOperacionesElegido, servicioEnfoqueElegido, filtroPlanta]);
+    const enServicio = filtrarPorServicio(activos, servicioOperacionesElegido, filtroPlanta);
+    const porRol = enServicio.filter((p) => personalCoincideRolOperaciones(p.puesto, rolOperaciones));
+
+    // Incluir a quienes ya tienen calificación del rol actual aunque el puesto no coincida
+    // (p. ej. JT con puesto mal capturado): así no se “pierden” calificaciones oficial→JT.
+    const nosConEval = new Set<string>();
+    for (const [no, evals] of multiEvalMap) {
+      if (evals.length > 0) nosConEval.add(no);
+    }
+    if (nosConEval.size === 0) return porRol;
+
+    const ya = new Set(porRol.map((p) => noKey(p.noEmpleado)));
+    const extras = enServicio.filter((p) => {
+      const k = noKey(p.noEmpleado);
+      return !ya.has(k) && nosConEval.has(k);
+    });
+    return extras.length ? [...porRol, ...extras] : porRol;
+  }, [
+    activos,
+    esOperaciones,
+    esEnfoque,
+    rolOperaciones,
+    servicioOperacionesElegido,
+    servicioEnfoqueElegido,
+    filtroPlanta,
+    multiEvalMap,
+  ]);
 
   const personalPorServicio = useMemo(
     () =>
@@ -401,7 +436,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
 
   function esCalificadorFantasma(calNo: string): boolean {
     const key = noKey(calNo);
-    if (!key) return true;
+    if (!key) return false; // registro legacy sin calificador: no es "fantasma"
     if (esOficialOperaciones) {
       return !jefesTurnoOpciones.some((j) => noKey(j.noEmpleado) === key);
     }

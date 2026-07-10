@@ -27,6 +27,7 @@ import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
 import {
   normalizarSubmoduloOperaciones,
   rolOperacionesDesdePuesto,
+  scoresParecenJefeTurno,
   submoduloOperaciones,
   type CatOperacionesRolId,
 } from "@/lib/categorizacion-operaciones-roles";
@@ -391,11 +392,27 @@ function expandOperacionesLegacyRows(
 
     const flatScores = parseScores(r.scores);
     if (Object.keys(flatScores).length === 0) continue;
+
+    // Scores con criterios de JT aunque la fila diga oficial / vacía.
+    if (scoresParecenJefeTurno(flatScores)) {
+      if (subOperaciones === "oficial") continue;
+      out.push({
+        noEmpleado,
+        modulo: "operaciones",
+        submodulo: "jefe_turno",
+        calificadoPor: calificadoPorRow,
+        scores: flatScores,
+        comentarios: String(r.comentarios ?? ""),
+        promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(flatScores),
+      });
+      continue;
+    }
+
     out.push({
       noEmpleado,
       modulo: "operaciones",
       submodulo: "oficial",
-      calificadoPor: subRaw === "oficial" ? calificadoPorRow : "",
+      calificadoPor: subRaw === "oficial" || subRaw === "" ? calificadoPorRow : "",
       scores: flatScores,
       comentarios: String(r.comentarios ?? ""),
       promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(flatScores),
@@ -588,8 +605,12 @@ function submoduloDbParaModulo(modulo: CatEvalModuloId, submodulo?: string): str
 function rowToCatEvaluacion(r: Record<string, unknown>, modulo: CatEvalModuloId): CatEvaluacionRow {
   const scores = parseScores(r.scores);
   const subRaw = String(r.submodulo ?? "");
-  const submodulo =
+  let submodulo =
     modulo === "operaciones" ? submoduloOperaciones(normalizarSubmoduloOperaciones(subRaw || "oficial")) : "";
+  // Filas antiguas de JT mal etiquetadas como "oficial" tras la migración.
+  if (modulo === "operaciones" && submodulo === "oficial" && scoresParecenJefeTurno(scores)) {
+    submodulo = "jefe_turno";
+  }
   return {
     noEmpleado: normalizarNoEmpleado(String(r.no_empleado)),
     modulo,
