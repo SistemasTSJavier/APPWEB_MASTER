@@ -14,7 +14,10 @@ import {
   mapaColaboradoresPorNo,
   procesarCorreccionCsvDosColumnasEnMemoria,
 } from "@/lib/colaboradores-correccion-dos-columnas-server";
-import { listarNosCsvUnaColumna } from "@/lib/colaboradores-csv-columna-import";
+import {
+  listarNosCsvUnaColumna,
+  muestraValorCampoColaborador,
+} from "@/lib/colaboradores-csv-columna-import";
 import {
   fetchAllColaboradoresDbRows,
   fetchColaboradoresDbRowsByNos,
@@ -29,20 +32,6 @@ const UPSERT_CHUNK = 250;
 
 function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
   return colaboradorCompletoMayusculas(sincronizarEstadoBajaEnColaborador(data));
-}
-
-function muestraValorCampo(c: ColaboradorCompleto, fieldKey: string): string {
-  if (fieldKey === "servicio" || fieldKey === "servicioFinal") {
-    return String(c.moperActual?.servicio || c.servicioAsignado || c.form?.servicio || "").trim();
-  }
-  if (fieldKey === "puesto" || fieldKey === "puestoFinal") {
-    return String(c.moperActual?.puesto || c.puesto || c.form?.puesto || "").trim();
-  }
-  if (fieldKey === "posicion") return String(c.posicion || c.form?.posicion || "").trim();
-  if (fieldKey === "imss") return String(c.nss || c.form?.imss || "").trim();
-  if (fieldKey === "nombreCompleto") return String(c.nombreCompleto || "").trim();
-  if (fieldKey === "ultimoServicio") return String(c.ultimoServicio || c.form?.ultimoServicio || "").trim();
-  return String(c.form?.[fieldKey] ?? "").trim();
 }
 
 /** POST JSON `{ csvText: string }` — CSV de exactamente 2 columnas (N° empleado + un campo). */
@@ -145,7 +134,7 @@ export async function POST(req: Request) {
 
   const ejemplos = items.slice(0, 5).map((c) => ({
     noEmpleado: c.noEmpleado,
-    valor: muestraValorCampo(c, result.fieldKey),
+    valor: muestraValorCampoColaborador(c, result.fieldKey),
   }));
 
   return NextResponse.json({

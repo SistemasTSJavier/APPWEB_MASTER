@@ -9,6 +9,7 @@ import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { aplicarUnSoloCampoColaborador } from "@/lib/altas-un-campo";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
+import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 
 function g(p: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
   return (p[k] ?? "").trim();
@@ -46,7 +47,7 @@ export function analizarCabecerasCsvUnaColumna(headerRow: string[]): CabecerasUn
       .map(({ h }) => h);
     const extra =
       sinMapear.length > 0
-        ? ` Columna no reconocida: «${sinMapear.join("», «")}». N.º servicio: NO_SERVICIO o NO. SERVICIO. POSICION es otro campo (puesto en planta).`
+        ? ` Columna no reconocida: «${sinMapear.join("», «")}». Usa SERVICIO o SERVICIO_VIGENTE (no NO_SERVICIO, que es el número de catálogo).`
         : "";
     return {
       ok: false,
@@ -88,7 +89,9 @@ export type ColumnarCsvImportOk = {
 export type ColumnarCsvImportErr = { ok: false; message: string };
 
 /** Extrae N° de empleado del CSV de 2 columnas sin cargar expedientes (para fetch selectivo). */
-export function listarNosCsvUnaColumna(csvText: string): { ok: true; nos: string[]; dataFieldKey: CsvFieldKey; dataHeaderLabel: string } | ColumnarCsvImportErr {
+export function listarNosCsvUnaColumna(
+  csvText: string,
+): { ok: true; nos: string[]; dataFieldKey: CsvFieldKey; dataHeaderLabel: string } | ColumnarCsvImportErr {
   const stripped = csvText.replace(/^\uFEFF/, "");
   const rows = parseCsvContent(stripped);
   if (rows.length < 2) {
@@ -121,6 +124,33 @@ export function listarNosCsvUnaColumna(csvText: string): { ok: true; nos: string
     dataFieldKey: head.dataFieldKey,
     dataHeaderLabel: head.dataHeaderLabel,
   };
+}
+
+/**
+ * Todos los expedientes en el mapa cuya clave canónica coincide
+ * (cubre duplicados 06754 / 6754 creados por imports viejos).
+ */
+export function listarColaboradoresPorNoCanon(
+  byNo: Map<string, ColaboradorCompleto>,
+  noRaw: string,
+): ColaboradorCompleto[] {
+  const canon = canonicalEmpNoAttendance(String(noRaw ?? "").trim());
+  if (!canon) return [];
+  const seen = new Set<string>();
+  const out: ColaboradorCompleto[] = [];
+  for (const c of byNo.values()) {
+    const key = String(c.noEmpleado ?? "").trim().toUpperCase();
+    if (!key || seen.has(key)) continue;
+    if (canonicalEmpNoAttendance(key) !== canon) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  // Fallback: si el mapa no indexó bien, prueba claves directas.
+  if (out.length === 0) {
+    const hit = lookupColaboradorEnMapa(byNo, noRaw);
+    if (hit) out.push(hit);
+  }
+  return out;
 }
 
 export function procesarCsvActualizacionUnaColumna(
@@ -177,27 +207,28 @@ export function procesarCsvActualizacionUnaColumna(
       continue;
     }
 
-    // Clave de escritura = no_empleado real en BD (puede llevar ceros); lookup acepta CSV canónico.
-    const prev = lookupColaboradorEnMapa(toWrite, noRaw) ?? lookupColaboradorEnMapa(byNo, noRaw);
-    if (!prev) {
+    // Actualiza TODAS las filas con el mismo N° canónico (expediente real + posibles huérfanas).
+    const matches = listarColaboradoresPorNoCanon(toWrite, noRaw);
+    const fromDb = matches.length > 0 ? matches : listarColaboradoresPorNoCanon(byNo, noRaw);
+    if (fromDb.length === 0) {
       ignoredUnknownNo++;
       omitidosSinExpedienteSet.add(no);
       continue;
     }
 
-    const writeKey = String(prev.noEmpleado ?? "").trim().toUpperCase() || no;
-    // Corrección intencional de UN campo: siempre aplica (servicio/puesto/moper incluidos).
-    const merged = aplicarUnSoloCampoColaborador(prev, dataFieldKey, valor);
-    toWrite.set(writeKey, merged);
-    if (no !== writeKey) toWrite.set(no, merged);
+    for (const prev of fromDb) {
+      const writeKey = String(prev.noEmpleado ?? "").trim().toUpperCase() || no;
+      const base = toWrite.get(writeKey) ?? prev;
+      const merged = aplicarUnSoloCampoColaborador(base, dataFieldKey, valor);
+      toWrite.set(writeKey, merged);
+    }
   }
 
   return {
     ok: true,
     dataFieldKey,
     dataHeaderLabel,
-    // Deduplica si se indexó por clave BD + canónica.
-    updated: [...new Map([...toWrite.values()].map((c) => [c.noEmpleado, c])).values()],
+    updated: [...toWrite.values()],
     ignoredUnknownNo,
     omitidosSinExpediente: [...omitidosSinExpedienteSet].sort((a, b) =>
       a.localeCompare(b, "es", { numeric: true }),
@@ -210,7 +241,7 @@ export function procesarCsvActualizacionUnaColumna(
 
 /**
  * Busca expediente por N° tal como viene en CSV / Excel.
- * Prueba clave canónica (sin ceros) y cruda (con ceros / mayúsculas).
+ * Preferencia: clave exacta BD → canónica (sin ceros).
  */
 export function lookupColaboradorEnMapa(
   byNo: Map<string, ColaboradorCompleto>,
@@ -227,15 +258,31 @@ export function lookupColaboradorEnMapa(
   );
 }
 
+export function muestraValorCampoColaborador(c: ColaboradorCompleto, fieldKey: string): string {
+  if (fieldKey === "servicio" || fieldKey === "servicioFinal" || fieldKey === "ultimoServicio") {
+    return servicioLineaColaborador(c);
+  }
+  if (fieldKey === "puesto" || fieldKey === "puestoFinal") {
+    return String(c.moperActual?.puesto || c.puesto || c.form?.puesto || "").trim();
+  }
+  if (fieldKey === "posicion") return String(c.posicion || c.form?.posicion || "").trim();
+  if (fieldKey === "imss") return String(c.nss || c.form?.imss || "").trim();
+  if (fieldKey === "nombreCompleto") return String(c.nombreCompleto || "").trim();
+  if (fieldKey === "noServicio") return String(c.form?.noServicio || "").trim();
+  return String(c.form?.[fieldKey] ?? "").trim();
+}
+
 /**
  * Indexa por N° real de BD (`no_empleado`) y por forma canónica (CSV/Excel sin ceros).
  * Importante: **no reescribe** `noEmpleado` a la forma canónica — si no, el upsert crea otra fila
  * y Colaboradores sigue mostrando el expediente original sin cambios.
+ *
+ * Si existen 06754 y 6754, ambos se conservan; el alias canónico NO pisa una fila exacta.
  */
 export function mapaColaboradoresPorNo(
   rows: { no_empleado?: string; data: unknown }[],
 ): Map<string, ColaboradorCompleto> {
-  const m = new Map<string, ColaboradorCompleto>();
+  const byDb = new Map<string, ColaboradorCompleto>();
   for (const row of rows) {
     const c = normalizeToCompleto(row.data);
     if (!c) continue;
@@ -246,9 +293,14 @@ export function mapaColaboradoresPorNo(
       noEmpleado: dbNo,
       form: { ...c.form, noEmpleado1: dbNo },
     };
-    m.set(dbNo, normalized);
+    byDb.set(dbNo, normalized);
+  }
+  const m = new Map<string, ColaboradorCompleto>(byDb);
+  for (const [dbNo, normalized] of byDb) {
     const canon = canonicalEmpNoAttendance(dbNo);
-    if (canon && canon !== dbNo) m.set(canon, normalized);
+    if (canon && canon !== dbNo && !m.has(canon)) {
+      m.set(canon, normalized);
+    }
   }
   return m;
 }

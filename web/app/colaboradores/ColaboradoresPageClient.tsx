@@ -118,6 +118,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
     omitidosSinExpediente: string[];
     filasVaciasOsinDato: number;
     errores: Array<{ row: number; message: string }>;
+    ejemplos?: Array<{ noEmpleado: string; antes: string; despues: string; ok: boolean }>;
+    fallosPersistencia?: number;
+    aviso?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -212,6 +215,9 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         omitidosSinExpediente?: string[];
         filasVaciasOsinDato?: number;
         errores?: Array<{ row: number; message: string }>;
+        ejemplos?: Array<{ noEmpleado?: string; antes?: string; despues?: string; ok?: boolean }>;
+        fallosPersistencia?: number;
+        aviso?: string;
       } = {};
       try {
         j = JSON.parse(rawBody || "{}") as typeof j;
@@ -221,6 +227,14 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
       if (!r.ok) {
         throw new Error(j.error ?? `Error ${r.status}`);
       }
+      const ejemplos = Array.isArray(j.ejemplos)
+        ? j.ejemplos.map((e) => ({
+            noEmpleado: String(e.noEmpleado ?? "").trim(),
+            antes: String(e.antes ?? "").trim(),
+            despues: String(e.despues ?? "").trim(),
+            ok: e.ok !== false,
+          }))
+        : [];
       setColumnaCsvDetalle({
         dataFieldKey: String(j.dataFieldKey ?? ""),
         dataHeaderLabel: String(j.dataHeaderLabel ?? ""),
@@ -231,8 +245,26 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
           : [],
         filasVaciasOsinDato: Number(j.filasVaciasOsinDato ?? 0),
         errores: Array.isArray(j.errores) ? j.errores : [],
+        ejemplos,
+        fallosPersistencia: Number(j.fallosPersistencia ?? 0),
+        aviso: j.aviso ? String(j.aviso) : undefined,
       });
-      setColumnaCsvMsg("IMPORTACION TERMINADA.");
+      const field = String(j.dataFieldKey ?? "");
+      if (field === "noServicio") {
+        setColumnaCsvMsg(
+          "IMPORTACION TERMINADA. ATENCION: se actualizo NO_SERVICIO (numero de catalogo), no la columna SERVICIO del listado. Use cabecera SERVICIO o SERVICIO_VIGENTE.",
+        );
+      } else if (Number(j.fallosPersistencia ?? 0) > 0) {
+        setColumnaCsvMsg(
+          `IMPORTACION CON AVISO: ${j.fallosPersistencia} muestra(s) no coinciden al releer BD. Revise los ejemplos abajo.`,
+        );
+      } else if (Number(j.actualizados ?? 0) > 0) {
+        setColumnaCsvMsg(
+          `IMPORTACION OK: ${j.actualizados} expediente(s). Campo ${field}. La lista se recarga con el valor guardado.`,
+        );
+      } else {
+        setColumnaCsvMsg("IMPORTACION TERMINADA: 0 EXPEDIENTES ACTUALIZADOS (REVISE N° Y CABECERAS).");
+      }
       await recargarColaboradores();
     } catch (e) {
       setColumnaCsvMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL IMPORTAR CSV.");
@@ -437,10 +469,11 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
             <h2 className="text-sm font-bold uppercase text-slate-900">Importar una columna (CSV)</h2>
             <p className="text-xs font-medium leading-relaxed text-slate-700">
               Archivo con <strong>dos columnas</strong>: primero el <strong>N° de empleado</strong> (cabeceras como NO_EMPLEADO, NO DE EMPLEADO, CLAVE) y
-              <strong> una sola columna de dato</strong> (ej. ESTADO CIVIL, CURP, TELEFONO, SERVICIO, PLANTA, NO_SERVICIO). Se detecta el campo por el nombre de la cabecera. Solo se
+              <strong> una sola columna de dato</strong>. Para cambiar la columna <strong>SERVICIO</strong> del listado use cabecera{" "}
+              <strong>SERVICIO</strong> o <strong>SERVICIO_VIGENTE</strong> (nombre del servicio).{" "}
+              <strong>NO_SERVICIO</strong> es otro campo (número de catálogo) y no cambia esa columna. Solo se
               actualizan expedientes que <strong>ya existen</strong>; si el N° no esta en el sistema, la fila se <strong>ignora</strong>. Celdas vacias en
-              la columna de dato no cambian el valor guardado. Si la columna es <strong>SERVICIO</strong> (o equivalente reconocido), se alinea tambien la
-              linea vigente del listado (<code className="rounded bg-white/80 px-1">moperActual</code> y campos de servicio en expediente), igual que al guardar desde el editor.
+              la columna de dato no cambian el valor guardado.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <input
@@ -476,6 +509,27 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                   <li>Filas ignoradas (N° sin expediente en sistema): {columnaCsvDetalle.ignoradosNoExiste}</li>
                   <li>Filas sin dato o vacias: {columnaCsvDetalle.filasVaciasOsinDato}</li>
                 </ul>
+                {columnaCsvDetalle.dataFieldKey === "noServicio" ? (
+                  <p className="mt-2 font-bold uppercase text-amber-900">
+                    Cabecera detectada como N.º de servicio (catalogo). La columna SERVICIO del listado no cambia con eso; use SERVICIO o SERVICIO_VIGENTE.
+                  </p>
+                ) : null}
+                {columnaCsvDetalle.aviso ? (
+                  <p className="mt-2 font-bold uppercase text-red-800">{columnaCsvDetalle.aviso}</p>
+                ) : null}
+                {columnaCsvDetalle.ejemplos && columnaCsvDetalle.ejemplos.length > 0 ? (
+                  <div className="mt-2 border-t border-slate-100 pt-2">
+                    <p className="font-bold uppercase text-slate-900">Muestra leida de BD (antes → despues)</p>
+                    <ul className="mt-1 max-h-40 overflow-y-auto font-mono text-[11px] font-medium normal-case text-slate-800">
+                      {columnaCsvDetalle.ejemplos.map((e) => (
+                        <li key={e.noEmpleado} className={e.ok ? "" : "text-red-800"}>
+                          {e.noEmpleado}: «{e.antes || "—"}» → «{e.despues || "—"}»
+                          {e.ok ? "" : " (NO PERSISTIO)"}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 {columnaCsvDetalle.omitidosSinExpediente.length > 0 ? (
                   <div className="mt-2 border-t border-slate-100 pt-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">

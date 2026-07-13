@@ -97,6 +97,9 @@ const HEADER_TO_FIELD: Record<string, CsvFieldKey> = {
   servicio: "servicio",
   servicio_asignado: "servicio",
   servicio_cliente_lugar: "servicio",
+  servicio_vigente: "servicio",
+  servicio_actual: "servicio",
+  linea_servicio: "servicio",
   servicio_final: "servicioFinal",
   no_servicio: "noServicio",
   numero_servicio: "noServicio",
@@ -640,6 +643,9 @@ function matchNoServicioColumnFuzzy(canon: string): CsvFieldKey | undefined {
     canon === "servicio_asignado" ||
     canon === "servicio_cliente_lugar" ||
     canon === "servicio_final" ||
+    canon === "servicio_vigente" ||
+    canon === "servicio_actual" ||
+    canon === "linea_servicio" ||
     canon === "ultimo_servicio" ||
     canon === "ultimo_servicio_moper"
   ) {

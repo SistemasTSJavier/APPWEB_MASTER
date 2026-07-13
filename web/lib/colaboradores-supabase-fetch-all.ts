@@ -44,7 +44,14 @@ export async function fetchAllColaboradoresData(admin: SupabaseClient): Promise<
 export async function fetchAllColaboradoresCompletos(admin: SupabaseClient): Promise<ColaboradorCompleto[]> {
   const rows = await fetchAllColaboradoresDbRows(admin);
   return rows
-    .map((r) => normalizeToCompleto(r.data))
+    .map((r) => {
+      const c = normalizeToCompleto(r.data);
+      if (!c) return null;
+      const dbNo = String(r.no_empleado ?? "").trim().toUpperCase();
+      if (!dbNo) return c;
+      // La PK de la tabla manda: evita filas “fantasma” con data.noEmpleado distinto.
+      return { ...c, noEmpleado: dbNo, form: { ...c.form, noEmpleado1: dbNo } };
+    })
     .filter((c): c is ColaboradorCompleto => c !== null);
 }
 
