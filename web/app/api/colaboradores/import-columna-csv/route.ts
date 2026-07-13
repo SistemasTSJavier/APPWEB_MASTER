@@ -8,6 +8,8 @@ import {
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayEditColaboradores } from "@/lib/app-role";
+import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
+import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 import { mapaColaboradoresPorNo, procesarCsvActualizacionUnaColumna } from "@/lib/colaboradores-csv-columna-import";
 import { fetchAllColaboradoresDbRows } from "@/lib/colaboradores-supabase-fetch-all";
 
@@ -17,28 +19,7 @@ const MAX_CSV_CHARS = 4 * 1024 * 1024;
 const UPSERT_CHUNK = 500;
 
 function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
-  const key = data.noEmpleado.trim().toUpperCase();
-  return {
-    ...data,
-    noEmpleado: key,
-    nombreCompleto: data.nombreCompleto.trim(),
-    servicioAsignado: data.servicioAsignado.trim(),
-    ultimoServicio: data.ultimoServicio.trim(),
-    nss: data.nss.trim(),
-    posicion: data.posicion.trim(),
-    puesto: data.puesto.trim(),
-    form: data.form,
-    familiares: data.familiares,
-    registeredAt: data.registeredAt,
-    ...(data.moperActual
-      ? {
-          moperActual: {
-            servicio: data.moperActual.servicio.trim(),
-            puesto: data.moperActual.puesto.trim(),
-          },
-        }
-      : {}),
-  };
+  return colaboradorCompletoMayusculas(sincronizarEstadoBajaEnColaborador(data));
 }
 
 /**

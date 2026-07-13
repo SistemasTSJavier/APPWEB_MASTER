@@ -60,11 +60,25 @@ export async function fetchColaboradoresDbRowsByNos(
   nos: string[],
   opts?: { chunkSize?: number },
 ): Promise<ColaboradorDbRow[]> {
-  const unique = [...new Set(nos.map((n) => n.trim().toUpperCase()).filter(Boolean))];
+  const variants = new Set<string>();
+  for (const raw of nos) {
+    const t = String(raw ?? "").trim();
+    if (!t) continue;
+    variants.add(t);
+    variants.add(t.toUpperCase());
+    // Misma clave canónica que usa el CSV (quita ceros a la izquierda / .0 de Excel)
+    const compact = t.replace(/\u00a0/g, " ").trim();
+    if (/^\d+\.0+$/.test(compact)) variants.add(compact.replace(/\.0+$/, ""));
+    if (/^\d+$/.test(compact.replace(/^0+/, "") || "0")) {
+      const n = String(Number.parseInt(compact, 10));
+      if (n && n !== "NaN") variants.add(n);
+    }
+  }
+  const unique = [...variants].filter(Boolean);
   if (unique.length === 0) return [];
 
   const chunkSize = Math.max(50, Math.min(opts?.chunkSize ?? 200, 300));
-  const out: ColaboradorDbRow[] = [];
+  const byKey = new Map<string, ColaboradorDbRow>();
 
   for (let i = 0; i < unique.length; i += chunkSize) {
     const chunk = unique.slice(i, i + chunkSize);
@@ -73,8 +87,10 @@ export async function fetchColaboradoresDbRowsByNos(
       .select("no_empleado, data")
       .in("no_empleado", chunk);
     if (error) throw new Error(hintSupabaseClientError(error.message));
-    out.push(...((data ?? []) as ColaboradorDbRow[]));
+    for (const row of (data ?? []) as ColaboradorDbRow[]) {
+      byKey.set(String(row.no_empleado ?? "").trim().toUpperCase(), row);
+    }
   }
 
-  return out;
+  return [...byKey.values()];
 }

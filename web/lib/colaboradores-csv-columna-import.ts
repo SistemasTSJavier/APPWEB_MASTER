@@ -177,23 +177,27 @@ export function procesarCsvActualizacionUnaColumna(
       continue;
     }
 
-    const prev = toWrite.get(no) ?? byNo.get(no);
+    // Clave de escritura = no_empleado real en BD (puede llevar ceros); lookup acepta CSV canónico.
+    const prev = lookupColaboradorEnMapa(toWrite, noRaw) ?? lookupColaboradorEnMapa(byNo, noRaw);
     if (!prev) {
       ignoredUnknownNo++;
       omitidosSinExpedienteSet.add(no);
       continue;
     }
 
+    const writeKey = String(prev.noEmpleado ?? "").trim().toUpperCase() || no;
     // Corrección intencional de UN campo: siempre aplica (servicio/puesto/moper incluidos).
     const merged = aplicarUnSoloCampoColaborador(prev, dataFieldKey, valor);
-    toWrite.set(no, merged);
+    toWrite.set(writeKey, merged);
+    if (no !== writeKey) toWrite.set(no, merged);
   }
 
   return {
     ok: true,
     dataFieldKey,
     dataHeaderLabel,
-    updated: [...toWrite.values()],
+    // Deduplica si se indexó por clave BD + canónica.
+    updated: [...new Map([...toWrite.values()].map((c) => [c.noEmpleado, c])).values()],
     ignoredUnknownNo,
     omitidosSinExpediente: [...omitidosSinExpedienteSet].sort((a, b) =>
       a.localeCompare(b, "es", { numeric: true }),
@@ -204,6 +208,30 @@ export function procesarCsvActualizacionUnaColumna(
   };
 }
 
+/**
+ * Busca expediente por N° tal como viene en CSV / Excel.
+ * Prueba clave canónica (sin ceros) y cruda (con ceros / mayúsculas).
+ */
+export function lookupColaboradorEnMapa(
+  byNo: Map<string, ColaboradorCompleto>,
+  noRaw: string,
+): ColaboradorCompleto | undefined {
+  const raw = String(noRaw ?? "").trim();
+  if (!raw) return undefined;
+  const upper = raw.toUpperCase();
+  const canon = canonicalEmpNoAttendance(raw);
+  return (
+    byNo.get(upper) ??
+    (canon ? byNo.get(canon) : undefined) ??
+    (canon && canon !== upper ? byNo.get(canon.toUpperCase()) : undefined)
+  );
+}
+
+/**
+ * Indexa por N° real de BD (`no_empleado`) y por forma canónica (CSV/Excel sin ceros).
+ * Importante: **no reescribe** `noEmpleado` a la forma canónica — si no, el upsert crea otra fila
+ * y Colaboradores sigue mostrando el expediente original sin cambios.
+ */
 export function mapaColaboradoresPorNo(
   rows: { no_empleado?: string; data: unknown }[],
 ): Map<string, ColaboradorCompleto> {
@@ -211,13 +239,16 @@ export function mapaColaboradoresPorNo(
   for (const row of rows) {
     const c = normalizeToCompleto(row.data);
     if (!c) continue;
-    const key = canonicalEmpNoAttendance(String(row.no_empleado ?? c.noEmpleado));
-    if (!key) continue;
-    m.set(key, {
+    const dbNo = String(row.no_empleado ?? c.noEmpleado ?? "").trim().toUpperCase();
+    if (!dbNo) continue;
+    const normalized: ColaboradorCompleto = {
       ...c,
-      noEmpleado: key,
-      form: { ...c.form, noEmpleado1: key },
-    });
+      noEmpleado: dbNo,
+      form: { ...c.form, noEmpleado1: dbNo },
+    };
+    m.set(dbNo, normalized);
+    const canon = canonicalEmpNoAttendance(dbNo);
+    if (canon && canon !== dbNo) m.set(canon, normalized);
   }
   return m;
 }

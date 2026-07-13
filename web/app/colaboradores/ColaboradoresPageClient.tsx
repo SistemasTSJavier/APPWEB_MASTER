@@ -122,18 +122,35 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
 
   useEffect(() => {
     let cancel = false;
-    (async () => {
+    async function loadFresh() {
       setListaError(null);
       try {
-        const list = await listColaboradoresCompletos();
+        // Siempre fresco al entrar: tras corrección CSV en Altas la caché del SPA puede quedar vieja.
+        const list = await listColaboradoresCompletos({ forceRefresh: true });
         if (!cancel) setRows(list);
       } catch (e) {
         if (!cancel) setRows([]);
         if (!cancel) setListaError(e instanceof Error ? e.message : "ERROR AL CARGAR COLABORADORES.");
       }
-    })();
+    }
+    void loadFresh();
+
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      const bump = typeof window !== "undefined" ? window.sessionStorage.getItem("colaboradores-data-bump") : null;
+      if (!bump) return;
+      window.sessionStorage.removeItem("colaboradores-data-bump");
+      void loadFresh();
+    }
+    function onFocus() {
+      onVisible();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
     return () => {
       cancel = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 

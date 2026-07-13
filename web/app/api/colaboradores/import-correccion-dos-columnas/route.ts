@@ -8,12 +8,17 @@ import {
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayWriteExpedienteColaborador } from "@/lib/app-role";
+import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
+import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 import {
   mapaColaboradoresPorNo,
   procesarCorreccionCsvDosColumnasEnMemoria,
 } from "@/lib/colaboradores-correccion-dos-columnas-server";
 import { listarNosCsvUnaColumna } from "@/lib/colaboradores-csv-columna-import";
-import { fetchColaboradoresDbRowsByNos } from "@/lib/colaboradores-supabase-fetch-all";
+import {
+  fetchAllColaboradoresDbRows,
+  fetchColaboradoresDbRowsByNos,
+} from "@/lib/colaboradores-supabase-fetch-all";
 
 export const dynamic = "force-dynamic";
 /** Vercel: corrección de cientos/miles de filas puede tardar. */
@@ -23,28 +28,7 @@ const MAX_CSV_CHARS = 8 * 1024 * 1024;
 const UPSERT_CHUNK = 250;
 
 function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
-  const key = data.noEmpleado.trim().toUpperCase();
-  return {
-    ...data,
-    noEmpleado: key,
-    nombreCompleto: data.nombreCompleto.trim(),
-    servicioAsignado: data.servicioAsignado.trim(),
-    ultimoServicio: data.ultimoServicio.trim(),
-    nss: data.nss.trim(),
-    posicion: data.posicion.trim(),
-    puesto: data.puesto.trim(),
-    form: data.form,
-    familiares: data.familiares,
-    registeredAt: data.registeredAt,
-    ...(data.moperActual
-      ? {
-          moperActual: {
-            servicio: data.moperActual.servicio.trim(),
-            puesto: data.moperActual.puesto.trim(),
-          },
-        }
-      : {}),
-  };
+  return colaboradorCompletoMayusculas(sincronizarEstadoBajaEnColaborador(data));
 }
 
 function muestraValorCampo(c: ColaboradorCompleto, fieldKey: string): string {
@@ -99,9 +83,15 @@ export async function POST(req: Request) {
   }
 
   let dbRows: Awaited<ReturnType<typeof fetchColaboradoresDbRowsByNos>>;
+  let cargaCompleta = false;
   try {
-    // Solo los N° del CSV (no toda la tabla) → rápido con 100–2000 filas.
+    // Primero solo N° del CSV; si excel/CSV quita ceros y BD los conserva, .in() puede fallar → fallback.
     dbRows = await fetchColaboradoresDbRowsByNos(admin, preview.nos);
+    const minEsperado = Math.max(1, Math.floor(preview.nos.length * 0.5));
+    if (dbRows.length < minEsperado) {
+      dbRows = await fetchAllColaboradoresDbRows(admin);
+      cargaCompleta = true;
+    }
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error al leer colaboradores" },
@@ -125,6 +115,7 @@ export async function POST(req: Request) {
       avisos: result.avisos,
       filasCsv: preview.nos.length,
       cargadosBd: dbRows.length,
+      cargaCompleta,
     });
   }
 
@@ -134,6 +125,7 @@ export async function POST(req: Request) {
   for (let i = 0; i < items.length; i += UPSERT_CHUNK) {
     const chunk = items.slice(i, i + UPSERT_CHUNK);
     const rows = chunk.map((p) => ({
+      // Clave = N° tal cual en el expediente (no canónico Excel).
       no_empleado: p.noEmpleado,
       data: p as unknown as Record<string, unknown>,
       updated_at: now,
@@ -165,6 +157,7 @@ export async function POST(req: Request) {
     avisos: result.avisos,
     filasCsv: preview.nos.length,
     cargadosBd: dbRows.length,
+    cargaCompleta,
     ejemplos,
   });
 }

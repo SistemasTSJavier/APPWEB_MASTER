@@ -738,6 +738,11 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
       listadoColaboradoresCacheRef.current = null;
       invalidateColaboradoresListCache();
       try {
+        window.sessionStorage.setItem("colaboradores-data-bump", String(Date.now()));
+      } catch {
+        /* sessionStorage opcional */
+      }
+      try {
         const list = await listColaboradoresCompletos({ forceRefresh: true });
         listadoColaboradoresCacheRef.current = list;
       } catch {
@@ -761,7 +766,7 @@ export function AltasPageClient({ appRole }: { appRole: AppRole }) {
         ok > 0
           ? `CAMPO "${campo}": ${ok} EXPEDIENTE(S) ACTUALIZADO(S).${
               sinExp > 0 ? ` ${sinExp} FILA(S) SIN EXPEDIENTE (NO SE MODIFICARON).` : ""
-            }${ejemplos.length ? ` EJ.: ${ejemplos.join(" · ")}` : ""}. REVISE COLABORADORES (CTRL+F5).`
+            }${ejemplos.length ? ` EJ.: ${ejemplos.join(" · ")}` : ""}. Entre a Colaboradores: la lista se recarga sola.`
           : `NINGUN EXPEDIENTE ACTUALIZADO PARA "${campo}".${
               sinExp > 0
                 ? ` ${sinExp} N° NO COINCIDEN CON EXPEDIENTE (REVISE CLAVE Y QUE EXCEL NO CAMBIE EL N° A 12345.0).`
