@@ -1,19 +1,14 @@
 /**
- * CSV con exactamente dos columnas reconocidas: N° de empleado + una columna de dato (ej. ESTADO CIVIL).
- * Filas cuyo N° no exista en expedientes se ignoran.
+ * CSV con exactamente dos columnas reconocidas: N° de empleado + una columna de dato (ej. SERVICIO, CURP).
+ * Pensado para corrección masiva (100–miles de filas): aplica el campo con alineación de snapshots
+ * (servicio/puesto/moper) y no respeta la omisión del import masivo de altas.
  */
 import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
 import { parseCsvContent } from "@/lib/csv";
 import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
-import {
-  aplicarSnapDesdePick,
-  formDeltaDesdePick,
-  mergeFormPreserve,
-} from "@/lib/altas-import-partes";
+import { aplicarUnSoloCampoColaborador } from "@/lib/altas-un-campo";
 import { buildHeaderFieldIndex, rowToFieldMap, type CsvFieldKey } from "@/lib/empleado-csv-map";
-import { limpiarPosicionDuplicadaDeNoServicio } from "@/lib/colaboradores-catalogo-display";
-import { alinearColaboradorTrasImportColumnaPuesto, alinearColaboradorTrasImportColumnaServicio } from "@/lib/servicio-agrupacion";
 
 function g(p: Partial<Record<CsvFieldKey, string>>, k: CsvFieldKey): string {
   return (p[k] ?? "").trim();
@@ -56,7 +51,7 @@ export function analizarCabecerasCsvUnaColumna(headerRow: string[]): CabecerasUn
     return {
       ok: false,
       message:
-        `NO SE DETECTO COLUMNA DE DATOS. Ademas del N° empleado debe haber UNA columna reconocida (ej. NO. SERVICIO, CURP, PLANTA).${extra}`,
+        `NO SE DETECTO COLUMNA DE DATOS. Ademas del N° empleado debe haber UNA columna reconocida (ej. SERVICIO, CURP, PLANTA).${extra}`,
     };
   }
   if (dataCols.length > 1) {
@@ -86,9 +81,47 @@ export type ColumnarCsvImportOk = {
   omitidosSinExpediente: string[];
   skippedEmptyRow: number;
   errors: Array<{ row: number; message: string }>;
+  /** N° únicos pedidos en el CSV (para carga selectiva en servidor). */
+  nosSolicitados: string[];
 };
 
 export type ColumnarCsvImportErr = { ok: false; message: string };
+
+/** Extrae N° de empleado del CSV de 2 columnas sin cargar expedientes (para fetch selectivo). */
+export function listarNosCsvUnaColumna(csvText: string): { ok: true; nos: string[]; dataFieldKey: CsvFieldKey; dataHeaderLabel: string } | ColumnarCsvImportErr {
+  const stripped = csvText.replace(/^\uFEFF/, "");
+  const rows = parseCsvContent(stripped);
+  if (rows.length < 2) {
+    return { ok: false, message: "EL CSV DEBE TENER ENCABEZADOS Y AL MENOS UNA FILA DE DATOS." };
+  }
+  const colCount = Math.max(...rows.map((r) => r.length), 0);
+  if (colCount < 2) {
+    return {
+      ok: false,
+      message:
+        "SOLO SE DETECTO UNA COLUMNA. Guarda el CSV con dos columnas (empleado + dato). En Excel (Mexico) el separador suele ser punto y coma (;).",
+    };
+  }
+  const headerRow = rows[0]!.map((c) => String(c ?? "").trim());
+  const head = analizarCabecerasCsvUnaColumna(headerRow);
+  if (!head.ok) return head;
+
+  const { fieldIndex } = head;
+  const nos = new Set<string>();
+  for (let r = 1; r < rows.length; r++) {
+    const cells = rows[r] ?? [];
+    if (!cells.some((c) => String(c ?? "").trim() !== "")) continue;
+    const picked = rowToFieldMap(cells, fieldIndex);
+    const no = canonicalEmpNoAttendance(g(picked, "noEmpleado"));
+    if (no) nos.add(no);
+  }
+  return {
+    ok: true,
+    nos: [...nos],
+    dataFieldKey: head.dataFieldKey,
+    dataHeaderLabel: head.dataHeaderLabel,
+  };
+}
 
 export function procesarCsvActualizacionUnaColumna(
   csvText: string,
@@ -104,7 +137,7 @@ export function procesarCsvActualizacionUnaColumna(
     return {
       ok: false,
       message:
-        "SOLO SE DETECTO UNA COLUMNA. Guarda el CSV con dos columnas (empleado + dato). En Excel (España) el separador suele ser punto y coma (;).",
+        "SOLO SE DETECTO UNA COLUMNA. Guarda el CSV con dos columnas (empleado + dato). En Excel (Mexico) el separador suele ser punto y coma (;).",
     };
   }
   const headerRow = rows[0]!.map((c) => String(c ?? "").trim());
@@ -113,6 +146,7 @@ export function procesarCsvActualizacionUnaColumna(
 
   const { fieldIndex, dataFieldKey, dataHeaderLabel } = head;
   const toWrite = new Map<string, ColaboradorCompleto>();
+  const nosSolicitados = new Set<string>();
   let ignoredUnknownNo = 0;
   const omitidosSinExpedienteSet = new Set<string>();
   let skippedEmptyRow = 0;
@@ -135,6 +169,14 @@ export function procesarCsvActualizacionUnaColumna(
       errors.push({ row: r + 1, message: "NUMERO DE EMPLEADO INVALIDO." });
       continue;
     }
+    nosSolicitados.add(no);
+
+    const valor = String(picked[dataFieldKey] ?? "").trim();
+    if (!valor) {
+      skippedEmptyRow++;
+      continue;
+    }
+
     const prev = toWrite.get(no) ?? byNo.get(no);
     if (!prev) {
       ignoredUnknownNo++;
@@ -142,37 +184,8 @@ export function procesarCsvActualizacionUnaColumna(
       continue;
     }
 
-    if (picked[dataFieldKey] === undefined || String(picked[dataFieldKey] ?? "").trim() === "") {
-      skippedEmptyRow++;
-      continue;
-    }
-
-    const delta = formDeltaDesdePick(picked);
-    let merged: ColaboradorCompleto = { ...prev, noEmpleado: no, form: mergeFormPreserve(prev.form, delta) };
-    merged = aplicarSnapDesdePick(merged, picked);
-    merged = { ...merged, noEmpleado: no, form: { ...merged.form, noEmpleado1: no } };
-
-    if (dataFieldKey === "servicio" || dataFieldKey === "servicioFinal" || dataFieldKey === "ultimoServicio") {
-      const valorServicio =
-        dataFieldKey === "servicio"
-          ? g(picked, "servicio")
-          : dataFieldKey === "servicioFinal"
-            ? g(picked, "servicioFinal")
-            : g(picked, "ultimoServicio");
-      if (valorServicio) {
-        merged = alinearColaboradorTrasImportColumnaServicio(merged, valorServicio);
-      }
-    }
-    if (dataFieldKey === "puesto") {
-      const valorPuesto = g(picked, "puesto");
-      if (valorPuesto) {
-        merged = alinearColaboradorTrasImportColumnaPuesto(merged, valorPuesto);
-      }
-    }
-    if (dataFieldKey === "noServicio") {
-      merged = limpiarPosicionDuplicadaDeNoServicio(merged, g(picked, "noServicio"));
-    }
-
+    // Corrección intencional de UN campo: siempre aplica (servicio/puesto/moper incluidos).
+    const merged = aplicarUnSoloCampoColaborador(prev, dataFieldKey, valor);
     toWrite.set(no, merged);
   }
 
@@ -187,6 +200,7 @@ export function procesarCsvActualizacionUnaColumna(
     ),
     skippedEmptyRow,
     errors,
+    nosSolicitados: [...nosSolicitados],
   };
 }
 

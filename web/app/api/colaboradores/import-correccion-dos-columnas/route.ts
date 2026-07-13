@@ -12,12 +12,15 @@ import {
   mapaColaboradoresPorNo,
   procesarCorreccionCsvDosColumnasEnMemoria,
 } from "@/lib/colaboradores-correccion-dos-columnas-server";
-import { fetchAllColaboradoresDbRows } from "@/lib/colaboradores-supabase-fetch-all";
+import { listarNosCsvUnaColumna } from "@/lib/colaboradores-csv-columna-import";
+import { fetchColaboradoresDbRowsByNos } from "@/lib/colaboradores-supabase-fetch-all";
 
 export const dynamic = "force-dynamic";
+/** Vercel: corrección de cientos/miles de filas puede tardar. */
+export const maxDuration = 120;
 
-const MAX_CSV_CHARS = 4 * 1024 * 1024;
-const UPSERT_CHUNK = 500;
+const MAX_CSV_CHARS = 8 * 1024 * 1024;
+const UPSERT_CHUNK = 250;
 
 function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
   const key = data.noEmpleado.trim().toUpperCase();
@@ -42,6 +45,20 @@ function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
         }
       : {}),
   };
+}
+
+function muestraValorCampo(c: ColaboradorCompleto, fieldKey: string): string {
+  if (fieldKey === "servicio" || fieldKey === "servicioFinal") {
+    return String(c.moperActual?.servicio || c.servicioAsignado || c.form?.servicio || "").trim();
+  }
+  if (fieldKey === "puesto" || fieldKey === "puestoFinal") {
+    return String(c.moperActual?.puesto || c.puesto || c.form?.puesto || "").trim();
+  }
+  if (fieldKey === "posicion") return String(c.posicion || c.form?.posicion || "").trim();
+  if (fieldKey === "imss") return String(c.nss || c.form?.imss || "").trim();
+  if (fieldKey === "nombreCompleto") return String(c.nombreCompleto || "").trim();
+  if (fieldKey === "ultimoServicio") return String(c.ultimoServicio || c.form?.ultimoServicio || "").trim();
+  return String(c.form?.[fieldKey] ?? "").trim();
 }
 
 /** POST JSON `{ csvText: string }` — CSV de exactamente 2 columnas (N° empleado + un campo). */
@@ -73,9 +90,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `CSV demasiado grande (maximo ${MAX_CSV_CHARS} caracteres)` }, { status: 400 });
   }
 
-  let dbRows: Awaited<ReturnType<typeof fetchAllColaboradoresDbRows>>;
+  const preview = listarNosCsvUnaColumna(csvText);
+  if (!preview.ok) {
+    return NextResponse.json({ error: preview.message }, { status: 400 });
+  }
+  if (preview.nos.length === 0) {
+    return NextResponse.json({ error: "NINGUNA FILA CON NUMERO DE EMPLEADO VALIDO." }, { status: 400 });
+  }
+
+  let dbRows: Awaited<ReturnType<typeof fetchColaboradoresDbRowsByNos>>;
   try {
-    dbRows = await fetchAllColaboradoresDbRows(admin);
+    // Solo los N° del CSV (no toda la tabla) → rápido con 100–2000 filas.
+    dbRows = await fetchColaboradoresDbRowsByNos(admin, preview.nos);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error al leer colaboradores" },
@@ -97,6 +123,8 @@ export async function POST(req: Request) {
       sinExpediente: result.sinExpediente,
       omitidosSinExpediente: result.omitidosSinExpediente,
       avisos: result.avisos,
+      filasCsv: preview.nos.length,
+      cargadosBd: dbRows.length,
     });
   }
 
@@ -112,9 +140,21 @@ export async function POST(req: Request) {
     }));
     const { error: upErr } = await admin.from("colaboradores").upsert(rows, { onConflict: "no_empleado" });
     if (upErr) {
-      return NextResponse.json({ error: hintSupabaseClientError(upErr.message) }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: hintSupabaseClientError(upErr.message),
+          parcial: i,
+          intentados: items.length,
+        },
+        { status: 500 },
+      );
     }
   }
+
+  const ejemplos = items.slice(0, 5).map((c) => ({
+    noEmpleado: c.noEmpleado,
+    valor: muestraValorCampo(c, result.fieldKey),
+  }));
 
   return NextResponse.json({
     ok: true,
@@ -123,5 +163,8 @@ export async function POST(req: Request) {
     sinExpediente: result.sinExpediente,
     omitidosSinExpediente: result.omitidosSinExpediente,
     avisos: result.avisos,
+    filasCsv: preview.nos.length,
+    cargadosBd: dbRows.length,
+    ejemplos,
   });
 }

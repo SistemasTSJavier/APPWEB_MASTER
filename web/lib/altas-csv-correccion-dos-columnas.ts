@@ -95,5 +95,5 @@ export function parseCorreccionCsvDosColumnas(text: string): ParseCorreccionCsvD
 
 /** Plantilla UTF-8 con BOM para Excel; el segundo encabezado es solo ejemplo (cualquier campo mapeable sirve). */
 export function generarPlantillaCorreccionCsvDosColumnas(): string {
-  return "\uFEFFno_de_empleado,curp\r\nEJEMPLO000,AAAA000000HDFXXX00\r\n";
+  return "\uFEFFno_de_empleado;servicio\r\n9117;DANFOSS\r\n9118;DANFOSS\r\n";
 }

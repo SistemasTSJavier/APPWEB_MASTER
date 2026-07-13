@@ -53,3 +53,28 @@ export async function countColaboradoresEnSupabase(admin: SupabaseClient): Promi
   if (error) throw new Error(hintSupabaseClientError(error.message));
   return count ?? 0;
 }
+
+/** Carga solo los expedientes pedidos (por lotes). Ideal para corrección CSV de 100–miles de filas. */
+export async function fetchColaboradoresDbRowsByNos(
+  admin: SupabaseClient,
+  nos: string[],
+  opts?: { chunkSize?: number },
+): Promise<ColaboradorDbRow[]> {
+  const unique = [...new Set(nos.map((n) => n.trim().toUpperCase()).filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const chunkSize = Math.max(50, Math.min(opts?.chunkSize ?? 200, 300));
+  const out: ColaboradorDbRow[] = [];
+
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const { data, error } = await admin
+      .from("colaboradores")
+      .select("no_empleado, data")
+      .in("no_empleado", chunk);
+    if (error) throw new Error(hintSupabaseClientError(error.message));
+    out.push(...((data ?? []) as ColaboradorDbRow[]));
+  }
+
+  return out;
+}
