@@ -185,6 +185,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/sgc": ["admin", "mejora_continua"],
   "/gestores-proceso": ["admin", "rh", "gerente_rh"],
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
+  "/pruebas-efectividad-operativa": ["admin", "gerente_rh", "capacitacion"],
   "/bonos": ["admin", "nominas", "gerente_rh"],
 };
 
@@ -198,6 +199,15 @@ export function roleMayAccessCategorizacion(role: AppRole, email?: string | null
   if (role === "admin" || role === "gerente_rh" || role === "capacitacion") return true;
   const e = (email ?? "").trim().toLowerCase();
   return e === CAPACITACION_EMAIL.toLowerCase();
+}
+
+/** Pruebas operativas: mismos capturistas que Categorización; cliente solo consulta su dashboard. */
+export function roleMayAccessPruebasEfectividad(role: AppRole, email?: string | null): boolean {
+  return roleMayAccessCategorizacion(role, email);
+}
+
+export function roleMayCapturePruebasEfectividad(role: AppRole, email?: string | null): boolean {
+  return role !== "cliente_enfoque" && roleMayAccessCategorizacion(role, email);
 }
 
 /** Bonos por asistencia: Administrador, Nóminas y Gerente RH. */
@@ -222,6 +232,15 @@ export function canAccessPath(role: AppRole, pathname: string, userEmail?: strin
       );
     }
     return roleMayAccessCategorizacion(role, userEmail);
+  }
+  if (sec === "/pruebas-efectividad-operativa") {
+    if (role === "cliente_enfoque") {
+      return (
+        pathname === "/pruebas-efectividad-operativa/dashboard" ||
+        pathname.startsWith("/pruebas-efectividad-operativa/dashboard/")
+      );
+    }
+    return roleMayAccessPruebasEfectividad(role, userEmail);
   }
   const allowed = SECTION_ROLES[sec];
   if (!allowed) return role === "admin";
@@ -276,7 +295,10 @@ export function inicioHrefParaRol(role: AppRole): string {
 /** Enlaces del menú lateral (sin página de inicio). */
 export function appSidebarModuleLinks(role: AppRole, userEmail?: string | null): { href: string; label: string }[] {
   if (role === "cliente_enfoque") {
-    return [{ href: "/categorizacion/dashboard", label: "Dashboard categorización" }];
+    return [
+      { href: "/categorizacion/dashboard", label: "Dashboard categorización" },
+      { href: "/pruebas-efectividad-operativa/dashboard", label: "Efectividad operativa" },
+    ];
   }
   if (role === "aux_rh") {
     return [
@@ -465,7 +487,10 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     ];
   }
   if (role === "capacitacion") {
-    return [{ href: "/categorizacion", label: "Categorización" }];
+    return [
+      { href: "/categorizacion", label: "Categorización" },
+      { href: "/pruebas-efectividad-operativa", label: "Efectividad operativa" },
+    ];
   }
   if (role === "relaciones_laborales") {
     return [{ href: "/moper", label: "Moper" }];
@@ -532,6 +557,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       roles: ["admin", "gerente_rh", "capacitacion"],
     },
     {
+      href: "/pruebas-efectividad-operativa",
+      label: "Efectividad operativa",
+      roles: ["admin", "gerente_rh", "capacitacion"],
+    },
+    {
       href: "/bonos",
       label: "Bonos",
       roles: ["admin", "nominas", "gerente_rh"],
@@ -541,6 +571,9 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     if (role === "admin") return true;
     if (i.href === "/ficha-tecnica") return mayAccessFichaTecnica(role, userEmail);
     if (i.href === "/categorizacion") return roleMayAccessCategorizacion(role, userEmail);
+    if (i.href === "/pruebas-efectividad-operativa") {
+      return roleMayAccessPruebasEfectividad(role, userEmail);
+    }
     return i.roles.includes(role);
   });
 }
