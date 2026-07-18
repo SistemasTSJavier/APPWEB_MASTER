@@ -14,10 +14,13 @@ import { capturarDashboardComoCanvas } from "@/lib/dashboard-export-capture";
 import type { AppRole } from "@/lib/app-role";
 import {
   PEO_CATEGORIAS,
+  PEO_TIPOS,
+  etiquetaPeoTipo,
   peoCategoria,
   promedioPeo,
   type PeoCategoriaId,
   type PeoDashboardPayload,
+  type PeoTipoId,
 } from "@/lib/pruebas-efectividad-operativa";
 
 function puntos(n: number | null): string {
@@ -63,6 +66,7 @@ export function PruebasEfectividadDashboardClient({
   const [planta, setPlanta] = useState("");
   const [noEmpleado, setNoEmpleado] = useState(initialNo?.trim().toUpperCase() ?? "");
   const [categoria, setCategoria] = useState<PeoCategoriaId | "">("");
+  const [tipo, setTipo] = useState<PeoTipoId | "">("");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [busy, setBusy] = useState(true);
@@ -125,13 +129,20 @@ export function PruebasEfectividadDashboardClient({
       if (noEmpleado && e.noEmpleado !== noEmpleado) return false;
       if (!noEmpleado && !nosAlcance.has(e.noEmpleado)) return false;
       if (categoria && e.categoria !== categoria) return false;
+      if (tipo && e.tipo !== tipo) return false;
       if (desde && e.evaluadaEn < desde) return false;
       if (hasta && e.evaluadaEn > hasta) return false;
       return true;
     });
-  }, [data, noEmpleado, nosAlcance, categoria, desde, hasta]);
+  }, [data, noEmpleado, nosAlcance, categoria, tipo, desde, hasta]);
 
   const promedioGeneral = promedioPeo(evaluacionesFiltradas.map((e) => e.total));
+  const promedioSimulacion = promedioPeo(
+    evaluacionesFiltradas.filter((e) => e.tipo === "simulacion").map((e) => e.total),
+  );
+  const promedioReal = promedioPeo(
+    evaluacionesFiltradas.filter((e) => e.tipo === "real").map((e) => e.total),
+  );
   const ultima = [...evaluacionesFiltradas].sort((a, b) =>
     `${b.evaluadaEn}${b.createdAt}`.localeCompare(`${a.evaluadaEn}${a.createdAt}`),
   )[0] ?? null;
@@ -279,7 +290,7 @@ export function PruebasEfectividadDashboardClient({
 
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 font-bold text-red-900">{error}</div> : null}
 
-        <section className="card grid gap-3 print:hidden md:grid-cols-2 xl:grid-cols-5">
+        <section className="card grid gap-3 print:hidden md:grid-cols-2 xl:grid-cols-6">
           <CatFiltroServicio
             value={servicio}
             onChange={(v) => {
@@ -306,6 +317,21 @@ export function PruebasEfectividadDashboardClient({
             listId="peo-dashboard-empleados"
             disabled={busy}
           />
+          <label className="space-y-1">
+            <span className="form-label">Tipo</span>
+            <select
+              className="form-control uppercase"
+              value={tipo}
+              onChange={(e) => setTipo(e.target.value as PeoTipoId | "")}
+            >
+              <option value="">Todos</option>
+              {PEO_TIPOS.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="space-y-1">
             <span className="form-label">Categoría</span>
             <select className="form-control uppercase" value={categoria} onChange={(e) => setCategoria(e.target.value as PeoCategoriaId | "")}>
@@ -354,11 +380,17 @@ export function PruebasEfectividadDashboardClient({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
               { label: "Promedio general", value: `${puntos(promedioGeneral)} / 100` },
-              { label: "Última evaluación", value: ultima ? `${puntos(ultima.total)} · ${fechaMx(ultima.evaluadaEn)}` : "Sin datos" },
-              { label: "Pruebas registradas", value: String(evaluacionesFiltradas.length) },
+              { label: "Promedio simulación", value: `${puntos(promedioSimulacion)} / 100` },
+              { label: "Promedio real", value: `${puntos(promedioReal)} / 100` },
+              {
+                label: "Última evaluación",
+                value: ultima
+                  ? `${etiquetaPeoTipo(ultima.tipo)} · ${puntos(ultima.total)} · ${fechaMx(ultima.evaluadaEn)}`
+                  : "Sin datos",
+              },
               { label: "Cobertura del alcance", value: `${cobertura}% (${evaluados}/${colaboradoresAlcance.length})` },
             ].map((kpi) => (
               <div key={kpi.label} className="rounded-2xl bg-slate-950 p-4 text-white shadow">
@@ -422,9 +454,13 @@ export function PruebasEfectividadDashboardClient({
             <h3 className="text-base font-black uppercase text-slate-900">Evolución histórica (últimas 12 pruebas)</h3>
             <div className="mt-4 flex h-48 items-end gap-2 overflow-x-auto border-b border-slate-300 px-2">
               {tendencia.map((e) => (
-                <div key={e.id} className="flex min-w-14 flex-1 flex-col items-center justify-end" title={`${peoCategoria(e.categoria)?.nombre}: ${e.total}`}>
+                <div key={e.id} className="flex min-w-14 flex-1 flex-col items-center justify-end" title={`${etiquetaPeoTipo(e.tipo)} · ${peoCategoria(e.categoria)?.nombre}: ${e.total}`}>
                   <span className="mb-1 text-[10px] font-black">{puntos(e.total)}</span>
-                  <div className={`w-full max-w-12 rounded-t ${colorPuntaje(e.total)}`} style={{ height: `${Math.max(3, e.total)}%` }} />
+                  <div
+                    className={`w-full max-w-12 rounded-t ${e.tipo === "real" ? "bg-rose-600" : colorPuntaje(e.total)}`}
+                    style={{ height: `${Math.max(3, e.total)}%` }}
+                  />
+                  <span className="mt-1 text-[8px] font-bold uppercase text-slate-500">{etiquetaPeoTipo(e.tipo)}</span>
                   <span className="my-1 whitespace-nowrap text-[9px] text-slate-500">{fechaMx(e.evaluadaEn)}</span>
                 </div>
               ))}

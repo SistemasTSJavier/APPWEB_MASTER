@@ -8,7 +8,7 @@ import type { SgcDepartamentoId } from "@/lib/sgc-calidad";
  * - rh: acceso total operativo (incl. MOPER).
  * - aux_rh: solo Altas y Bajas; puede registrar, editar y guardar en ambos módulos (auxrh@tacticalsupport.com.mx).
  * - gerente_rh: inicio, bajas, colaboradores (solo lectura), MOPER (registra/edita) y Gestores proceso. Sin altas, expedientes legal, servicios ni ficha técnica.
- * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC igual que admin (subir/eliminar, todos los departamentos).
+ * - mejora_continua: inicio, MOPER y Bajas solo ver; Colaboradores ver + export CSV; SGC e Ideas que transforman (panel) igual que admin.
  * - nominas: inicio, Colaboradores, MOPER consulta y recepción de documentos completados (marca recibido).
  * - aux_legal: Colaboradores, Expedientes legal e historial MOPER (consulta).
  * - gerente_legal: lo mismo + Alertas contrato (contratos de prueba).
@@ -183,6 +183,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   ],
   "/servicios": ["admin", "rh"],
   "/sgc": ["admin", "mejora_continua"],
+  "/ideas-que-transforman": ["admin", "mejora_continua"],
   "/gestores-proceso": ["admin", "rh", "gerente_rh"],
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
   "/pruebas-efectividad-operativa": ["admin", "gerente_rh", "capacitacion"],
@@ -219,9 +220,19 @@ export function roleEsClienteEnfoque(role: AppRole): boolean {
   return role === "cliente_enfoque";
 }
 
+/** Ideas que transforman (panel interno): solo Administrador y Mejora continua. */
+export function roleMayAccessIdeasQueTransforman(role: AppRole): boolean {
+  return role === "admin" || role === "mejora_continua";
+}
+
 export function canAccessPath(role: AppRole, pathname: string, userEmail?: string | null): boolean {
   if (pathname.startsWith("/auth/signout")) return true;
   const sec = routeSection(pathname);
+  if (sec === "/ideas-que-transforman") {
+    const p = pathname.replace(/\/$/, "") || "/";
+    if (p === "/ideas-que-transforman") return true;
+    return roleMayAccessIdeasQueTransforman(role);
+  }
   if (sec === "/ficha-tecnica") {
     return mayAccessFichaTecnica(role, userEmail);
   }
@@ -544,6 +555,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     {
       href: "/sgc",
       label: "SGC",
+      roles: ["admin", "mejora_continua"],
+    },
+    {
+      href: "/ideas-que-transforman/panel",
+      label: "Ideas que transforman",
       roles: ["admin", "mejora_continua"],
     },
     {

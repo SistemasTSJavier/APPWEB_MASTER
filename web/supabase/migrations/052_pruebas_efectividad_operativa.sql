@@ -14,6 +14,7 @@ create table if not exists public.peo_evaluaciones (
     )
   ),
   plantilla_version smallint not null default 1 check (plantilla_version > 0),
+  tipo text not null default 'simulacion' check (tipo in ('simulacion', 'real')),
   no_empleado text not null,
   nombre_snapshot text not null,
   servicio_snapshot text not null,
@@ -44,6 +45,10 @@ create index if not exists idx_peo_eval_servicio_fecha
   on public.peo_evaluaciones (servicio_snapshot, evaluada_en desc);
 create index if not exists idx_peo_eval_categoria_fecha
   on public.peo_evaluaciones (categoria, evaluada_en desc);
+create index if not exists idx_peo_eval_tipo_fecha
+  on public.peo_evaluaciones (tipo, evaluada_en desc);
+create index if not exists idx_peo_eval_empleado_tipo_fecha
+  on public.peo_evaluaciones (no_empleado, tipo, evaluada_en desc);
 create index if not exists idx_peo_puntajes_criterio
   on public.peo_evaluacion_puntajes (criterio, obtenido);
 

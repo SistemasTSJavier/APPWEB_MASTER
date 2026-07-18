@@ -123,8 +123,11 @@ export default async function Home() {
               </>
             ) : auth.role === "mejora_continua" ? (
               <>
-                <span className="hidden sm:inline">USA MOPER Y BAJAS EN SOLO CONSULTA; EN COLABORADORES PUEDES EXPORTAR CSV CON FILTROS Y SELECCION.</span>
-                <span className="sm:hidden">COLABORADORES: EXPORT CSV. MOPER Y BAJAS: SOLO VER.</span>
+                <span className="hidden sm:inline">
+                  USA MOPER Y BAJAS EN SOLO CONSULTA; EN COLABORADORES PUEDES EXPORTAR CSV. GESTIONA SGC E{" "}
+                  <strong>IDEAS QUE TRANSFORMAN</strong>.
+                </span>
+                <span className="sm:hidden">SGC E IDEAS QUE TRANSFORMAN. MOPER/BAJAS: SOLO VER.</span>
               </>
             ) : auth.role === "aux_rh" ? (
               <>

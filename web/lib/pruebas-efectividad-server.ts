@@ -18,7 +18,12 @@ const EVALUACIONES_MAX = 5000;
 
 export async function listPeoEvaluaciones(
   admin: SupabaseClient,
-  opts?: { noEmpleado?: string; categoria?: string; servicioScope?: string | null },
+  opts?: {
+    noEmpleado?: string;
+    categoria?: string;
+    tipo?: string;
+    servicioScope?: string | null;
+  },
 ): Promise<PeoEvaluacion[]> {
   let query = admin
     .from("peo_evaluaciones")
@@ -30,6 +35,7 @@ export async function listPeoEvaluaciones(
   const no = opts?.noEmpleado?.trim().toUpperCase();
   if (no) query = query.eq("no_empleado", no);
   if (opts?.categoria) query = query.eq("categoria", opts.categoria);
+  if (opts?.tipo) query = query.eq("tipo", opts.tipo);
 
   const { data, error } = await query;
   if (error) throw new Error(hintSupabaseClientError(error.message));

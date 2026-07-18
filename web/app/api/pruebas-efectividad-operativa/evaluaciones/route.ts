@@ -13,6 +13,7 @@ import {
 import {
   PEO_PLANTILLA_VERSION,
   esPeoCategoriaId,
+  esPeoTipoId,
   validarPuntajesPeo,
 } from "@/lib/pruebas-efectividad-operativa";
 import { listPeoEvaluaciones } from "@/lib/pruebas-efectividad-server";
@@ -49,13 +50,18 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const noEmpleado = url.searchParams.get("no_empleado")?.trim() || undefined;
   const categoria = url.searchParams.get("categoria")?.trim() || undefined;
+  const tipo = url.searchParams.get("tipo")?.trim() || undefined;
   if (categoria && !esPeoCategoriaId(categoria)) {
     return NextResponse.json({ error: "Categoría no válida." }, { status: 400 });
+  }
+  if (tipo && !esPeoTipoId(tipo)) {
+    return NextResponse.json({ error: "Tipo no válido (use simulacion o real)." }, { status: 400 });
   }
   try {
     const rows = await listPeoEvaluaciones(client.admin, {
       noEmpleado,
       categoria,
+      tipo,
       servicioScope: gate.auth.servicioScope,
     });
     return NextResponse.json({ ok: true, rows });
@@ -82,9 +88,13 @@ export async function POST(req: Request) {
 
   const noEmpleado = String(body.noEmpleado ?? "").trim().toUpperCase();
   const categoriaId = String(body.categoria ?? "").trim();
+  const tipoRaw = String(body.tipo ?? "").trim().toLowerCase();
   const evaluadaEn = String(body.evaluadaEn ?? "").trim();
   const observaciones = String(body.observaciones ?? "").trim().slice(0, 4000);
   if (!noEmpleado) return NextResponse.json({ error: "Seleccione colaborador." }, { status: 400 });
+  if (!esPeoTipoId(tipoRaw)) {
+    return NextResponse.json({ error: "Seleccione tipo: simulación o real." }, { status: 400 });
+  }
   if (!fechaValida(evaluadaEn)) {
     return NextResponse.json({ error: "Fecha de aplicación no válida." }, { status: 400 });
   }
@@ -108,6 +118,7 @@ export async function POST(req: Request) {
       .from("peo_evaluaciones")
       .insert({
         categoria: validacion.categoria.id,
+        tipo: tipoRaw,
         plantilla_version: PEO_PLANTILLA_VERSION,
         no_empleado: colaborador.noEmpleado.trim().toUpperCase(),
         nombre_snapshot: colaborador.nombre.trim(),
@@ -147,6 +158,88 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error al guardar evaluación." },
+      { status: 500 },
+    );
+  }
+}
+
+/** Edita fecha, tipo, observaciones y puntajes sin alterar colaborador, categoría ni autor original. */
+export async function PUT(req: Request) {
+  const gate = await requirePeoCaptureApi();
+  if ("error" in gate) return gate.error;
+  const client = adminClientOrError();
+  if ("error" in client) return client.error;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
+  }
+
+  const id = String(body.id ?? "").trim();
+  const tipoRaw = String(body.tipo ?? "").trim().toLowerCase();
+  const evaluadaEn = String(body.evaluadaEn ?? "").trim();
+  const observaciones = String(body.observaciones ?? "").trim().slice(0, 4000);
+  if (!id) return NextResponse.json({ error: "ID requerido." }, { status: 400 });
+  if (!esPeoTipoId(tipoRaw)) {
+    return NextResponse.json({ error: "Seleccione tipo: simulación o real." }, { status: 400 });
+  }
+  if (!fechaValida(evaluadaEn)) {
+    return NextResponse.json({ error: "Fecha de aplicación no válida." }, { status: 400 });
+  }
+
+  try {
+    const { data: actual, error: actualError } = await client.admin
+      .from("peo_evaluaciones")
+      .select("id, no_empleado, categoria")
+      .eq("id", id)
+      .maybeSingle();
+    if (actualError) throw new Error(hintSupabaseClientError(actualError.message));
+    if (!actual) return NextResponse.json({ error: "Evaluación no encontrada." }, { status: 404 });
+
+    const categoriaId = String(actual.categoria ?? "");
+    const categoriaSolicitada = String(body.categoria ?? categoriaId);
+    if (categoriaSolicitada !== categoriaId) {
+      return NextResponse.json(
+        { error: "La categoría no puede cambiarse; cree un intento nuevo." },
+        { status: 400 },
+      );
+    }
+    const validacion = validarPuntajesPeo(categoriaId, body.puntajes);
+    if (!validacion.ok) return NextResponse.json({ error: validacion.error }, { status: 400 });
+
+    const { error: updateError } = await client.admin
+      .from("peo_evaluaciones")
+      .update({
+        tipo: tipoRaw,
+        evaluada_en: evaluadaEn,
+        observaciones,
+        total: validacion.total,
+      })
+      .eq("id", id);
+    if (updateError) throw new Error(hintSupabaseClientError(updateError.message));
+
+    const scoreRows = validacion.puntajes.map((p) => ({
+      evaluacion_id: id,
+      criterio: p.id,
+      etiqueta_snapshot: p.etiqueta,
+      orden: p.orden,
+      maximo: p.maximo,
+      obtenido: p.obtenido,
+    }));
+    const { error: scoreError } = await client.admin
+      .from("peo_evaluacion_puntajes")
+      .upsert(scoreRows, { onConflict: "evaluacion_id,criterio" });
+    if (scoreError) throw new Error(hintSupabaseClientError(scoreError.message));
+
+    const noEmpleado = String(actual.no_empleado ?? "").trim().toUpperCase();
+    const rows = await listPeoEvaluaciones(client.admin, { noEmpleado });
+    const row = rows.find((r) => r.id === id) ?? null;
+    return NextResponse.json({ ok: true, row });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Error al actualizar evaluación." },
       { status: 500 },
     );
   }

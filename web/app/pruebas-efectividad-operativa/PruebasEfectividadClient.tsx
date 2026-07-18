@@ -14,9 +14,12 @@ import type { CatColaboradorActivoOpcion } from "@/lib/categorizacion-types";
 import type { AppRole } from "@/lib/app-role";
 import {
   PEO_CATEGORIAS,
+  PEO_TIPOS,
+  etiquetaPeoTipo,
   peoCategoria,
   type PeoCategoriaId,
   type PeoEvaluacion,
+  type PeoTipoId,
 } from "@/lib/pruebas-efectividad-operativa";
 
 function hoyLocal(): string {
@@ -37,10 +40,13 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
   const [planta, setPlanta] = useState("");
   const [noEmpleado, setNoEmpleado] = useState("");
   const [categoria, setCategoria] = useState<PeoCategoriaId>("extorsion_simulada");
+  const [tipo, setTipo] = useState<PeoTipoId>("simulacion");
   const [evaluadaEn, setEvaluadaEn] = useState(hoyLocal);
   const [puntajes, setPuntajes] = useState<Record<string, string>>({});
   const [observaciones, setObservaciones] = useState("");
   const [historial, setHistorial] = useState<PeoEvaluacion[]>([]);
+  const [historialFiltroTipo, setHistorialFiltroTipo] = useState<PeoTipoId | "">("");
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -54,6 +60,15 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
     () => personal.find((p) => p.noEmpleado === noEmpleado) ?? null,
     [personal, noEmpleado],
   );
+  const historialVisible = useMemo(
+    () => (historialFiltroTipo ? historial.filter((e) => e.tipo === historialFiltroTipo) : historial),
+    [historial, historialFiltroTipo],
+  );
+  const conteoSimulacion = useMemo(
+    () => historial.filter((e) => e.tipo === "simulacion").length,
+    [historial],
+  );
+  const conteoReal = useMemo(() => historial.filter((e) => e.tipo === "real").length, [historial]);
   const total = useMemo(
     () =>
       categoriaDef.criterios.reduce((sum, c) => {
@@ -106,6 +121,7 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
   }, [noEmpleado]);
 
   function cambiarServicio(v: string) {
+    if (editandoId) return;
     setServicio(v);
     setPlanta("");
     setNoEmpleado("");
@@ -118,11 +134,13 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
     try {
       const scores = Object.fromEntries(categoriaDef.criterios.map((c) => [c.id, Number(puntajes[c.id])]));
       const r = await fetch("/api/pruebas-efectividad-operativa/evaluaciones", {
-        method: "POST",
+        method: editandoId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: editandoId,
           noEmpleado: seleccionado.noEmpleado,
           categoria,
+          tipo,
           evaluadaEn,
           observaciones,
           puntajes: scores,
@@ -130,19 +148,49 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
       });
       const j = (await r.json()) as { row?: PeoEvaluacion; error?: string };
       if (!r.ok || !j.row) throw new Error(j.error ?? `Error ${r.status}`);
-      setHistorial((prev) => [j.row!, ...prev]);
+      setHistorial((prev) =>
+        editandoId
+          ? prev.map((e) => (e.id === editandoId ? j.row! : e))
+          : [j.row!, ...prev],
+      );
       setMsg({
         ok: true,
-        text: `${seleccionado.noEmpleado} · ${categoriaDef.nombre} · ${evaluadaEn} · ${formatoPuntos(j.row.total)} / 100 puntos. Evaluación guardada.`,
+        text: `${seleccionado.noEmpleado} · ${etiquetaPeoTipo(j.row.tipo)} · ${categoriaDef.nombre} · ${evaluadaEn} · ${formatoPuntos(j.row.total)} / 100. Evaluación ${editandoId ? "actualizada" : "guardada"}.`,
       });
+      setEditandoId(null);
       setPuntajes({});
       setObservaciones("");
       setEvaluadaEn(hoyLocal());
+      setTipo("simulacion");
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "No se guardó la evaluación." });
     } finally {
       setSaving(false);
     }
+  }
+
+  function iniciarEdicion(e: PeoEvaluacion) {
+    setNoEmpleado(e.noEmpleado);
+    setCategoria(e.categoria);
+    setTipo(e.tipo ?? "simulacion");
+    setEvaluadaEn(e.evaluadaEn);
+    setObservaciones(e.observaciones);
+    setPuntajes(Object.fromEntries(e.puntajes.map((p) => [p.id, String(p.obtenido)])));
+    setEditandoId(e.id);
+    setMsg({
+      ok: true,
+      text: `Editando ${etiquetaPeoTipo(e.tipo).toLowerCase()} del ${e.evaluadaEn}. Guarde para aplicar los cambios.`,
+    });
+    document.getElementById("peo-formulario-evaluacion")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function cancelarEdicion() {
+    setEditandoId(null);
+    setPuntajes({});
+    setObservaciones("");
+    setEvaluadaEn(hoyLocal());
+    setTipo("simulacion");
+    setMsg(null);
   }
 
   async function eliminar(id: string) {
@@ -189,9 +237,11 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
           </div>
         ) : null}
 
-        <section className="card space-y-5">
+        <section id="peo-formulario-evaluacion" className="card space-y-5 scroll-mt-4">
           <div>
-            <h2 className="text-lg font-black uppercase text-slate-900">Nueva evaluación</h2>
+            <h2 className="text-lg font-black uppercase text-slate-900">
+              {editandoId ? "Editar evaluación" : "Nueva evaluación"}
+            </h2>
             <p className="text-sm text-slate-600">Todos los criterios aceptan un puntaje parcial entre 0 y su máximo.</p>
           </div>
 
@@ -201,6 +251,7 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
               servicioFiltro={servicio}
               value={planta}
               onChange={(v) => {
+                if (editandoId) return;
                 setPlanta(v);
                 setNoEmpleado("");
               }}
@@ -214,7 +265,7 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
                 if (!no) setHistorial([]);
               }}
               opciones={personalFiltrado}
-              disabled={loading}
+              disabled={loading || Boolean(editandoId)}
               listId="peo-empleados"
             />
           </div>
@@ -228,12 +279,30 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
             </div>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_minmax(200px,1fr)]">
+            <label className="space-y-1">
+              <span className="form-label">Tipo de prueba</span>
+              <select
+                className="form-control uppercase"
+                value={tipo}
+                onChange={(e) => setTipo(e.target.value as PeoTipoId)}
+              >
+                {PEO_TIPOS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nombre}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs font-semibold text-slate-600">
+                {PEO_TIPOS.find((t) => t.id === tipo)?.descripcion}
+              </p>
+            </label>
             <label className="space-y-1">
               <span className="form-label">Categoría de prueba</span>
               <select
                 className="form-control uppercase"
                 value={categoria}
+                disabled={Boolean(editandoId)}
                 onChange={(e) => {
                   setCategoria(e.target.value as PeoCategoriaId);
                   setPuntajes({});
@@ -301,24 +370,63 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
             />
           </label>
 
-          <button
-            type="button"
-            className="btn-primary uppercase"
-            disabled={!seleccionado || !completo || !evaluadaEn || saving}
-            onClick={() => void guardar()}
-          >
-            {saving ? "Guardando…" : "Guardar intento histórico"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-primary uppercase"
+              disabled={!seleccionado || !completo || !evaluadaEn || saving}
+              onClick={() => void guardar()}
+            >
+              {saving ? "Guardando…" : editandoId ? "Guardar cambios" : "Guardar intento histórico"}
+            </button>
+            {editandoId ? (
+              <button type="button" className="btn-secondary uppercase" disabled={saving} onClick={cancelarEdicion}>
+                Cancelar edición
+              </button>
+            ) : null}
+          </div>
         </section>
 
         {noEmpleado ? (
           <section className="card">
-            <h2 className="text-lg font-black uppercase text-slate-900">Historial del colaborador</h2>
-            <p className="mb-4 text-xs text-slate-600">{historial.length} intento(s) registrado(s).</p>
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black uppercase text-slate-900">Historial del colaborador</h2>
+                <p className="text-xs text-slate-600">
+                  {historial.length} intento(s): {conteoSimulacion} simulación · {conteoReal} real
+                  {historialFiltroTipo
+                    ? ` · mostrando ${historialVisible.length} de ${etiquetaPeoTipo(historialFiltroTipo).toLowerCase()}`
+                    : ""}
+                  .
+                </p>
+              </div>
+              <label className="space-y-1">
+                <span className="form-label">Ver historial</span>
+                <select
+                  className="form-control uppercase"
+                  value={historialFiltroTipo}
+                  onChange={(e) => setHistorialFiltroTipo(e.target.value as PeoTipoId | "")}
+                >
+                  <option value="">Todos</option>
+                  {PEO_TIPOS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      Solo {t.nombre.toLowerCase()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="space-y-3">
-              {historial.map((e) => (
+              {historialVisible.map((e) => (
                 <details key={e.id} className="rounded-xl border border-slate-200 bg-white">
                   <summary className="cursor-pointer px-4 py-3 font-bold uppercase text-slate-900">
+                    <span
+                      className={`mr-2 inline-block rounded px-2 py-0.5 text-[10px] ${
+                        e.tipo === "real" ? "bg-rose-100 text-rose-900" : "bg-sky-100 text-sky-900"
+                      }`}
+                    >
+                      {etiquetaPeoTipo(e.tipo)}
+                    </span>
                     {e.evaluadaEn} · {peoCategoria(e.categoria)?.nombre ?? e.categoria} · {formatoPuntos(e.total)} / 100
                   </summary>
                   <div className="border-t border-slate-100 px-4 py-3 text-sm">
@@ -332,19 +440,34 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
                     </ul>
                     {e.observaciones ? <p className="mt-3 rounded bg-slate-50 p-2">{e.observaciones}</p> : null}
                     <p className="mt-2 text-[11px] text-slate-500">Evaluó: {e.evaluadorEmail || "usuario interno"}</p>
-                    {appRole === "admin" ? (
+                    <div className="mt-3 flex flex-wrap gap-3">
                       <button
                         type="button"
-                        className="mt-3 text-xs font-bold uppercase text-red-700 hover:underline"
-                        onClick={() => void eliminar(e.id)}
+                        className="text-xs font-bold uppercase text-violet-800 hover:underline"
+                        onClick={() => iniciarEdicion(e)}
                       >
-                        Eliminar evaluación
+                        Editar evaluación
                       </button>
-                    ) : null}
+                      {appRole === "admin" ? (
+                        <button
+                          type="button"
+                          className="text-xs font-bold uppercase text-red-700 hover:underline"
+                          onClick={() => void eliminar(e.id)}
+                        >
+                          Eliminar evaluación
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </details>
               ))}
-              {historial.length === 0 ? <p className="text-sm text-slate-500">Sin evaluaciones previas.</p> : null}
+              {historialVisible.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  {historial.length === 0
+                    ? "Sin evaluaciones previas."
+                    : `Sin evaluaciones de tipo ${etiquetaPeoTipo(historialFiltroTipo).toLowerCase()}.`}
+                </p>
+              ) : null}
             </div>
           </section>
         ) : null}

@@ -12,11 +12,17 @@ import {
   isMoperPublicApi,
   MOPER_FIRMA_PUBLIC_PATH,
 } from "@/lib/moper-public-paths";
+import { isIdeasPublicApi, isIdeasPublicPage } from "@/lib/ideas-que-transforman-public-paths";
 import { isSafeLoginRedirect, loginUrlWithNext } from "@/lib/login-redirect";
 
 function publicApiPath(pathname: string, method: string): boolean {
   if (pathname === "/api/supabase/status" || pathname === "/api/auth/me" || pathname === "/api/resend/status") return true;
+  if (isIdeasPublicApi(pathname, method)) return true;
   return isMoperPublicApi(pathname, method);
+}
+
+function isFeaturePublicPage(pathname: string): boolean {
+  return isMoperFirmaPublicPage(pathname) || isIdeasPublicPage(pathname);
 }
 
 /** Rutas de auth que no requieren sesión (login, callback OAuth, cerrar sesión). */
@@ -63,7 +69,7 @@ export async function proxy(request: NextRequest) {
       user = data.user ?? null;
     }
   } catch {
-    if (isAuthPublicPath(pathname) || isMoperFirmaPublicPage(pathname)) {
+    if (isAuthPublicPath(pathname) || isFeaturePublicPage(pathname)) {
       return supabaseResponse;
     }
     if (pathname.startsWith("/api/")) {
@@ -85,7 +91,7 @@ export async function proxy(request: NextRequest) {
       if (publicApiPath(pathname, method)) return supabaseResponse;
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
-    if (isAuthPublicPath(pathname) || isMoperFirmaPublicPage(pathname)) {
+    if (isAuthPublicPath(pathname) || isFeaturePublicPage(pathname)) {
       return supabaseResponse;
     }
     if (pathname === "/moper" && request.nextUrl.searchParams.has("codigo")) {
@@ -129,7 +135,7 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse;
   }
 
-  if (isMoperFirmaPublicPage(pathname)) {
+  if (isFeaturePublicPage(pathname)) {
     return supabaseResponse;
   }
 

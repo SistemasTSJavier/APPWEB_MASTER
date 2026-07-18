@@ -95,6 +95,14 @@ export const PEO_CATEGORIAS = [
 
 export type PeoCategoriaId = (typeof PEO_CATEGORIAS)[number]["id"];
 
+/** Simulación controlada vs incidente/operación real. */
+export const PEO_TIPOS = [
+  { id: "simulacion", nombre: "Simulación", descripcion: "Ejercicio controlado de protocolo" },
+  { id: "real", nombre: "Real", descripcion: "Incidente u operación real" },
+] as const;
+
+export type PeoTipoId = (typeof PEO_TIPOS)[number]["id"];
+
 export type PeoCriterioDef = {
   id: string;
   etiqueta: string;
@@ -109,6 +117,7 @@ export type PeoPuntaje = PeoCriterioDef & {
 export type PeoEvaluacion = {
   id: string;
   categoria: PeoCategoriaId;
+  tipo: PeoTipoId;
   plantillaVersion: number;
   noEmpleado: string;
   nombre: string;
@@ -149,6 +158,18 @@ export function peoCategoria(id: string | null | undefined) {
 
 export function esPeoCategoriaId(id: string): id is PeoCategoriaId {
   return peoCategoria(id) !== null;
+}
+
+export function peoTipo(id: string | null | undefined) {
+  return PEO_TIPOS.find((t) => t.id === id) ?? null;
+}
+
+export function esPeoTipoId(id: string): id is PeoTipoId {
+  return peoTipo(id) !== null;
+}
+
+export function etiquetaPeoTipo(id: string | null | undefined): string {
+  return peoTipo(id)?.nombre ?? "Simulación";
 }
 
 export function totalMaximoCategoria(id: PeoCategoriaId): number {
@@ -205,9 +226,11 @@ export function mapPeoEvaluacionDb(
   raw: Record<string, unknown>,
   puntajes: Record<string, unknown>[] = [],
 ): PeoEvaluacion {
+  const tipoRaw = String(raw.tipo ?? "simulacion").trim().toLowerCase();
   return {
     id: String(raw.id ?? ""),
     categoria: String(raw.categoria ?? "") as PeoCategoriaId,
+    tipo: esPeoTipoId(tipoRaw) ? tipoRaw : "simulacion",
     plantillaVersion: Number(raw.plantilla_version ?? 1),
     noEmpleado: String(raw.no_empleado ?? "").trim().toUpperCase(),
     nombre: String(raw.nombre_snapshot ?? ""),
