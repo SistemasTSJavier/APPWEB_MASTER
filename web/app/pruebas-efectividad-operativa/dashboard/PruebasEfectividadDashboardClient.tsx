@@ -191,11 +191,11 @@ export function PruebasEfectividadDashboardClient({
     return rows;
   }, [evaluacionesFiltradas, categoria]);
 
-  const tendencia = useMemo(
+  const comentarios = useMemo(
     () =>
       [...evaluacionesFiltradas]
-        .sort((a, b) => `${a.evaluadaEn}${a.createdAt}`.localeCompare(`${b.evaluadaEn}${b.createdAt}`))
-        .slice(-12),
+        .filter((e) => e.observaciones.trim().length > 0)
+        .sort((a, b) => `${b.evaluadaEn}${b.createdAt}`.localeCompare(`${a.evaluadaEn}${a.createdAt}`)),
     [evaluacionesFiltradas],
   );
 
@@ -451,20 +451,47 @@ export function PruebasEfectividadDashboardClient({
           </div>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-base font-black uppercase text-slate-900">Evolución histórica (últimas 12 pruebas)</h3>
-            <div className="mt-4 flex h-48 items-end gap-2 overflow-x-auto border-b border-slate-300 px-2">
-              {tendencia.map((e) => (
-                <div key={e.id} className="flex min-w-14 flex-1 flex-col items-center justify-end" title={`${etiquetaPeoTipo(e.tipo)} · ${peoCategoria(e.categoria)?.nombre}: ${e.total}`}>
-                  <span className="mb-1 text-[10px] font-black">{puntos(e.total)}</span>
-                  <div
-                    className={`w-full max-w-12 rounded-t ${e.tipo === "real" ? "bg-rose-600" : colorPuntaje(e.total)}`}
-                    style={{ height: `${Math.max(3, e.total)}%` }}
-                  />
-                  <span className="mt-1 text-[8px] font-bold uppercase text-slate-500">{etiquetaPeoTipo(e.tipo)}</span>
-                  <span className="my-1 whitespace-nowrap text-[9px] text-slate-500">{fechaMx(e.evaluadaEn)}</span>
-                </div>
+            <h3 className="text-base font-black uppercase text-slate-900">Comentarios de evaluación</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Observaciones capturadas al calificar al oficial, con el detalle de cada registro.
+            </p>
+            <div className="mt-4 space-y-3">
+              {comentarios.map((e) => (
+                <article
+                  key={e.id}
+                  className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-black uppercase text-slate-900">{e.nombre}</p>
+                      <p className="mt-0.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                        {e.noEmpleado} · {peoCategoria(e.categoria)?.nombre ?? e.categoria} ·{" "}
+                        {etiquetaPeoTipo(e.tipo)} · {fechaMx(e.evaluadaEn)}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-black text-white ${
+                        e.tipo === "real" ? "bg-rose-600" : colorPuntaje(e.total)
+                      }`}
+                    >
+                      {puntos(e.total)} / 100
+                    </span>
+                  </div>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                    {e.observaciones}
+                  </p>
+                  {(e.servicio || e.planta || e.puesto) && (
+                    <p className="mt-2 text-[10px] font-semibold uppercase text-slate-500">
+                      {[e.servicio, e.planta, e.puesto].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                </article>
               ))}
-              {tendencia.length === 0 ? <p className="m-auto text-sm text-slate-500">Sin historial para graficar.</p> : null}
+              {comentarios.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                  No hay comentarios en los registros del alcance seleccionado.
+                </p>
+              ) : null}
             </div>
           </section>
 

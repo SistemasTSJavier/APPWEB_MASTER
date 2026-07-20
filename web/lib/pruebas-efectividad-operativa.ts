@@ -29,7 +29,7 @@ export const PEO_CATEGORIAS = [
   },
   {
     id: "identificacion_falsa",
-    nombre: "Intento de acceso con identificación falsa",
+    nombre: "INTRUSIÓN",
     objetivo: "Evaluar el control de acceso ante una identificación incorrecta",
     criterios: [
       {
