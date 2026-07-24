@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   canAccessPath,
   defaultHomeForRole,
+  modulosHabilitadosDesdeMetadata,
   resolveAppRoleFromUser,
   type AppRole,
 } from "@/lib/app-role";
@@ -17,6 +18,8 @@ import { isSafeLoginRedirect, loginUrlWithNext } from "@/lib/login-redirect";
 
 function publicApiPath(pathname: string, method: string): boolean {
   if (pathname === "/api/supabase/status" || pathname === "/api/auth/me" || pathname === "/api/resend/status") return true;
+  if (pathname === "/api/auth/signout" && (method === "POST" || method === "GET")) return true;
+  if (pathname === "/api/catalogos/departamentos" && method === "GET") return true;
   if (isIdeasPublicApi(pathname, method)) return true;
   return isMoperPublicApi(pathname, method);
 }
@@ -105,6 +108,9 @@ export async function proxy(request: NextRequest) {
   }
 
   const role: AppRole | null = resolveAppRoleFromUser(user);
+  const modulos = modulosHabilitadosDesdeMetadata(
+    (user.user_metadata ?? null) as Record<string, unknown> | null,
+  );
 
   if (!role) {
     if (pathname === "/login") return supabaseResponse;
@@ -121,10 +127,14 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname === "/login") {
+    // Tras cerrar sesión, no reenviar al home aunque queden cookies viejas un instante.
+    if (request.nextUrl.searchParams.get("logged_out") === "1") {
+      return supabaseResponse;
+    }
     const nextParam = request.nextUrl.searchParams.get("next");
     if (isSafeLoginRedirect(nextParam)) {
       const nextPath = nextParam.split("?")[0] ?? nextParam;
-      if (canAccessPath(role, nextPath, user.email)) {
+      if (canAccessPath(role, nextPath, user.email, modulos)) {
         return NextResponse.redirect(new URL(nextParam, request.url));
       }
     }
@@ -139,7 +149,7 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse;
   }
 
-  if (!canAccessPath(role, pathname, user.email)) {
+  if (!canAccessPath(role, pathname, user.email, modulos)) {
     return NextResponse.redirect(new URL(defaultHomeForRole(role), request.url));
   }
 

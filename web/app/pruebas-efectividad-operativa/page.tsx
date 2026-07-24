@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
 import {
+  modulosHabilitadosDesdeMetadata,
   roleEsClienteEnfoque,
   roleMayAccessPruebasEfectividad,
 } from "@/lib/app-role";
@@ -14,5 +15,11 @@ export default async function PruebasEfectividadPage() {
   if (!roleMayAccessPruebasEfectividad(auth.role, auth.user.email)) redirect("/");
   if (roleEsClienteEnfoque(auth.role)) redirect("/pruebas-efectividad-operativa/dashboard");
 
-  return <PruebasEfectividadClient appRole={auth.role} email={auth.user.email ?? ""} />;
+  return (
+    <PruebasEfectividadClient
+      appRole={auth.role}
+      email={auth.user.email ?? ""}
+      modulosHabilitados={modulosHabilitadosDesdeMetadata(auth.user.user_metadata)}
+    />
+  );
 }

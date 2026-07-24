@@ -14,5 +14,5 @@ export default async function SgcCategoriaPage({ params }: Props) {
   const { categoria: catRaw } = await params;
   if (!isSgcCategoriaId(catRaw)) notFound();
 
-  return <SgcCategoriaPageClient categoria={catRaw} appRole={auth.role} />;
+  return <SgcCategoriaPageClient categoria={catRaw} appRole={auth.role} userMetadata={auth.user.user_metadata} />;
 }

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
-import { roleMayAccessPruebasEfectividad } from "@/lib/app-role";
+import { modulosHabilitadosDesdeMetadata, roleMayAccessPruebasEfectividad } from "@/lib/app-role";
 import { PruebasEfectividadDashboardClient } from "./PruebasEfectividadDashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -12,12 +12,16 @@ export default async function PruebasEfectividadDashboardPage({ searchParams }: 
   if (!auth) redirect("/login");
   if (!roleMayAccessPruebasEfectividad(auth.role, auth.user.email)) redirect("/");
   const sp = await searchParams;
+  const modulos = modulosHabilitadosDesdeMetadata(
+    (auth.user.user_metadata ?? null) as Record<string, unknown> | null,
+  );
   return (
     <PruebasEfectividadDashboardClient
       appRole={auth.role}
       email={auth.user.email ?? ""}
       initialNo={sp.no}
       initialServicio={sp.servicio}
+      modulosHabilitados={modulos}
     />
   );
 }

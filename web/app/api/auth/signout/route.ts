@@ -4,16 +4,14 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-/** Compat: /auth/signout → misma lógica que /api/auth/signout */
-async function signOutAndRedirect(request: Request) {
-  const login = new URL("/login", request.url);
-  login.searchParams.set("logged_out", "1");
-  const response = NextResponse.redirect(login, { status: 303 });
-
+/** POST/GET: cierra sesión (JSON). El cliente redirige a /login. */
+async function clearSession() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  const res = NextResponse.json({ ok: true });
+
   if (!url || !key) {
-    return response;
+    return res;
   }
 
   try {
@@ -30,7 +28,7 @@ async function signOutAndRedirect(request: Request) {
             } catch {
               /* ignore */
             }
-            response.cookies.set(name, value, options);
+            res.cookies.set(name, value, options);
           });
         },
       },
@@ -42,17 +40,17 @@ async function signOutAndRedirect(request: Request) {
 
   for (const c of (await cookies()).getAll()) {
     if (c.name.includes("auth-token") || c.name.startsWith("sb-")) {
-      response.cookies.set(c.name, "", { path: "/", maxAge: 0 });
+      res.cookies.set(c.name, "", { path: "/", maxAge: 0 });
     }
   }
 
-  return response;
+  return res;
 }
 
-export async function POST(request: Request) {
-  return signOutAndRedirect(request);
+export async function POST() {
+  return clearSession();
 }
 
-export async function GET(request: Request) {
-  return signOutAndRedirect(request);
+export async function GET() {
+  return clearSession();
 }

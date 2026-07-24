@@ -23,7 +23,8 @@ export type SgcDepartamentoId =
   | "legal"
   | "relaciones-laborales"
   | "direccion"
-  | "marketing";
+  | "marketing"
+  | (string & {});
 
 export type SgcCategoriaMeta = {
   id: SgcCategoriaId;
@@ -117,6 +118,14 @@ export function isSgcCategoriaId(v: string): v is SgcCategoriaId {
 
 export function isSgcDepartamentoId(v: string): v is SgcDepartamentoId {
   return DEPARTAMENTO_SET.has(v);
+}
+
+/** Id de departamento fijo o del catálogo (slug). */
+export function esFormatoDepartamentoId(v: string): boolean {
+  const s = String(v ?? "").trim();
+  if (!s) return false;
+  if (isSgcDepartamentoId(s)) return true;
+  return /^[a-z][a-z0-9-]{0,47}$/.test(s);
 }
 
 export function sgcCategoriaLabel(id: SgcCategoriaId): string {

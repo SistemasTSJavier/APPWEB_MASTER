@@ -134,11 +134,13 @@ export function CatDashboardClient({
   email,
   initialNo,
   initialServicio,
+  modulosHabilitados,
 }: {
   appRole: AppRole;
   email: string;
   initialNo?: string;
   initialServicio?: string;
+  modulosHabilitados?: readonly string[] | null;
 }) {
   const [data, setData] = useState<CatDashboardPayload | null>(null);
   const [busy, setBusy] = useState(true);
@@ -516,7 +518,12 @@ export function CatDashboardClient({
   const loopPos = posicionPresentacion;
 
   return (
-    <AppModuleShell role={appRole} email={email} currentPath="/categorizacion">
+    <AppModuleShell
+      role={appRole}
+      email={email}
+      currentPath="/categorizacion"
+      modulosHabilitados={modulosHabilitados}
+    >
       <div className="min-w-0 space-y-5">
         <CategorizacionHero
           title={esClienteConsulta ? "Categorización — consulta por servicio" : "Dashboard de categorización"}

@@ -70,8 +70,13 @@ export function useSgcFiles(categoria: SgcCategoriaId, departamento: SgcDepartam
 
   useEffect(() => {
     permsSet.current = false;
-    void recargar();
-    return () => abortRef.current?.abort();
+    const timer = window.setTimeout(() => {
+      void recargar();
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      abortRef.current?.abort();
+    };
   }, [recargar]);
 
   const quitarArchivo = useCallback((storageName: string) => {

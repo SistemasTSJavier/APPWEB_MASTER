@@ -55,11 +55,13 @@ export function PruebasEfectividadDashboardClient({
   email,
   initialNo,
   initialServicio,
+  modulosHabilitados,
 }: {
   appRole: AppRole;
   email: string;
   initialNo?: string;
   initialServicio?: string;
+  modulosHabilitados?: readonly string[] | null;
 }) {
   const [data, setData] = useState<PeoDashboardPayload | null>(null);
   const [servicio, setServicio] = useState(initialServicio?.trim() ?? "");
@@ -266,7 +268,12 @@ export function PruebasEfectividadDashboardClient({
   }
 
   return (
-    <AppModuleShell role={appRole} email={email} currentPath="/pruebas-efectividad-operativa">
+    <AppModuleShell
+      role={appRole}
+      email={email}
+      currentPath="/pruebas-efectividad-operativa"
+      modulosHabilitados={modulosHabilitados}
+    >
       <div className="min-w-0 space-y-4">
         <header className="rounded-2xl bg-gradient-to-r from-slate-950 via-indigo-950 to-violet-900 p-5 text-white shadow-lg sm:p-7">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-200">Vista para cliente</p>

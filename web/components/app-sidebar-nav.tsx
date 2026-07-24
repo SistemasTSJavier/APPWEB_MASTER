@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { APP_ROLE_LABEL, appSidebarModuleLinks, roleShowsInicioNav, type AppRole } from "@/lib/app-role";
+import { SignOutButton } from "@/components/sign-out-button";
 
 function normPath(p: string): string {
   const x = (p || "/").replace(/\/$/, "") || "/";
@@ -17,13 +18,15 @@ export function AppSidebarNav({
   role,
   email,
   currentPath,
+  modulosHabilitados,
 }: {
   role: AppRole;
   email: string;
   currentPath: string;
+  modulosHabilitados?: readonly string[] | null;
 }) {
   const cur = normPath(currentPath);
-  const modules = appSidebarModuleLinks(role, email);
+  const modules = appSidebarModuleLinks(role, email, modulosHabilitados);
   const navItems = roleShowsInicioNav(role) ? [{ href: "/", label: "Inicio" }, ...modules] : modules;
 
   return (
@@ -69,14 +72,7 @@ export function AppSidebarNav({
           {email}
         </p>
         <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-200">{APP_ROLE_LABEL[role]}</p>
-        <form action="/auth/signout" method="post" className="mt-2 md:mt-3">
-          <button
-            type="submit"
-            className="text-sm font-bold text-sky-200 underline-offset-2 hover:text-white hover:underline"
-          >
-            Cerrar sesión
-          </button>
-        </form>
+        <SignOutButton className="mt-2 text-sm font-bold text-sky-200 underline-offset-2 hover:text-white hover:underline disabled:opacity-60 md:mt-3" />
       </div>
     </aside>
   );

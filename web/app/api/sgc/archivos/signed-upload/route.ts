@@ -7,27 +7,40 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayUploadSgc, sgcDepartamentoFijoPorRol } from "@/lib/app-role";
+import { departamentoExiste } from "@/lib/app-catalogos";
+import { roleMayUploadSgc, sgcDepartamentoDesdeUsuario, userMayModulo } from "@/lib/app-role";
 import {
   SGC_BUCKET,
   SGC_MAX_BYTES,
   assertSafeUploadFileName,
   isSgcCategoriaId,
-  isSgcDepartamentoId,
+  sgcDisplayNameFromObject,
   sgcObjectPath,
+  sgcStoragePrefix,
 } from "@/lib/sgc-calidad";
 
 export const dynamic = "force-dynamic";
 
 /**
- * POST JSON `{ categoria, departamento, file_name, file_size_bytes? }`
+ * POST JSON `{ categoria, departamento, file_name, file_size_bytes?, replace?, replace_storage_name? }`
  * — URL firmada para subir sin pasar el binario por Next.
+ * Si `replace` es true (o hay `replace_storage_name`), elimina la versión anterior: sin historial.
  */
 export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
   if (!roleMayUploadSgc(auth.role)) {
     return NextResponse.json({ error: "No autorizado para subir archivos SGC" }, { status: 403 });
+  }
+  if (
+    !userMayModulo(
+      auth.role,
+      auth.user.user_metadata as Record<string, unknown> | null,
+      "/sgc",
+      "editar",
+    )
+  ) {
+    return NextResponse.json({ error: "Sin permiso de editar SGC." }, { status: 403 });
   }
 
   if (!isSupabaseServerConfigured()) {
@@ -48,6 +61,8 @@ export async function POST(req: Request) {
     departamento?: unknown;
     file_name?: unknown;
     file_size_bytes?: unknown;
+    replace?: unknown;
+    replace_storage_name?: unknown;
   };
 
   const catRaw = String(o.categoria ?? "").trim();
@@ -55,9 +70,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "categoria invalida" }, { status: 400 });
   }
 
-  const fijo = sgcDepartamentoFijoPorRol(auth.role);
+  const fijo = sgcDepartamentoDesdeUsuario(
+    auth.role,
+    auth.user.user_metadata as Record<string, unknown> | null,
+  );
   const depRaw = fijo ?? String(o.departamento ?? "").trim();
-  if (!isSgcDepartamentoId(depRaw)) {
+  if (!(await departamentoExiste(depRaw))) {
     return NextResponse.json({ error: "departamento invalido" }, { status: 400 });
   }
 
@@ -79,6 +97,39 @@ export async function POST(req: Request) {
         },
         { status: 400 },
       );
+    }
+  }
+
+  const replace = o.replace === true || o.replace === "true" || o.replace === 1;
+  const replaceStorageName = assertSafeUploadFileName(String(o.replace_storage_name ?? "")) ?? "";
+  const prefix = sgcStoragePrefix(catRaw, depRaw);
+  const removed: string[] = [];
+
+  if (replace || replaceStorageName) {
+    const { data: items, error: listErr } = await admin.storage.from(SGC_BUCKET).list(prefix, {
+      limit: 500,
+      sortBy: { column: "created_at", order: "desc" },
+    });
+    if (listErr) {
+      return NextResponse.json({ error: hintSupabaseClientError(listErr.message) }, { status: 500 });
+    }
+
+    const toRemove: string[] = [];
+    for (const it of items ?? []) {
+      if (!it.name || it.id === null) continue;
+      if (replaceStorageName) {
+        if (it.name === replaceStorageName) toRemove.push(`${prefix}/${it.name}`);
+      } else if (sgcDisplayNameFromObject(it.name).toLowerCase() === fileName.toLowerCase()) {
+        toRemove.push(`${prefix}/${it.name}`);
+      }
+    }
+
+    if (toRemove.length > 0) {
+      const { error: rmErr } = await admin.storage.from(SGC_BUCKET).remove(toRemove);
+      if (rmErr) {
+        return NextResponse.json({ error: hintSupabaseClientError(rmErr.message) }, { status: 500 });
+      }
+      removed.push(...toRemove);
     }
   }
 
@@ -122,5 +173,7 @@ export async function POST(req: Request) {
     publicUrl,
     maxBytes: SGC_MAX_BYTES,
     bucket: SGC_BUCKET,
+    replaced: removed.length,
+    removedPaths: removed,
   });
 }

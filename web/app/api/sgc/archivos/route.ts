@@ -11,12 +11,14 @@ import {
   roleMayDeleteSgc,
   roleMayPickSgcDepartamento,
   roleMayUploadSgc,
-  sgcDepartamentoFijoPorRol,
+  sgcDepartamentoDesdeUsuario,
+  userMayModulo,
+  type AppRole,
 } from "@/lib/app-role";
+import { departamentoExiste } from "@/lib/app-catalogos";
 import {
   SGC_BUCKET,
   isSgcCategoriaId,
-  isSgcDepartamentoId,
   sgcDisplayNameFromObject,
   sgcStoragePrefix,
   type SgcDepartamentoId,
@@ -24,15 +26,25 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function resolveDepartamento(
-  role: import("@/lib/app-role").AppRole,
+async function resolveDepartamento(
+  role: AppRole,
   requested: string,
-): { ok: true; departamento: SgcDepartamentoId } | { ok: false; error: string } {
-  const fijo = sgcDepartamentoFijoPorRol(role);
-  if (fijo) return { ok: true, departamento: fijo };
+  userMetadata?: Record<string, unknown> | null,
+): Promise<{ ok: true; departamento: SgcDepartamentoId } | { ok: false; error: string; status?: number }> {
+  const fijo = sgcDepartamentoDesdeUsuario(role, userMetadata);
+  if (fijo) {
+    const dep = requested.trim();
+    if (dep && (await departamentoExiste(dep)) && dep !== fijo) {
+      return { ok: false, error: "Solo puede consultar archivos de su departamento.", status: 403 };
+    }
+    return { ok: true, departamento: fijo };
+  }
+  if (!roleMayPickSgcDepartamento(role)) {
+    return { ok: false, error: "No autorizado", status: 403 };
+  }
   const dep = requested.trim();
-  if (!isSgcDepartamentoId(dep)) {
-    return { ok: false, error: "departamento invalido" };
+  if (!(await departamentoExiste(dep))) {
+    return { ok: false, error: "departamento invalido", status: 400 };
   }
   return { ok: true, departamento: dep };
 }
@@ -57,9 +69,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "categoria invalida" }, { status: 400 });
   }
 
-  const depRes = resolveDepartamento(auth.role, String(searchParams.get("departamento") ?? ""));
+  const depRes = await resolveDepartamento(
+    auth.role,
+    String(searchParams.get("departamento") ?? ""),
+    auth.user.user_metadata as Record<string, unknown> | null,
+  );
   if (!depRes.ok) {
-    return NextResponse.json({ error: depRes.error }, { status: 400 });
+    return NextResponse.json({ error: depRes.error }, { status: depRes.status ?? 400 });
   }
 
   const prefix = sgcStoragePrefix(catRaw, depRes.departamento);
@@ -102,12 +118,13 @@ export async function GET(req: Request) {
       };
     });
 
+  const meta = auth.user.user_metadata as Record<string, unknown> | null;
   return NextResponse.json({
     files,
     categoria: catRaw,
     departamento: depRes.departamento,
-    canUpload: roleMayUploadSgc(auth.role),
-    canDelete: roleMayDeleteSgc(auth.role),
+    canUpload: roleMayUploadSgc(auth.role) && userMayModulo(auth.role, meta, "/sgc", "editar"),
+    canDelete: roleMayDeleteSgc(auth.role) && userMayModulo(auth.role, meta, "/sgc", "eliminar"),
     canPickDepartamento: roleMayPickSgcDepartamento(auth.role),
   });
 }
@@ -118,6 +135,16 @@ export async function DELETE(req: Request) {
   if (!isAuthedApiUser(auth)) return auth;
   if (!roleMayDeleteSgc(auth.role)) {
     return NextResponse.json({ error: "No autorizado para eliminar archivos SGC" }, { status: 403 });
+  }
+  if (
+    !userMayModulo(
+      auth.role,
+      auth.user.user_metadata as Record<string, unknown> | null,
+      "/sgc",
+      "eliminar",
+    )
+  ) {
+    return NextResponse.json({ error: "Sin permiso de eliminar SGC." }, { status: 403 });
   }
 
   if (!isSupabaseServerConfigured()) {
@@ -133,9 +160,13 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "categoria y storage_name requeridos" }, { status: 400 });
   }
 
-  const depRes = resolveDepartamento(auth.role, String(searchParams.get("departamento") ?? ""));
+  const depRes = await resolveDepartamento(
+    auth.role,
+    String(searchParams.get("departamento") ?? ""),
+    auth.user.user_metadata as Record<string, unknown> | null,
+  );
   if (!depRes.ok) {
-    return NextResponse.json({ error: depRes.error }, { status: 400 });
+    return NextResponse.json({ error: depRes.error }, { status: depRes.status ?? 400 });
   }
 
   const objectPath = `${sgcStoragePrefix(catRaw, depRes.departamento)}/${storageName}`;

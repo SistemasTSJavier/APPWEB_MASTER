@@ -2,16 +2,19 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { APP_ROLE_LABEL, type AppRole } from "@/lib/app-role";
 import { AppSidebarNav } from "./app-sidebar-nav";
+import { SignOutButton } from "./sign-out-button";
 
 export function AppModuleShell({
   role,
   email,
   currentPath,
+  modulosHabilitados,
   children,
 }: {
   role: AppRole;
   email: string;
   currentPath: string;
+  modulosHabilitados?: readonly string[] | null;
   children: ReactNode;
 }) {
   const isCuadricula = currentPath === "/cuadricula";
@@ -35,14 +38,10 @@ export function AppModuleShell({
               {email}
             </span>
             <span className="font-bold uppercase text-slate-200">{APP_ROLE_LABEL[role]}</span>
-            <form action="/auth/signout" method="post">
-              <button
-                type="submit"
-                className="font-bold text-sky-200 underline-offset-2 hover:text-white hover:underline"
-              >
-                Salir
-              </button>
-            </form>
+            <SignOutButton
+              label="Salir"
+              className="font-bold text-sky-200 underline-offset-2 hover:text-white hover:underline disabled:opacity-60"
+            />
           </div>
         </header>
         <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
@@ -57,7 +56,12 @@ export function AppModuleShell({
           layoutWide ? "max-w-[min(100vw-16px,2200px)]" : "max-w-[1600px]"
         }`}
       >
-        <AppSidebarNav role={role} email={email} currentPath={currentPath} />
+        <AppSidebarNav
+          role={role}
+          email={email}
+          currentPath={currentPath}
+          modulosHabilitados={modulosHabilitados}
+        />
         <div className="relative flex min-h-0 min-w-0 flex-col overflow-x-auto overflow-y-auto print:overflow-visible">
           {children}
         </div>

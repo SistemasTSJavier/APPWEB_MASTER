@@ -7,7 +7,12 @@ import {
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
-import { roleMayReadColaboradoresApi, roleMayWriteExpedienteColaborador } from "@/lib/app-role";
+import {
+  colaboradoresConsultaLimitada,
+  roleMayReadColaboradoresApi,
+  roleMayWriteExpedienteColaborador,
+  userMayModulo,
+} from "@/lib/app-role";
 import { sincronizarEstadoBajaEnColaborador } from "@/lib/colaboradores-baja";
 import { colaboradorCompletoMayusculas } from "@/lib/texto-plataforma-mayusculas";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
@@ -18,12 +23,51 @@ function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
   return colaboradorCompletoMayusculas(sincronizarEstadoBajaEnColaborador(data));
 }
 
+/**
+ * Consulta limitada (solo Ver): nombre + no. empleado en UI.
+ * Se conservan campos mínimos para que filtros (servicio, zona, ingreso, estatus) funcionen.
+ * Sin NSS, familiares ni resto del expediente.
+ */
+function stripConsultaBasica(c: ColaboradorCompleto): ColaboradorCompleto {
+  const form = c.form ?? {};
+  return {
+    noEmpleado: c.noEmpleado,
+    nombreCompleto: c.nombreCompleto,
+    fechaIngreso: c.fechaIngreso ?? "",
+    servicioAsignado: c.servicioAsignado ?? "",
+    ultimoServicio: c.ultimoServicio ?? "",
+    nss: "",
+    posicion: "",
+    puesto: "",
+    registeredAt: c.registeredAt ?? "",
+    form: {
+      fechaIngreso: String(form.fechaIngreso ?? "").trim(),
+      fechaBaja: String(form.fechaBaja ?? "").trim(),
+      estatusEmpleado: String(form.estatusEmpleado ?? "").trim(),
+      servicio: String(form.servicio ?? "").trim(),
+      servicioFinal: String(form.servicioFinal ?? "").trim(),
+    },
+    familiares: [],
+    moperActual: c.moperActual?.servicio
+      ? { servicio: String(c.moperActual.servicio).trim(), puesto: "" }
+      : undefined,
+  };
+}
+
 /** GET: lista todos los expedientes */
 export async function GET() {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
   if (!roleMayReadColaboradoresApi(auth.role)) {
     return NextResponse.json({ error: "No autorizado para consultar colaboradores" }, { status: 403 });
+  }
+  const meta = (auth.user.user_metadata ?? null) as Record<string, unknown> | null;
+  if (!userMayModulo(auth.role, meta, "/colaboradores", "ver") && auth.role !== "admin") {
+    // Si hay capacidades explícitas sin ver colaboradores, bloquear aunque el rol permita.
+    const caps = meta?.modulos_capacidades;
+    if (Array.isArray(caps) && caps.length > 0) {
+      return NextResponse.json({ error: "Sin permiso de ver Colaboradores." }, { status: 403 });
+    }
   }
 
   if (!isSupabaseServerConfigured()) {
@@ -44,7 +88,8 @@ export async function GET() {
 
   try {
     const rows = await fetchAllColaboradoresCompletos(admin);
-    return NextResponse.json(rows);
+    const limitada = colaboradoresConsultaLimitada(auth.role, meta);
+    return NextResponse.json(limitada ? rows.map(stripConsultaBasica) : rows);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Error al listar colaboradores" },
@@ -59,6 +104,14 @@ export async function POST(req: Request) {
   if (!isAuthedApiUser(auth)) return auth;
   if (!roleMayWriteExpedienteColaborador(auth.role)) {
     return NextResponse.json({ error: "No autorizado para guardar expedientes" }, { status: 403 });
+  }
+  const meta = (auth.user.user_metadata ?? null) as Record<string, unknown> | null;
+  if (
+    Array.isArray(meta?.modulos_capacidades) &&
+    (meta?.modulos_capacidades as unknown[]).length > 0 &&
+    !userMayModulo(auth.role, meta, "/colaboradores", "editar")
+  ) {
+    return NextResponse.json({ error: "Sin permiso de editar Colaboradores." }, { status: 403 });
   }
 
   if (!isSupabaseServerConfigured()) {

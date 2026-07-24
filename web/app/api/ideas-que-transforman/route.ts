@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
+import { departamentoExiste } from "@/lib/app-catalogos";
 import { roleMayAccessIdeasQueTransforman } from "@/lib/app-role";
 import { esIdeaEstado, validarIdeaCreate } from "@/lib/ideas-que-transforman";
 import { insertarIdea, listarIdeas } from "@/lib/ideas-que-transforman-server";
@@ -18,6 +19,13 @@ export async function POST(req: Request) {
   const validado = validarIdeaCreate(body);
   if (!validado.ok) {
     return NextResponse.json({ error: validado.error }, { status: 400 });
+  }
+
+  if (
+    !(await departamentoExiste(validado.data.departamentoAutor)) ||
+    !(await departamentoExiste(validado.data.departamentoAfectado))
+  ) {
+    return NextResponse.json({ error: "Departamento no válido." }, { status: 400 });
   }
 
   const result = await insertarIdea(validado.data);

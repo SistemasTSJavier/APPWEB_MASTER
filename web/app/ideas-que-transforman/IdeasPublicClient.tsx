@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { TacticalSupportLogo } from "@/components/tactical-support-logo";
 import { SGC_DEPARTAMENTOS } from "@/lib/sgc-calidad";
 
 type Paso = "datos" | "idea" | "gracias";
+type DepOpt = { id: string; label: string };
 
 const inputCls =
   "mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200";
@@ -21,6 +22,25 @@ export function IdeasPublicClient() {
   const [departamentoAfectado, setDepartamentoAfectado] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [departamentos, setDepartamentos] = useState<DepOpt[]>(
+    SGC_DEPARTAMENTOS.map((d) => ({ id: d.id, label: d.label })),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/catalogos/departamentos", { cache: "no-store" });
+        const j = (await r.json().catch(() => ({}))) as { departamentos?: DepOpt[] };
+        if (!cancelled && r.ok && j.departamentos?.length) setDepartamentos(j.departamentos);
+      } catch {
+        /* builtins */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function continuarDatos(e: FormEvent) {
     e.preventDefault();
@@ -119,7 +139,7 @@ export function IdeasPublicClient() {
                   required
                 >
                   <option value="">Seleccione…</option>
-                  {SGC_DEPARTAMENTOS.map((d) => (
+                  {departamentos.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.label}
                     </option>
@@ -154,7 +174,7 @@ export function IdeasPublicClient() {
                 <h2 className="mt-1 text-lg font-bold uppercase text-slate-900">Tu propuesta</h2>
                 <p className="mt-1 text-sm text-slate-600">
                   {nombre.trim()} ·{" "}
-                  {SGC_DEPARTAMENTOS.find((d) => d.id === departamentoAutor)?.label ?? departamentoAutor}
+                  {departamentos.find((d) => d.id === departamentoAutor)?.label ?? departamentoAutor}
                 </p>
               </div>
               <button
@@ -221,7 +241,7 @@ export function IdeasPublicClient() {
                   required
                 >
                   <option value="">Seleccione…</option>
-                  {SGC_DEPARTAMENTOS.map((d) => (
+                  {departamentos.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.label}
                     </option>

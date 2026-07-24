@@ -1,4 +1,4 @@
-import { isSgcDepartamentoId, SGC_DEPARTAMENTOS, type SgcDepartamentoId } from "@/lib/sgc-calidad";
+import { isSgcDepartamentoId, esFormatoDepartamentoId, SGC_DEPARTAMENTOS, type SgcDepartamentoId } from "@/lib/sgc-calidad";
 
 export const IDEAS_ESTADOS = ["pendiente", "aceptado"] as const;
 export type IdeaEstado = (typeof IDEAS_ESTADOS)[number];
@@ -53,13 +53,13 @@ export function validarIdeaCreate(body: unknown): { ok: true; data: IdeaCreateIn
   const departamentoAfectado = limpiaTexto(b.departamentoAfectado ?? b.departamento_afectado, 80);
 
   if (nombre.length < 2) return { ok: false, error: "Indique su nombre (mínimo 2 caracteres)." };
-  if (!isSgcDepartamentoId(departamentoAutor)) {
+  if (!esFormatoDepartamentoId(departamentoAutor)) {
     return { ok: false, error: "Seleccione su departamento." };
   }
   if (problema.length < 10) return { ok: false, error: "Describa el problema con más detalle." };
   if (solucion.length < 10) return { ok: false, error: "Describa la solución con más detalle." };
   if (beneficio.length < 10) return { ok: false, error: "Describa el beneficio con más detalle." };
-  if (!isSgcDepartamentoId(departamentoAfectado)) {
+  if (!esFormatoDepartamentoId(departamentoAfectado)) {
     return { ok: false, error: "Seleccione el departamento afectado." };
   }
 

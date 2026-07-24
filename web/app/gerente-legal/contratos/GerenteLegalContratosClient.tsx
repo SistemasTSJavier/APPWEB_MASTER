@@ -26,9 +26,11 @@ type Payload = {
 export function GerenteLegalContratosClient({
   appRole,
   email,
+  modulosHabilitados,
 }: {
   appRole: AppRole;
   email: string;
+  modulosHabilitados?: readonly string[] | null;
 }) {
   const [vista, setVista] = useState<LegalContratoVista>("activas");
   const [servicio, setServicio] = useState("");
@@ -68,7 +70,10 @@ export function GerenteLegalContratosClient({
   }, [vista, servicio, busqueda, referencia]);
 
   useEffect(() => {
-    void load();
+    const t = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [load]);
 
   const filasUrgentes = useMemo(
@@ -97,7 +102,12 @@ export function GerenteLegalContratosClient({
   }
 
   return (
-    <AppModuleShell role={appRole} email={email} currentPath="/gerente-legal/contratos">
+    <AppModuleShell
+      role={appRole}
+      email={email}
+      currentPath="/gerente-legal/contratos"
+      modulosHabilitados={modulosHabilitados}
+    >
       <div className="space-y-4">
         <header className="card border border-violet-100 bg-violet-50/40">
           <h1 className="text-xl font-bold uppercase tracking-tight text-slate-900 sm:text-2xl">

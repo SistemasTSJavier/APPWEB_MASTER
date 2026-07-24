@@ -34,7 +34,15 @@ function formatoPuntos(n: number): string {
   return new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 }).format(n);
 }
 
-export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole; email: string }) {
+export function PruebasEfectividadClient({
+  appRole,
+  email,
+  modulosHabilitados,
+}: {
+  appRole: AppRole;
+  email: string;
+  modulosHabilitados?: readonly string[] | null;
+}) {
   const [personal, setPersonal] = useState<CatColaboradorActivoOpcion[]>([]);
   const [servicio, setServicio] = useState("");
   const [planta, setPlanta] = useState("");
@@ -208,7 +216,12 @@ export function PruebasEfectividadClient({ appRole, email }: { appRole: AppRole;
   }
 
   return (
-    <AppModuleShell role={appRole} email={email} currentPath="/pruebas-efectividad-operativa">
+    <AppModuleShell
+      role={appRole}
+      email={email}
+      currentPath="/pruebas-efectividad-operativa"
+      modulosHabilitados={modulosHabilitados}
+    >
       <div className="min-w-0 space-y-5">
         <header className="rounded-2xl bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 p-5 text-white shadow-lg sm:p-7">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-200">Desarrollo operativo</p>

@@ -1,6 +1,10 @@
 import { redirect, notFound } from "next/navigation";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
-import { roleEsClienteEnfoque, roleMayAccessCategorizacion } from "@/lib/app-role";
+import {
+  modulosHabilitadosDesdeMetadata,
+  roleEsClienteEnfoque,
+  roleMayAccessCategorizacion,
+} from "@/lib/app-role";
 import { isCategorizacionModuloId } from "@/lib/categorizacion-modulos";
 import { CategorizacionModuloClient } from "@/app/categorizacion/CategorizacionModuloClient";
 
@@ -19,7 +23,16 @@ export default async function CategorizacionModuloPage({ params }: Props) {
     redirect("/categorizacion/dashboard");
   }
 
+  const modulos = modulosHabilitadosDesdeMetadata(
+    (auth.user.user_metadata ?? null) as Record<string, unknown> | null,
+  );
+
   return (
-    <CategorizacionModuloClient appRole={auth.role} email={auth.user.email ?? ""} moduloId={moduloRaw} />
+    <CategorizacionModuloClient
+      appRole={auth.role}
+      email={auth.user.email ?? ""}
+      moduloId={moduloRaw}
+      modulosHabilitados={modulos}
+    />
   );
 }

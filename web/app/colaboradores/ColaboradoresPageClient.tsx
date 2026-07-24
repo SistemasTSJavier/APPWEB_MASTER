@@ -55,9 +55,24 @@ function ingresoMostrarEnTabla(c: ColaboradorCompleto): string {
   return formatoFechaDiaMesAnio(fallback, { conHora: false });
 }
 
-function textoBusquedaCoincide(c: ColaboradorCompleto, q: string): boolean {
+function textoBusquedaCoincide(c: ColaboradorCompleto, q: string, limitada = false): boolean {
   if (!q.trim()) return true;
   const n = q.trim().toLowerCase();
+  if (limitada) {
+    const campos = [
+      c.noEmpleado,
+      c.nombreCompleto,
+      c.servicioAsignado,
+      c.ultimoServicio,
+      servicioLineaColaborador(c),
+      c.fechaIngreso,
+      c.form?.servicio,
+      c.form?.servicioFinal,
+    ];
+    return campos.some((t) => String(t ?? "")
+      .toLowerCase()
+      .includes(n));
+  }
   const campos = [
     c.noEmpleado,
     c.nombreCompleto,
@@ -74,12 +89,27 @@ function textoBusquedaCoincide(c: ColaboradorCompleto, q: string): boolean {
   return campos.some((t) => String(t).toLowerCase().includes(n));
 }
 
-export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
-  const puedeEditar = roleMayEditColaboradores(appRole);
-  const puedeExportarCsv = roleMayExportColaboradoresCsv(appRole);
+export function ColaboradoresPageClient({
+  appRole,
+  consultaLimitada = false,
+  puedeEditarCapacidad,
+  puedeEliminarCapacidad = false,
+}: {
+  appRole: AppRole;
+  consultaLimitada?: boolean;
+  /** Si viene de capacidades explícitas; undefined = usar solo el rol. */
+  puedeEditarCapacidad?: boolean;
+  puedeEliminarCapacidad?: boolean;
+}) {
+  const puedeEditar =
+    !consultaLimitada &&
+    (roleMayEditColaboradores(appRole) || puedeEditarCapacidad === true);
+  const puedeExportarCsv = !consultaLimitada && roleMayExportColaboradoresCsv(appRole);
   const mostrarCheckboxCsv = puedeEditar || puedeExportarCsv;
-  const soloLectura = appRole === "mejora_continua" || esRolLegalSoloLectura(appRole);
-  const colSpan = mostrarCheckboxCsv ? 8 : 7;
+  const soloLectura =
+    consultaLimitada || appRole === "mejora_continua" || esRolLegalSoloLectura(appRole);
+  const colSpan = consultaLimitada ? 2 : mostrarCheckboxCsv ? 8 : 7;
+  void puedeEliminarCapacidad;
 
   const [rows, setRows] = useState<ColaboradorCompleto[]>([]);
   const [listaError, setListaError] = useState<string | null>(null);
@@ -383,10 +413,10 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
           if (zCol !== "") return false;
         } else if (zCol !== zona) return false;
       }
-      if (!textoBusquedaCoincide(c, busqueda)) return false;
+      if (!textoBusquedaCoincide(c, busqueda, consultaLimitada)) return false;
       return true;
     });
-  }, [rows, busqueda, servicio, zona, fechaDesde, fechaHasta, filtroActivo]);
+  }, [rows, busqueda, servicio, zona, fechaDesde, fechaHasta, filtroActivo, consultaLimitada]);
 
   function toggleSel(no: string) {
     setSeleccion((prev) => {
@@ -421,7 +451,12 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Modulo</p>
             <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">COLABORADORES</h1>
             <p className="mt-1 text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
-              {soloLectura ? (
+              {consultaLimitada ? (
+                <>
+                  Consulta limitada: la tabla muestra solo <strong>no. de empleado</strong> y <strong>nombre</strong>.
+                  Los filtros de servicio, zona, ingreso y estatus sí aplican (sin abrir expediente ni datos sensibles).
+                </>
+              ) : soloLectura ? (
                 esRolLegalSoloLectura(appRole) ? (
                   <>
                     Modo <strong>solo consulta</strong> (área legal). Expediente en lectura; sin datos de nómina. Usa <strong>Expediente</strong> para ver el
@@ -692,7 +727,11 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                 className="form-control uppercase"
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="NUMERO, NOMBRE, NSS, TEXTO EN EXPEDIENTE..."
+                placeholder={
+                  consultaLimitada
+                    ? "NUMERO, NOMBRE O SERVICIO..."
+                    : "NUMERO, NOMBRE, NSS, TEXTO EN EXPEDIENTE..."
+                }
               />
             </label>
             <label className="space-y-1">
@@ -788,32 +827,62 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
         <div className="table-wrap">
           <table className="w-max min-w-full border-collapse text-left text-sm sm:text-[15px]">
             <colgroup>
-              {mostrarCheckboxCsv ? <col className="w-10" /> : null}
-              <col className="w-[5.5rem]" />
-              <col className="w-[6.75rem]" />
-              <col className="min-w-[12rem] w-[26%]" />
-              <col className="min-w-[9rem] w-[18%]" />
-              <col className="w-[7rem]" />
-              <col className="w-[6.5rem]" />
-              <col className="w-[8.5rem]" />
+              {consultaLimitada ? (
+                <>
+                  <col className="w-[8rem]" />
+                  <col className="min-w-[14rem]" />
+                </>
+              ) : (
+                <>
+                  {mostrarCheckboxCsv ? <col className="w-10" /> : null}
+                  <col className="w-[5.5rem]" />
+                  <col className="w-[6.75rem]" />
+                  <col className="min-w-[12rem] w-[26%]" />
+                  <col className="min-w-[9rem] w-[18%]" />
+                  <col className="w-[7rem]" />
+                  <col className="w-[6.5rem]" />
+                  <col className="w-[8.5rem]" />
+                </>
+              )}
             </colgroup>
             <thead className="table-head">
               <tr>
-                {mostrarCheckboxCsv ? <th className="w-10 px-2 py-2.5"></th> : null}
-                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">NO. EMPLEADO</th>
-                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">FECHA INGRESO</th>
-                <th className="px-3 py-2.5 sm:px-4">NOMBRE</th>
-                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">SERVICIO</th>
-                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">PUESTO</th>
-                <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">ESTADO</th>
-                <th className="sticky right-0 z-10 whitespace-nowrap bg-slate-100 px-3 py-2.5 text-right shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.12)] sm:px-4">
-                  ACCIONES
-                </th>
+                {consultaLimitada ? (
+                  <>
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">NO. EMPLEADO</th>
+                    <th className="px-3 py-2.5 sm:px-4">NOMBRE</th>
+                  </>
+                ) : (
+                  <>
+                    {mostrarCheckboxCsv ? <th className="w-10 px-2 py-2.5"></th> : null}
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">NO. EMPLEADO</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">FECHA INGRESO</th>
+                    <th className="px-3 py-2.5 sm:px-4">NOMBRE</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">SERVICIO</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">PUESTO</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">ESTADO</th>
+                    <th className="sticky right-0 z-10 whitespace-nowrap bg-slate-100 px-3 py-2.5 text-right shadow-[-8px_0_12px_-8px_rgba(15,23,42,0.12)] sm:px-4">
+                      ACCIONES
+                    </th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
               {filtrados.map((c) => (
                 <Fragment key={c.noEmpleado}>
+                  {consultaLimitada ? (
+                    <tr className="group table-row-hover">
+                      <td className="table-cell whitespace-nowrap font-mono font-medium">{c.noEmpleado}</td>
+                      <td
+                        className="table-cell min-w-[12rem] font-medium leading-snug text-slate-900"
+                        title={c.nombreCompleto || undefined}
+                      >
+                        <span className="line-clamp-2 break-words">{c.nombreCompleto || "—"}</span>
+                      </td>
+                    </tr>
+                  ) : (
+                  <>
                   <tr className="group table-row-hover">
                     {mostrarCheckboxCsv ? (
                       <td className="table-cell px-2">
@@ -904,6 +973,8 @@ export function ColaboradoresPageClient({ appRole }: { appRole: AppRole }) {
                       </td>
                     </tr>
                   ) : null}
+                  </>
+                  )}
                 </Fragment>
               ))}
             </tbody>

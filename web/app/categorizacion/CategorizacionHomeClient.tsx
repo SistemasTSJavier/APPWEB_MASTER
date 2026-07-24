@@ -5,9 +5,22 @@ import Link from "next/link";
 import { CategorizacionHero, CategorizacionModuloGrid } from "@/components/categorizacion/categorizacion-ui";
 import type { AppRole } from "@/lib/app-role";
 
-export function CategorizacionHomeClient({ appRole, email }: { appRole: AppRole; email: string }) {
+export function CategorizacionHomeClient({
+  appRole,
+  email,
+  modulosHabilitados,
+}: {
+  appRole: AppRole;
+  email: string;
+  modulosHabilitados?: readonly string[] | null;
+}) {
   return (
-    <AppModuleShell role={appRole} email={email} currentPath="/categorizacion">
+    <AppModuleShell
+      role={appRole}
+      email={email}
+      currentPath="/categorizacion"
+      modulosHabilitados={modulosHabilitados}
+    >
       <div className="min-w-0 space-y-5">
         <CategorizacionHero
           title="Categorización"

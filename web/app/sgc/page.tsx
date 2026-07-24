@@ -8,5 +8,5 @@ export default async function SgcHomePage() {
   if (!auth) redirect("/login");
   if (!roleMayAccessSgc(auth.role)) redirect("/");
 
-  return <SgcHomeClient />;
+  return <SgcHomeClient appRole={auth.role} userMetadata={auth.user.user_metadata} />;
 }

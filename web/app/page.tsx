@@ -4,7 +4,7 @@ import { getAuthedUserWithRole } from "@/lib/auth-server";
 import { AppModuleShell } from "@/components/app-module-shell";
 import { HomeLocalGreeting } from "@/components/home-local-greeting";
 import { HomeCelebracionesSection } from "@/components/home-celebraciones-section";
-import { esRolLegalSoloLectura } from "@/lib/app-role";
+import { esRolLegalSoloLectura, modulosHabilitadosDesdeMetadata } from "@/lib/app-role";
 
 export const dynamic = "force-dynamic";
 
@@ -67,9 +67,12 @@ export default async function Home() {
     : [];
 
   const email = auth.user.email ?? "—";
+  const modulos = modulosHabilitadosDesdeMetadata(
+    (auth.user.user_metadata ?? null) as Record<string, unknown> | null,
+  );
 
   return (
-    <AppModuleShell role={auth.role} email={email} currentPath="/">
+    <AppModuleShell role={auth.role} email={email} currentPath="/" modulosHabilitados={modulos}>
       <section className="relative min-w-0 overflow-x-hidden rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm sm:p-4 md:p-5 lg:p-6">
         <div
           className="pointer-events-none absolute inset-0 bg-center bg-no-repeat opacity-[0.06]"

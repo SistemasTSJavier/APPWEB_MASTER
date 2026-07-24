@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
-import { roleMayAccessCategorizacion } from "@/lib/app-role";
+import { modulosHabilitadosDesdeMetadata, roleMayAccessCategorizacion } from "@/lib/app-role";
 import { CatDashboardClient } from "@/app/categorizacion/dashboard/CatDashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,9 @@ export default async function CategorizacionDashboardPage({ searchParams }: Prop
   if (!roleMayAccessCategorizacion(auth.role, auth.user.email)) redirect("/");
 
   const sp = await searchParams;
+  const modulos = modulosHabilitadosDesdeMetadata(
+    (auth.user.user_metadata ?? null) as Record<string, unknown> | null,
+  );
 
   return (
     <CatDashboardClient
@@ -20,6 +23,7 @@ export default async function CategorizacionDashboardPage({ searchParams }: Prop
       email={auth.user.email ?? ""}
       initialNo={sp.no}
       initialServicio={sp.servicio}
+      modulosHabilitados={modulos}
     />
   );
 }

@@ -35,16 +35,18 @@ export function CategorizacionModuloClient({
   appRole,
   email,
   moduloId,
+  modulosHabilitados,
 }: {
   appRole: AppRole;
   email: string;
   moduloId: CategorizacionModuloId;
+  modulosHabilitados?: readonly string[] | null;
 }) {
   const meta = categorizacionModuloMeta(moduloId);
   const esClienteEnfoque = roleEsClienteEnfoque(appRole);
 
   return (
-    <AppModuleShell role={appRole} email={email} currentPath="/categorizacion">
+    <AppModuleShell role={appRole} email={email} currentPath="/categorizacion" modulosHabilitados={modulosHabilitados}>
       <div className="min-w-0 space-y-5">
         <CategorizacionHero
           title={meta.label}
