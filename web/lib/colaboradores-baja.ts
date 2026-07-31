@@ -157,6 +157,18 @@ export function colaboradorActivoParaMetricas(c: ColaboradorCompleto): boolean {
 }
 
 /**
+ * Activo para cuadrícula de asistencia: solo N.º de empleado + estatus.
+ * No usa fechaBaja (así un ACTIVO con fecha residual no desaparece de la captura).
+ */
+export function colaboradorActivoPorEstatusYNumero(c: ColaboradorCompleto): boolean {
+  const noEmp =
+    String(c.noEmpleado ?? "").trim() || String(c.form?.noEmpleado1 ?? "").trim();
+  if (!noEmp) return false;
+  const est = estatusEmpleadoNormalizado(c.form);
+  return est !== "INACTIVO" && est !== "BAJA";
+}
+
+/**
  * Vigente en operación: sin fecha de baja y estatus distinto de INACTIVO.
  * Si no hay fecha de baja, no se considera baja aunque `estatusEmpleado` siga en BAJA por error.
  */

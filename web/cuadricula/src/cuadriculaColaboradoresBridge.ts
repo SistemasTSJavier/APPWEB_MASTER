@@ -11,9 +11,8 @@ import {
 
 export { plantaExpedienteColaborador } from "@/lib/colaboradores-catalogo-display";
 import {
-  colaboradorEstaActivoEnOperacion,
+  colaboradorActivoPorEstatusYNumero,
   colaboradorTieneBaja,
-  expedienteColaboradorValido,
   fechaBajaNormalizadaColaborador,
   fechaIngresoNormalizadaColaborador,
 } from "@/lib/colaboradores-baja";
@@ -53,7 +52,7 @@ export function colaboradoresActivosPorServicioCatalogo(
   catalogNombre: string,
 ): ColaboradorCompleto[] {
   return lista
-    .filter((c) => !colaboradorTieneBaja(c) && coincideColaboradorServicioCatalogo(c, catalogNombre))
+    .filter((c) => colaboradorActivoParaCapturaAsistencia(c) && coincideColaboradorServicioCatalogo(c, catalogNombre))
     .sort((a, b) => a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }));
 }
 
@@ -76,11 +75,11 @@ export function coincideColaboradorPlantaExpediente(c: ColaboradorCompleto, plan
 }
 
 /**
- * Mismo criterio que Colaboradores → «Solo activos»: expediente con N.º válido,
- * sin fecha de baja y estatus distinto de INACTIVO.
+ * Quién entra a la cuadrícula de asistencia: solo N.º de empleado + estatus
+ * (ACTIVO; excluye INACTIVO y BAJA). La asistencia se empareja por N.º.
  */
 export function colaboradorActivoParaCapturaAsistencia(c: ColaboradorCompleto): boolean {
-  return expedienteColaboradorValido(c) && colaboradorEstaActivoEnOperacion(c);
+  return colaboradorActivoPorEstatusYNumero(c);
 }
 
 /** Lista precalculada de activos para cuadrícula (evita mezclar bajas/inactivos). */
@@ -88,15 +87,22 @@ export function filtrarColaboradoresActivosCaptura(lista: ColaboradorCompleto[])
   return lista.filter(colaboradorActivoParaCapturaAsistencia);
 }
 
+/** Planta usada cuando el activo aún no tiene planta en expediente ni catálogo. */
+export const PLANTA_CAPTURA_SIN_ASIGNAR = "SIN PLANTA";
+
 /**
  * Planta única del colaborador (misma resolución que pantalla Colaboradores:
  * expediente primero, catálogo si falta). Un empleado → una sola planta.
+ * Si no hay planta, usa SIN PLANTA para que el activo igual entre a captura.
  */
 export function plantaCapturaColaborador(
   c: ColaboradorCompleto,
   catalogo: CatalogoServicioItem[] = [],
 ): string {
-  return normTxt(plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c));
+  return (
+    normTxt(plantaColaborador(c, catalogo) || plantaExpedienteColaborador(c)) ||
+    PLANTA_CAPTURA_SIN_ASIGNAR
+  );
 }
 
 /** Activos con la misma planta en expediente. */
@@ -137,6 +143,7 @@ export function normPlantaCapturaNombre(p: string): string {
  * `listarPlantasCapturaAsistencia`). Equivale a llamar
  * `colaboradoresActivosParaCapturaPlanta` por cada planta, sin recorrer la
  * lista completa una vez por planta.
+ * Activos sin planta van a {@link PLANTA_CAPTURA_SIN_ASIGNAR}.
  */
 export function agruparActivosPorPlantaCaptura(
   lista: ColaboradorCompleto[],
@@ -146,7 +153,6 @@ export function agruparActivosPorPlantaCaptura(
   for (const c of lista) {
     if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
     const p = plantaCapturaColaborador(c, catalogo);
-    if (!p) continue;
     const arr = map.get(p);
     if (arr) arr.push(c);
     else map.set(p, [c]);
@@ -227,7 +233,7 @@ export function colaboradoresParaAsistenciaCsvImport(
 export function listarServiciosLineaActivos(lista: ColaboradorCompleto[]): string[] {
   const set = new Set<string>();
   for (const c of lista) {
-    if (colaboradorTieneBaja(c)) continue;
+    if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
     const s = normTxt(servicioLineaColaborador(c));
     if (s) set.add(s);
   }
@@ -240,9 +246,8 @@ export function mapaColaboradoresActivosPorPlanta(
 ): Map<string, ColaboradorCompleto[]> {
   const map = new Map<string, ColaboradorCompleto[]>();
   for (const c of lista) {
-    if (colaboradorTieneBaja(c)) continue;
-    const p = normTxt(plantaExpedienteColaborador(c));
-    if (!p) continue;
+    if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
+    const p = normTxt(plantaExpedienteColaborador(c)) || PLANTA_CAPTURA_SIN_ASIGNAR;
     const bucket = map.get(p);
     if (bucket) bucket.push(c);
     else map.set(p, [c]);
@@ -254,7 +259,7 @@ export function mapaColaboradoresActivosPorPlanta(
 export function listarPlantasDeColaboradores(lista: ColaboradorCompleto[]): string[] {
   const set = new Set<string>();
   for (const c of lista) {
-    if (colaboradorTieneBaja(c)) continue;
+    if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
     const p = normTxt(plantaExpedienteColaborador(c));
     if (p) set.add(p);
   }
@@ -269,8 +274,7 @@ export function listarPlantasCapturaAsistencia(
   const set = new Set<string>();
   for (const c of lista) {
     if (!colaboradorActivoParaCapturaAsistencia(c)) continue;
-    const p = plantaCapturaColaborador(c, catalogo);
-    if (p) set.add(p);
+    set.add(plantaCapturaColaborador(c, catalogo));
   }
   return [...set].sort((a, b) => a.localeCompare(b, "es"));
 }
@@ -439,7 +443,7 @@ export function colaboradoresParaConsultaAsistencia(lista: ColaboradorCompleto[]
 }
 
 export function estatusExpedienteColaborador(c: ColaboradorCompleto): "ACTIVO" | "BAJA" {
-  return colaboradorEstaActivoEnOperacion(c) ? "ACTIVO" : "BAJA";
+  return colaboradorActivoPorEstatusYNumero(c) ? "ACTIVO" : "BAJA";
 }
 
 export function fechaBajaDisplayColaborador(c: ColaboradorCompleto): string {

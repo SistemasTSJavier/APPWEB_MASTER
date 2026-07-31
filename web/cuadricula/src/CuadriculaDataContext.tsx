@@ -7,6 +7,8 @@ import type { CatalogoServicioItem } from "@/lib/servicios-catalogo-client";
 import {
   colaboradorToEmpleadoIncidencia,
   filtrarColaboradoresActivosCaptura,
+  PLANTA_CAPTURA_SIN_ASIGNAR,
+  plantaCapturaColaborador,
 } from "./cuadriculaColaboradoresBridge";
 import { canEditCuadricula, canImportCuadriculaSemanaCsv } from "./cuadriculaPermissions";
 type CuadriculaDataState = {
@@ -20,8 +22,10 @@ type CuadriculaDataState = {
   puedeImportarCsv: boolean;
   /** Lista para buscadores (incidencias / comidas): activos, expediente real. */
   empleadosBusqueda: ReturnType<typeof colaboradorToEmpleadoIncidencia>[];
-  /** Activos válidos para cuadrícula (mismo criterio que Colaboradores → Solo activos). */
+  /** Activos para cuadrícula: solo estatus + N.º de empleado. */
   colaboradoresActivosCaptura: ColaboradorCompleto[];
+  /** Activos sin planta resuelta (aparecen bajo SIN PLANTA). */
+  activosSinPlantaCount: number;
 };
 
 const CuadriculaDataContext = createContext<CuadriculaDataState | null>(null);
@@ -75,6 +79,14 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
     [colaboradores],
   );
 
+  const activosSinPlantaCount = useMemo(
+    () =>
+      colaboradoresActivosCaptura.filter(
+        (c) => plantaCapturaColaborador(c, catalogo) === PLANTA_CAPTURA_SIN_ASIGNAR,
+      ).length,
+    [colaboradoresActivosCaptura, catalogo],
+  );
+
   const empleadosBusqueda = useMemo(
     () => colaboradoresActivosCaptura.map(colaboradorToEmpleadoIncidencia),
     [colaboradoresActivosCaptura],
@@ -95,6 +107,7 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       puedeImportarCsv,
       empleadosBusqueda,
       colaboradoresActivosCaptura,
+      activosSinPlantaCount,
     }),
     [
       catalogo,
@@ -107,6 +120,7 @@ export function CuadriculaDataProvider({ children }: { children: ReactNode }) {
       puedeImportarCsv,
       empleadosBusqueda,
       colaboradoresActivosCaptura,
+      activosSinPlantaCount,
     ],
   );
 
