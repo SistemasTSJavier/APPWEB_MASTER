@@ -298,7 +298,7 @@ export function userMayModulo(
   return cap.eliminar;
 }
 
-/** Colaboradores: solo nombre + no. empleado cuando tiene ver y no editar (con capacidades explícitas). */
+/** Colaboradores: consulta limitada (no. empleado, ingreso, nombre, servicio) cuando tiene ver y no editar. */
 export function colaboradoresConsultaLimitada(
   role: AppRole,
   userMetadata?: Record<string, unknown> | null,

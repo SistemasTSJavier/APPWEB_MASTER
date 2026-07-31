@@ -24,8 +24,9 @@ function normalizePayload(data: ColaboradorCompleto): ColaboradorCompleto {
 }
 
 /**
- * Consulta limitada (solo Ver): nombre + no. empleado en UI.
- * Se conservan campos mínimos para que filtros (servicio, zona, ingreso, estatus) funcionen.
+ * Consulta limitada (solo Ver): no. empleado, fecha ingreso, nombre y servicio en UI.
+ * Se conservan campos mínimos para que filtros (servicio, zona, ingreso, estatus) funcionen
+ * y la Cuadrícula pueda resolver planta/puesto de activos.
  * Sin NSS, familiares ni resto del expediente.
  */
 function stripConsultaBasica(c: ColaboradorCompleto): ColaboradorCompleto {
@@ -37,8 +38,8 @@ function stripConsultaBasica(c: ColaboradorCompleto): ColaboradorCompleto {
     servicioAsignado: c.servicioAsignado ?? "",
     ultimoServicio: c.ultimoServicio ?? "",
     nss: "",
-    posicion: "",
-    puesto: "",
+    posicion: String(c.posicion ?? form.posicion ?? "").trim(),
+    puesto: String(c.puesto ?? form.puesto ?? "").trim(),
     registeredAt: c.registeredAt ?? "",
     form: {
       fechaIngreso: String(form.fechaIngreso ?? "").trim(),
@@ -46,6 +47,11 @@ function stripConsultaBasica(c: ColaboradorCompleto): ColaboradorCompleto {
       estatusEmpleado: String(form.estatusEmpleado ?? "").trim(),
       servicio: String(form.servicio ?? "").trim(),
       servicioFinal: String(form.servicioFinal ?? "").trim(),
+      planta: String(form.planta ?? "").trim(),
+      posicion: String(form.posicion ?? "").trim(),
+      puesto: String(form.puesto ?? "").trim(),
+      nombreCompleto: String(form.nombreCompleto ?? c.nombreCompleto ?? "").trim(),
+      noEmpleado1: String(form.noEmpleado1 ?? c.noEmpleado ?? "").trim(),
     },
     familiares: [],
     moperActual: c.moperActual?.servicio

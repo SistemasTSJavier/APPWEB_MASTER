@@ -108,7 +108,7 @@ export function ColaboradoresPageClient({
   const mostrarCheckboxCsv = puedeEditar || puedeExportarCsv;
   const soloLectura =
     consultaLimitada || appRole === "mejora_continua" || esRolLegalSoloLectura(appRole);
-  const colSpan = consultaLimitada ? 2 : mostrarCheckboxCsv ? 8 : 7;
+  const colSpan = consultaLimitada ? 4 : mostrarCheckboxCsv ? 8 : 7;
   void puedeEliminarCapacidad;
 
   const [rows, setRows] = useState<ColaboradorCompleto[]>([]);
@@ -453,7 +453,8 @@ export function ColaboradoresPageClient({
             <p className="mt-1 text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
               {consultaLimitada ? (
                 <>
-                  Consulta limitada: la tabla muestra solo <strong>no. de empleado</strong> y <strong>nombre</strong>.
+                  Consulta limitada: la tabla muestra <strong>no. de empleado</strong>, <strong>fecha de ingreso</strong>,{" "}
+                  <strong>nombre</strong> y <strong>servicio</strong>.
                   Los filtros de servicio, zona, ingreso y estatus sí aplican (sin abrir expediente ni datos sensibles).
                 </>
               ) : soloLectura ? (
@@ -829,8 +830,10 @@ export function ColaboradoresPageClient({
             <colgroup>
               {consultaLimitada ? (
                 <>
-                  <col className="w-[8rem]" />
-                  <col className="min-w-[14rem]" />
+                  <col className="w-[5.5rem]" />
+                  <col className="w-[6.75rem]" />
+                  <col className="min-w-[12rem] w-[26%]" />
+                  <col className="min-w-[9rem] w-[18%]" />
                 </>
               ) : (
                 <>
@@ -850,7 +853,9 @@ export function ColaboradoresPageClient({
                 {consultaLimitada ? (
                   <>
                     <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">NO. EMPLEADO</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">FECHA INGRESO</th>
                     <th className="px-3 py-2.5 sm:px-4">NOMBRE</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 sm:px-4">SERVICIO</th>
                   </>
                 ) : (
                   <>
@@ -874,11 +879,15 @@ export function ColaboradoresPageClient({
                   {consultaLimitada ? (
                     <tr className="group table-row-hover">
                       <td className="table-cell whitespace-nowrap font-mono font-medium">{c.noEmpleado}</td>
+                      <td className="table-cell whitespace-nowrap tabular-nums">{ingresoMostrarEnTabla(c)}</td>
                       <td
                         className="table-cell min-w-[12rem] font-medium leading-snug text-slate-900"
                         title={c.nombreCompleto || undefined}
                       >
                         <span className="line-clamp-2 break-words">{c.nombreCompleto || "—"}</span>
+                      </td>
+                      <td className="table-cell whitespace-nowrap text-slate-700" title={servicioLineaColaborador(c) || undefined}>
+                        {servicioLineaColaborador(c) || "—"}
                       </td>
                     </tr>
                   ) : (
