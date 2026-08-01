@@ -17,8 +17,10 @@ import {
   PEO_TIPOS,
   etiquetaPeoTipo,
   peoCategoria,
+  type PeoAccionSeguimiento,
   type PeoCategoriaId,
   type PeoEvaluacion,
+  type PeoEvidencia,
   type PeoTipoId,
 } from "@/lib/pruebas-efectividad-operativa";
 
@@ -52,6 +54,12 @@ export function PruebasEfectividadClient({
   const [evaluadaEn, setEvaluadaEn] = useState(hoyLocal);
   const [puntajes, setPuntajes] = useState<Record<string, string>>({});
   const [observaciones, setObservaciones] = useState("");
+  const [accionesCorrectivas, setAccionesCorrectivas] = useState<string[]>([""]);
+  const [accionesSeguimiento, setAccionesSeguimiento] = useState<PeoAccionSeguimiento[]>([
+    { accion: "", responsable: "", fechaCompromiso: "" },
+  ]);
+  const [evidencias, setEvidencias] = useState<PeoEvidencia[]>([]);
+  const [subiendoEvidencia, setSubiendoEvidencia] = useState(false);
   const [historial, setHistorial] = useState<PeoEvaluacion[]>([]);
   const [historialFiltroTipo, setHistorialFiltroTipo] = useState<PeoTipoId | "">("");
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -151,6 +159,10 @@ export function PruebasEfectividadClient({
           tipo,
           evaluadaEn,
           observaciones,
+          accionesCorrectivas: accionesCorrectivas.map((a) => a.trim()).filter(Boolean),
+          accionesSeguimiento: accionesSeguimiento.filter(
+            (a) => a.accion.trim() || a.responsable.trim() || a.fechaCompromiso.trim(),
+          ),
           puntajes: scores,
         }),
       });
@@ -163,13 +175,18 @@ export function PruebasEfectividadClient({
       );
       setMsg({
         ok: true,
-        text: `${seleccionado.noEmpleado} · ${etiquetaPeoTipo(j.row.tipo)} · ${categoriaDef.nombre} · ${evaluadaEn} · ${formatoPuntos(j.row.total)} / 100. Evaluación ${editandoId ? "actualizada" : "guardada"}.`,
+        text: `${seleccionado.noEmpleado} · ${etiquetaPeoTipo(j.row.tipo)} · ${categoriaDef.nombre} · ${evaluadaEn} · ${formatoPuntos(j.row.total)} / 100. Evaluación ${editandoId ? "actualizada" : "guardada"}. Puede adjuntar evidencias abajo.`,
       });
-      setEditandoId(null);
-      setPuntajes({});
-      setObservaciones("");
-      setEvaluadaEn(hoyLocal());
-      setTipo("simulacion");
+      setEditandoId(j.row.id);
+      setEvidencias(j.row.evidencias ?? []);
+      setAccionesCorrectivas(
+        j.row.accionesCorrectivas.length > 0 ? j.row.accionesCorrectivas : [""],
+      );
+      setAccionesSeguimiento(
+        j.row.accionesSeguimiento.length > 0
+          ? j.row.accionesSeguimiento
+          : [{ accion: "", responsable: "", fechaCompromiso: "" }],
+      );
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "No se guardó la evaluación." });
     } finally {
@@ -183,6 +200,13 @@ export function PruebasEfectividadClient({
     setTipo(e.tipo ?? "simulacion");
     setEvaluadaEn(e.evaluadaEn);
     setObservaciones(e.observaciones);
+    setAccionesCorrectivas(e.accionesCorrectivas?.length ? e.accionesCorrectivas : [""]);
+    setAccionesSeguimiento(
+      e.accionesSeguimiento?.length
+        ? e.accionesSeguimiento
+        : [{ accion: "", responsable: "", fechaCompromiso: "" }],
+    );
+    setEvidencias(e.evidencias ?? []);
     setPuntajes(Object.fromEntries(e.puntajes.map((p) => [p.id, String(p.obtenido)])));
     setEditandoId(e.id);
     setMsg({
@@ -196,9 +220,60 @@ export function PruebasEfectividadClient({
     setEditandoId(null);
     setPuntajes({});
     setObservaciones("");
+    setAccionesCorrectivas([""]);
+    setAccionesSeguimiento([{ accion: "", responsable: "", fechaCompromiso: "" }]);
+    setEvidencias([]);
     setEvaluadaEn(hoyLocal());
     setTipo("simulacion");
     setMsg(null);
+  }
+
+  async function subirEvidencia(file: File | null) {
+    if (!editandoId || !file || subiendoEvidencia) return;
+    setSubiendoEvidencia(true);
+    setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.set("evaluacion_id", editandoId);
+      fd.set("file", file);
+      const r = await fetch("/api/pruebas-efectividad-operativa/evidencias", {
+        method: "POST",
+        body: fd,
+      });
+      const j = (await r.json()) as { file?: PeoEvidencia; error?: string };
+      if (!r.ok || !j.file) throw new Error(j.error ?? `Error ${r.status}`);
+      setEvidencias((prev) => [j.file!, ...prev]);
+      setHistorial((prev) =>
+        prev.map((e) =>
+          e.id === editandoId ? { ...e, evidencias: [j.file!, ...(e.evidencias ?? [])] } : e,
+        ),
+      );
+      setMsg({ ok: true, text: `Evidencia cargada: ${j.file.nombreArchivo}` });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "No se subió la evidencia." });
+    } finally {
+      setSubiendoEvidencia(false);
+    }
+  }
+
+  async function eliminarEvidencia(id: string) {
+    if (!window.confirm("¿Eliminar esta evidencia?")) return;
+    const r = await fetch(`/api/pruebas-efectividad-operativa/evidencias?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    const j = (await r.json()) as { error?: string };
+    if (!r.ok) {
+      setMsg({ ok: false, text: j.error ?? `Error ${r.status}` });
+      return;
+    }
+    setEvidencias((prev) => prev.filter((e) => e.id !== id));
+    setHistorial((prev) =>
+      prev.map((e) =>
+        e.id === editandoId
+          ? { ...e, evidencias: (e.evidencias ?? []).filter((x) => x.id !== id) }
+          : e,
+      ),
+    );
   }
 
   async function eliminar(id: string) {
@@ -373,15 +448,193 @@ export function PruebasEfectividadClient({
           </div>
 
           <label className="block space-y-1">
-            <span className="form-label">Observaciones</span>
+            <span className="form-label">Observaciones / hallazgos</span>
             <textarea
               className="form-control min-h-24"
               maxLength={4000}
               value={observaciones}
               onChange={(e) => setObservaciones(e.target.value)}
-              placeholder="Incidentes observados, fortalezas y acciones de mejora…"
+              placeholder="Situación observada, hallazgos y contexto de la prueba…"
             />
           </label>
+
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-black uppercase text-slate-900">Acciones correctivas</h3>
+              <button
+                type="button"
+                className="text-xs font-bold uppercase text-sky-800 hover:underline"
+                onClick={() => setAccionesCorrectivas((prev) => [...prev, ""])}
+              >
+                + Agregar
+              </button>
+            </div>
+            <div className="space-y-2">
+              {accionesCorrectivas.map((texto, idx) => (
+                <div key={`corr-${idx}`} className="flex gap-2">
+                  <input
+                    className="form-control"
+                    value={texto}
+                    maxLength={500}
+                    placeholder={`Acción correctiva ${idx + 1}`}
+                    onChange={(e) =>
+                      setAccionesCorrectivas((prev) =>
+                        prev.map((v, i) => (i === idx ? e.target.value : v)),
+                      )
+                    }
+                  />
+                  {accionesCorrectivas.length > 1 ? (
+                    <button
+                      type="button"
+                      className="shrink-0 px-2 text-xs font-bold uppercase text-red-700"
+                      onClick={() =>
+                        setAccionesCorrectivas((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                    >
+                      Quitar
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-black uppercase text-slate-900">Acciones de seguimiento</h3>
+              <button
+                type="button"
+                className="text-xs font-bold uppercase text-sky-800 hover:underline"
+                onClick={() =>
+                  setAccionesSeguimiento((prev) => [
+                    ...prev,
+                    { accion: "", responsable: "", fechaCompromiso: "" },
+                  ])
+                }
+              >
+                + Agregar
+              </button>
+            </div>
+            <div className="space-y-3">
+              {accionesSeguimiento.map((row, idx) => (
+                <div
+                  key={`seg-${idx}`}
+                  className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_140px_auto]"
+                >
+                  <input
+                    className="form-control"
+                    value={row.accion}
+                    maxLength={300}
+                    placeholder="Acción"
+                    onChange={(e) =>
+                      setAccionesSeguimiento((prev) =>
+                        prev.map((v, i) => (i === idx ? { ...v, accion: e.target.value } : v)),
+                      )
+                    }
+                  />
+                  <input
+                    className="form-control"
+                    value={row.responsable}
+                    maxLength={300}
+                    placeholder="Responsable"
+                    onChange={(e) =>
+                      setAccionesSeguimiento((prev) =>
+                        prev.map((v, i) => (i === idx ? { ...v, responsable: e.target.value } : v)),
+                      )
+                    }
+                  />
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={row.fechaCompromiso}
+                    onChange={(e) =>
+                      setAccionesSeguimiento((prev) =>
+                        prev.map((v, i) =>
+                          i === idx ? { ...v, fechaCompromiso: e.target.value } : v,
+                        ),
+                      )
+                    }
+                  />
+                  {accionesSeguimiento.length > 1 ? (
+                    <button
+                      type="button"
+                      className="text-xs font-bold uppercase text-red-700"
+                      onClick={() =>
+                        setAccionesSeguimiento((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                    >
+                      Quitar
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {editandoId ? (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black uppercase text-slate-900">Evidencias</h3>
+                  <p className="text-xs text-slate-500">JPG, PNG, WEBP o PDF · máx. 10 MB · hasta 8 archivos</p>
+                </div>
+                <label className="btn-secondary cursor-pointer uppercase">
+                  {subiendoEvidencia ? "Subiendo…" : "Adjuntar archivo"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    className="hidden"
+                    disabled={subiendoEvidencia}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      e.target.value = "";
+                      void subirEvidencia(f);
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {evidencias.map((ev) => (
+                  <article key={ev.id} className="overflow-hidden rounded-lg border border-slate-200">
+                    {ev.mime.startsWith("image/") ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={ev.url} alt={ev.nombreArchivo} className="h-36 w-full object-cover" />
+                    ) : (
+                      <div className="flex h-36 items-center justify-center bg-slate-100 text-sm font-bold uppercase text-slate-600">
+                        PDF
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 p-2">
+                      <a
+                        href={ev.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate text-xs font-semibold text-sky-800 hover:underline"
+                      >
+                        {ev.nombreArchivo}
+                      </a>
+                      <button
+                        type="button"
+                        className="shrink-0 text-[10px] font-bold uppercase text-red-700"
+                        onClick={() => void eliminarEvidencia(ev.id)}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {evidencias.length === 0 ? (
+                  <p className="text-sm text-slate-500 sm:col-span-2">Sin evidencias adjuntas.</p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Guarde la evaluación primero para poder adjuntar evidencias.
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <button
@@ -394,7 +647,7 @@ export function PruebasEfectividadClient({
             </button>
             {editandoId ? (
               <button type="button" className="btn-secondary uppercase" disabled={saving} onClick={cancelarEdicion}>
-                Cancelar edición
+                Nueva evaluación / cancelar
               </button>
             ) : null}
           </div>

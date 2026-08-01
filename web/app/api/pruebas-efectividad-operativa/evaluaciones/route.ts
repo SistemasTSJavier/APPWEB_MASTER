@@ -11,9 +11,13 @@ import {
   requirePeoCaptureApi,
 } from "@/lib/pruebas-efectividad-auth";
 import {
+  PEO_EVIDENCIAS_BUCKET,
   PEO_PLANTILLA_VERSION,
+  accionesSeguimientoParaDb,
   esPeoCategoriaId,
   esPeoTipoId,
+  validarAccionesCorrectivas,
+  validarAccionesSeguimiento,
   validarPuntajesPeo,
 } from "@/lib/pruebas-efectividad-operativa";
 import { listPeoEvaluaciones } from "@/lib/pruebas-efectividad-server";
@@ -99,6 +103,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Fecha de aplicación no válida." }, { status: 400 });
   }
 
+  const correctivas = validarAccionesCorrectivas(body.accionesCorrectivas);
+  if (!correctivas.ok) return NextResponse.json({ error: correctivas.error }, { status: 400 });
+  const seguimiento = validarAccionesSeguimiento(body.accionesSeguimiento);
+  if (!seguimiento.ok) return NextResponse.json({ error: seguimiento.error }, { status: 400 });
+
   const validacion = validarPuntajesPeo(categoriaId, body.puntajes);
   if (!validacion.ok) return NextResponse.json({ error: validacion.error }, { status: 400 });
 
@@ -129,6 +138,8 @@ export async function POST(req: Request) {
         evaluador_email: String(gate.auth.user.email ?? "").trim().toLowerCase(),
         evaluada_en: evaluadaEn,
         observaciones,
+        acciones_correctivas: correctivas.value,
+        acciones_seguimiento: accionesSeguimientoParaDb(seguimiento.value),
         total: validacion.total,
       })
       .select("*")
@@ -189,6 +200,11 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Fecha de aplicación no válida." }, { status: 400 });
   }
 
+  const correctivas = validarAccionesCorrectivas(body.accionesCorrectivas);
+  if (!correctivas.ok) return NextResponse.json({ error: correctivas.error }, { status: 400 });
+  const seguimiento = validarAccionesSeguimiento(body.accionesSeguimiento);
+  if (!seguimiento.ok) return NextResponse.json({ error: seguimiento.error }, { status: 400 });
+
   try {
     const { data: actual, error: actualError } = await client.admin
       .from("peo_evaluaciones")
@@ -215,6 +231,8 @@ export async function PUT(req: Request) {
         tipo: tipoRaw,
         evaluada_en: evaluadaEn,
         observaciones,
+        acciones_correctivas: correctivas.value,
+        acciones_seguimiento: accionesSeguimientoParaDb(seguimiento.value),
         total: validacion.total,
       })
       .eq("id", id);
@@ -253,9 +271,21 @@ export async function DELETE(req: Request) {
 
   const id = new URL(req.url).searchParams.get("id")?.trim();
   if (!id) return NextResponse.json({ error: "ID requerido." }, { status: 400 });
+
+  const { data: evidencias } = await client.admin
+    .from("peo_evaluacion_evidencias")
+    .select("storage_path")
+    .eq("evaluacion_id", id);
+  const paths = ((evidencias ?? []) as { storage_path?: string }[])
+    .map((e) => String(e.storage_path ?? "").trim())
+    .filter(Boolean);
+
   const { error } = await client.admin.from("peo_evaluaciones").delete().eq("id", id);
   if (error) {
     return NextResponse.json({ error: hintSupabaseClientError(error.message) }, { status: 500 });
+  }
+  if (paths.length > 0) {
+    await client.admin.storage.from(PEO_EVIDENCIAS_BUCKET).remove(paths);
   }
   return NextResponse.json({ ok: true });
 }

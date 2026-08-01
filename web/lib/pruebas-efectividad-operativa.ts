@@ -17,7 +17,7 @@ export const PEO_CATEGORIAS = [
   },
   {
     id: "paquete_sospechoso_ctpat",
-    nombre: "Paquete sospechoso C-TPAT",
+    nombre: "CTPAT / OEA",
     objetivo: "Evaluar la inspección física",
     criterios: [
       { id: "inspeccion_completa", etiqueta: "Realizó inspección completa", maximo: 20 },
@@ -29,7 +29,7 @@ export const PEO_CATEGORIAS = [
   },
   {
     id: "identificacion_falsa",
-    nombre: "INTRUSIÓN",
+    nombre: "INTRUSION POR DETECCION E IDENTIFICACION DE PERSONAS SOSPECHOSAS",
     objetivo: "Evaluar el control de acceso ante una identificación incorrecta",
     criterios: [
       {
@@ -114,6 +114,27 @@ export type PeoPuntaje = PeoCriterioDef & {
   obtenido: number;
 };
 
+export type PeoAccionSeguimiento = {
+  accion: string;
+  responsable: string;
+  fechaCompromiso: string;
+};
+
+export type PeoEvidencia = {
+  id: string;
+  storagePath: string;
+  nombreArchivo: string;
+  mime: string;
+  url: string;
+  createdAt: string;
+};
+
+export type PeoResultadoId = "aprobada" | "fallida";
+export type PeoNivelRiesgoId = "bajo" | "medio" | "alto";
+
+/** Umbral de aprobación del informe ejecutivo (sobre 100). */
+export const PEO_UMBRAL_APROBADA = 75;
+
 export type PeoEvaluacion = {
   id: string;
   categoria: PeoCategoriaId;
@@ -127,6 +148,9 @@ export type PeoEvaluacion = {
   evaluadorEmail: string;
   evaluadaEn: string;
   observaciones: string;
+  accionesCorrectivas: string[];
+  accionesSeguimiento: PeoAccionSeguimiento[];
+  evidencias: PeoEvidencia[];
   total: number;
   createdAt: string;
   puntajes: PeoPuntaje[];
@@ -172,8 +196,101 @@ export function etiquetaPeoTipo(id: string | null | undefined): string {
   return peoTipo(id)?.nombre ?? "Simulación";
 }
 
+export function peoResultado(total: number): PeoResultadoId {
+  return total >= PEO_UMBRAL_APROBADA ? "aprobada" : "fallida";
+}
+
+export function etiquetaPeoResultado(total: number): string {
+  return peoResultado(total) === "aprobada"
+    ? "APROBADA (Cumplimiento del procedimiento)"
+    : "FALLIDA (Incumplimiento del procedimiento)";
+}
+
+export function peoNivelRiesgo(total: number): PeoNivelRiesgoId {
+  if (total >= 85) return "bajo";
+  if (total >= 60) return "medio";
+  return "alto";
+}
+
+export function etiquetaPeoNivelRiesgo(total: number): string {
+  const n = peoNivelRiesgo(total);
+  if (n === "bajo") return "BAJO";
+  if (n === "medio") return "MEDIO";
+  return "ALTO";
+}
+
+export function tituloInformePeo(tipo: PeoTipoId | string | null | undefined): string {
+  return tipo === "real"
+    ? "INFORME EJECUTIVO – INCIDENTE / OPERACIÓN REAL"
+    : "INFORME EJECUTIVO – PRUEBA CONTROLADA";
+}
+
+export const PEO_ACCIONES_CORRECTIVAS_MAX = 12;
+export const PEO_ACCION_CORRECTIVA_MAX_LEN = 500;
+export const PEO_ACCIONES_SEGUIMIENTO_MAX = 12;
+export const PEO_SEGUIMIENTO_CAMPO_MAX_LEN = 300;
+
+export function validarAccionesCorrectivas(
+  raw: unknown,
+): { ok: true; value: string[] } | { ok: false; error: string } {
+  if (raw == null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: "Acciones correctivas inválidas." };
+  if (raw.length > PEO_ACCIONES_CORRECTIVAS_MAX) {
+    return { ok: false, error: `Máximo ${PEO_ACCIONES_CORRECTIVAS_MAX} acciones correctivas.` };
+  }
+  const value: string[] = [];
+  for (const item of raw) {
+    const t = String(item ?? "").trim().slice(0, PEO_ACCION_CORRECTIVA_MAX_LEN);
+    if (t) value.push(t);
+  }
+  return { ok: true, value };
+}
+
+function fechaCompromisoValida(raw: string): boolean {
+  if (!raw) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const d = new Date(`${raw}T12:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === raw;
+}
+
+export function validarAccionesSeguimiento(
+  raw: unknown,
+): { ok: true; value: PeoAccionSeguimiento[] } | { ok: false; error: string } {
+  if (raw == null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: "Acciones de seguimiento inválidas." };
+  if (raw.length > PEO_ACCIONES_SEGUIMIENTO_MAX) {
+    return { ok: false, error: `Máximo ${PEO_ACCIONES_SEGUIMIENTO_MAX} acciones de seguimiento.` };
+  }
+  const value: PeoAccionSeguimiento[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return { ok: false, error: "Cada seguimiento debe ser un objeto." };
+    }
+    const row = item as Record<string, unknown>;
+    const accion = String(row.accion ?? "").trim().slice(0, PEO_SEGUIMIENTO_CAMPO_MAX_LEN);
+    const responsable = String(row.responsable ?? "").trim().slice(0, PEO_SEGUIMIENTO_CAMPO_MAX_LEN);
+    const fechaCompromiso = String(row.fechaCompromiso ?? row.fecha_compromiso ?? "").trim();
+    if (!accion && !responsable && !fechaCompromiso) continue;
+    if (!accion) return { ok: false, error: "Cada seguimiento requiere la acción." };
+    if (!fechaCompromisoValida(fechaCompromiso)) {
+      return { ok: false, error: `Fecha de compromiso no válida: ${fechaCompromiso}.` };
+    }
+    value.push({ accion, responsable, fechaCompromiso });
+  }
+  return { ok: true, value };
+}
+
 export function totalMaximoCategoria(id: PeoCategoriaId): number {
   return peoCategoria(id)?.criterios.reduce((sum, c) => sum + c.maximo, 0) ?? 0;
+}
+
+export const PEO_EVIDENCIAS_BUCKET = "peo-evidencias";
+
+export function publicUrlPeoEvidencia(storagePath: string, baseUrl?: string | null): string {
+  const path = storagePath.replace(/^\/+/, "");
+  const root = (baseUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
+  if (!root || !path) return "";
+  return `${root}/storage/v1/object/public/${PEO_EVIDENCIAS_BUCKET}/${path}`;
 }
 
 export function promedioPeo(valores: Array<number | null | undefined>): number | null {
@@ -222,9 +339,44 @@ export function evaluacionPeoCoincideServicio(e: PeoEvaluacion, servicioScope: s
   return !servicioScope || servicioCoincideFiltroCat(e.servicio, servicioScope);
 }
 
+function mapAccionesCorrectivasDb(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => String(x ?? "").trim()).filter(Boolean);
+}
+
+function mapAccionesSeguimientoDb(raw: unknown): PeoAccionSeguimiento[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PeoAccionSeguimiento[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const accion = String(row.accion ?? "").trim();
+    if (!accion) continue;
+    out.push({
+      accion,
+      responsable: String(row.responsable ?? "").trim(),
+      fechaCompromiso: String(row.fechaCompromiso ?? row.fecha_compromiso ?? "").trim(),
+    });
+  }
+  return out;
+}
+
+export function mapPeoEvidenciaDb(raw: Record<string, unknown>): PeoEvidencia {
+  const storagePath = String(raw.storage_path ?? "").trim();
+  return {
+    id: String(raw.id ?? ""),
+    storagePath,
+    nombreArchivo: String(raw.nombre_archivo ?? "").trim() || storagePath.split("/").pop() || "evidencia",
+    mime: String(raw.mime ?? "application/octet-stream"),
+    url: publicUrlPeoEvidencia(storagePath),
+    createdAt: String(raw.created_at ?? ""),
+  };
+}
+
 export function mapPeoEvaluacionDb(
   raw: Record<string, unknown>,
   puntajes: Record<string, unknown>[] = [],
+  evidencias: Record<string, unknown>[] = [],
 ): PeoEvaluacion {
   const tipoRaw = String(raw.tipo ?? "simulacion").trim().toLowerCase();
   return {
@@ -240,6 +392,9 @@ export function mapPeoEvaluacionDb(
     evaluadorEmail: String(raw.evaluador_email ?? ""),
     evaluadaEn: String(raw.evaluada_en ?? ""),
     observaciones: String(raw.observaciones ?? ""),
+    accionesCorrectivas: mapAccionesCorrectivasDb(raw.acciones_correctivas),
+    accionesSeguimiento: mapAccionesSeguimientoDb(raw.acciones_seguimiento),
+    evidencias: evidencias.map(mapPeoEvidenciaDb),
     total: Number(raw.total ?? 0),
     createdAt: String(raw.created_at ?? ""),
     puntajes: puntajes
@@ -252,4 +407,13 @@ export function mapPeoEvaluacionDb(
       }))
       .sort((a, b) => a.orden - b.orden),
   };
+}
+
+/** Serializa seguimiento para columna jsonb (snake_case estable en DB). */
+export function accionesSeguimientoParaDb(rows: PeoAccionSeguimiento[]) {
+  return rows.map((r) => ({
+    accion: r.accion,
+    responsable: r.responsable,
+    fecha_compromiso: r.fechaCompromiso,
+  }));
 }

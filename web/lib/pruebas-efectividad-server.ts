@@ -62,8 +62,37 @@ export async function listPeoEvaluaciones(
     byId.set(id, arr);
   }
 
+  const evidData: Record<string, unknown>[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: chunk, error: evidError } = await admin
+      .from("peo_evaluacion_evidencias")
+      .select("*")
+      .in("evaluacion_id", ids.slice(i, i + 200))
+      .order("created_at", { ascending: false });
+    if (evidError) {
+      // Tabla aún no migrada: continuar sin evidencias.
+      if (/does not exist|relation|peo_evaluacion_evidencias/i.test(evidError.message)) break;
+      throw new Error(hintSupabaseClientError(evidError.message));
+    }
+    evidData.push(...((chunk ?? []) as Record<string, unknown>[]));
+  }
+
+  const evidById = new Map<string, Record<string, unknown>[]>();
+  for (const raw of evidData) {
+    const id = String(raw.evaluacion_id ?? "");
+    const arr = evidById.get(id) ?? [];
+    arr.push(raw);
+    evidById.set(id, arr);
+  }
+
   return headers
-    .map((raw) => mapPeoEvaluacionDb(raw, byId.get(String(raw.id ?? "")) ?? []))
+    .map((raw) =>
+      mapPeoEvaluacionDb(
+        raw,
+        byId.get(String(raw.id ?? "")) ?? [],
+        evidById.get(String(raw.id ?? "")) ?? [],
+      ),
+    )
     .filter((e) => evaluacionPeoCoincideServicio(e, opts?.servicioScope ?? null));
 }
 
