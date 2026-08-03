@@ -825,85 +825,90 @@ export function CatDashboardClient({
       </div>
 
       {pantallaCompleta && mostrar && empleadoEnPantalla && data ? (
-        <div className="fixed inset-0 z-[9999] flex h-[100dvh] w-[100dvw] flex-col bg-white">
-          <div className="absolute right-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-2 sm:right-4 sm:top-4">
-            {empleadosServicio.length > 1 ? (
-              <span className="rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-[10px] font-semibold text-slate-700 shadow-sm sm:text-xs">
-                {modoLoop ? (
-                  <>
-                    Loop · {servicio} · {posicionPresentacion}/{empleadosServicio.length} · {segundosRestantes}s
-                  </>
-                ) : (
-                  <>
-                    Manual · {servicio} · {posicionPresentacion}/{empleadosServicio.length}
-                  </>
-                )}
-              </span>
-            ) : null}
-            {empleadosServicio.length > 1 ? (
-              <>
+        <div className="fixed inset-0 z-[9999] flex h-[100dvh] w-[100dvw] flex-col overflow-hidden bg-white">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5 sm:px-4">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600 sm:text-xs">
+              Presentación · Categorización
+            </p>
+            <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+              {empleadosServicio.length > 1 ? (
+                <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 sm:text-xs">
+                  {modoLoop ? (
+                    <>
+                      Loop · {servicio} · {posicionPresentacion}/{empleadosServicio.length} · {segundosRestantes}s
+                    </>
+                  ) : (
+                    <>
+                      Manual · {servicio} · {posicionPresentacion}/{empleadosServicio.length}
+                    </>
+                  )}
+                </span>
+              ) : null}
+              {empleadosServicio.length > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold uppercase text-slate-800 sm:text-xs"
+                    onClick={() => moverPresentacion(-1)}
+                    aria-label="Colaborador anterior"
+                  >
+                    ← Anterior
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold uppercase text-slate-800 sm:text-xs"
+                    onClick={() => moverPresentacion(1)}
+                    aria-label="Colaborador siguiente"
+                  >
+                    Siguiente →
+                  </button>
+                </>
+              ) : null}
+              {modoLoop ? (
                 <button
                   type="button"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-800 shadow-sm"
-                  onClick={() => moverPresentacion(-1)}
-                  aria-label="Colaborador anterior"
+                  className="rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-[10px] font-bold uppercase text-violet-950 sm:text-xs"
+                  onClick={pausarLoop}
                 >
-                  ← Anterior
+                  Pausar loop
                 </button>
+              ) : empleadosServicio.length > 1 ? (
                 <button
                   type="button"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-800 shadow-sm"
-                  onClick={() => moverPresentacion(1)}
-                  aria-label="Colaborador siguiente"
+                  className="rounded-md border border-violet-300 bg-violet-50 px-2.5 py-1 text-[10px] font-bold uppercase text-violet-950 sm:text-xs"
+                  onClick={reanudarLoop}
                 >
-                  Siguiente →
+                  Reanudar loop
                 </button>
-              </>
-            ) : null}
-            {modoLoop ? (
+              ) : null}
+              {!esClienteConsulta ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold uppercase text-slate-800 disabled:opacity-50 sm:text-xs"
+                    disabled={!puedeExportarDashboard || exportando}
+                    onClick={() => void exportarPdf()}
+                  >
+                    {exportando ? "Exportando…" : "Exportar PDF"}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-bold uppercase text-slate-800 disabled:opacity-50 sm:text-xs"
+                    disabled={!puedeExportarDashboard || exportando}
+                    onClick={() => void exportarPng()}
+                  >
+                    Exportar imagen
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
-                className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-bold uppercase text-violet-950 shadow-sm"
-                onClick={pausarLoop}
+                className="rounded-md bg-slate-900 px-2.5 py-1 text-[10px] font-bold uppercase text-white sm:text-xs"
+                onClick={cerrarPresentacion}
               >
-                Pausar loop
+                Salir
               </button>
-            ) : empleadosServicio.length > 1 ? (
-              <button
-                type="button"
-                className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-bold uppercase text-violet-950 shadow-sm"
-                onClick={reanudarLoop}
-              >
-                Reanudar loop
-              </button>
-            ) : null}
-            {!esClienteConsulta ? (
-              <>
-                <button
-                  type="button"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-800 shadow-sm disabled:opacity-50"
-                  disabled={!puedeExportarDashboard || exportando}
-                  onClick={() => void exportarPdf()}
-                >
-                  {exportando ? "Exportando…" : "Exportar PDF"}
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold uppercase text-slate-800 shadow-sm disabled:opacity-50"
-                  disabled={!puedeExportarDashboard || exportando}
-                  onClick={() => void exportarPng()}
-                >
-                  Exportar imagen
-                </button>
-              </>
-            ) : null}
-            <button
-              type="button"
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold uppercase text-white shadow-sm"
-              onClick={cerrarPresentacion}
-            >
-              Salir
-            </button>
+            </div>
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

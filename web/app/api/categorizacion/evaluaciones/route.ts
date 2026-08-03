@@ -17,10 +17,16 @@ import {
 } from "@/lib/categorizacion-server";
 import { isSupabaseServerConfigured, supabaseServerEnvMissing } from "@/lib/supabase/admin";
 
-const MODULOS: CatEvalModuloId[] = ["recursos_humanos", "operaciones", "enfoque_cliente"];
+const MODULOS: CatEvalModuloId[] = [
+  "recursos_humanos",
+  "operaciones",
+  "enfoque_cliente",
+];
 
 function parseModulo(s: string | null): CatEvalModuloId | null {
-  if (s === "recursos_humanos" || s === "operaciones" || s === "enfoque_cliente") return s;
+  if (s === "recursos_humanos" || s === "operaciones" || s === "enfoque_cliente") {
+    return s;
+  }
   return null;
 }
 

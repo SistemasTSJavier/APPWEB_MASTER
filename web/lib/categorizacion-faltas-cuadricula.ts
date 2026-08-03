@@ -49,6 +49,17 @@ export function mesCalendarioActualYm(hoy = new Date()): string {
   return `${y}-${m}`;
 }
 
+/**
+ * Mes de referencia para categorización en desfase (faltas / ausentismos / recompensas del dashboard).
+ * Usa el mes calendario anterior al actual.
+ */
+export function mesCalendarioAnteriorYm(hoy = new Date()): string {
+  const d = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
 /** Lunes de cada semana que intersecta el mes `yyyy-mm`. */
 export function mondaysEnMesCalendario(ym: string): Date[] {
   const [ys, ms] = ym.split("-").map((x) => Number(x));

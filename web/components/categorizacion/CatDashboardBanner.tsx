@@ -6,17 +6,15 @@ import { CAT_DASHBOARD_BANNER_SRC } from "@/lib/brand-logo";
 
 export { CAT_DASHBOARD_BANNER_SRC };
 
-/**
- * Centrado bajo «CATEGORIZACIÓN» en banner.jpeg (~76% del ancho del arte).
- */
+/** Zona del logo cliente bajo «CATEGORIZACIÓN» (relativo al arte). */
 const LOGO_CLIENTE_ZONA =
-  "absolute left-[80%] top-[50%] flex h-[44%] w-[min(19.5vw,12.1rem)] -translate-x-1/2 flex-col items-center justify-center sm:left-[79.5%] sm:w-[min(18.4vw,12.65rem)]";
+  "absolute left-[80%] top-[50%] flex h-[42%] w-[22%] max-w-[10rem] -translate-x-1/2 flex-col items-center justify-center sm:left-[79.5%] sm:w-[20%]";
 
 const LOGO_CLIENTE_IMG =
   "max-h-[96%] max-w-full object-contain object-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]";
 
 const LOGO_CLIENTE_IMG_PREVIEW =
-  "max-h-[4.9rem] w-auto max-w-full object-contain object-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)]";
+  "max-h-[3.25rem] w-auto max-w-full object-contain object-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)] sm:max-h-[3.75rem]";
 
 function BannerBase({
   presentacion = false,
@@ -25,19 +23,17 @@ function BannerBase({
   presentacion?: boolean;
   logoSlot: ReactNode;
 }) {
+  /**
+   * Banner real a 100% del ancho, proporción original:
+   * se ve completo, sin estirar y sin fondo inventado a los lados.
+   */
   return (
-    <div
-      className={`relative w-full overflow-hidden leading-[0] ${
-        presentacion
-          ? "h-[min(16vh,7.5rem)] sm:h-[min(18vh,8.5rem)] [@media(max-height:800px)]:h-[5.75rem]"
-          : "h-[5.75rem] sm:h-[6.75rem] lg:h-[7.25rem]"
-      }`}
-    >
+    <div className="relative w-full shrink-0 overflow-hidden bg-[#0c1f4a] leading-[0]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={CAT_DASHBOARD_BANNER_SRC}
         alt=""
-        className="absolute inset-0 h-full w-full max-w-full select-none object-cover object-left"
+        className="block h-auto w-full max-w-full select-none"
         aria-hidden
         decoding="async"
         fetchPriority={presentacion ? "high" : "auto"}
@@ -114,7 +110,11 @@ export function CatDashboardBanner({
       <BannerBase
         presentacion={presentacion}
         logoSlot={
-          <div className={`flex h-full w-full flex-col items-center justify-center gap-1 ${mostrarSubida ? "pointer-events-auto" : ""}`}>
+          <div
+            className={`flex h-full w-full flex-col items-center justify-center gap-1 ${
+              mostrarSubida ? "pointer-events-auto" : ""
+            }`}
+          >
             {logoClienteUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -125,7 +125,7 @@ export function CatDashboardBanner({
                 decoding="async"
               />
             ) : (
-              <span className="px-1 text-center text-[8px] font-semibold uppercase leading-tight text-white/50 sm:text-[9px]">
+              <span className="px-1 text-center text-[7px] font-semibold uppercase leading-tight text-white/50 sm:text-[8px]">
                 Logo del cliente
               </span>
             )}

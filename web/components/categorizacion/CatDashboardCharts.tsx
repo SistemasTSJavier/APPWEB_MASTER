@@ -10,11 +10,11 @@ const BARRAS = [
 
 /** Escala 1–5: rojo → naranja → amarillo → verde limón → verde. */
 export const ESCALA_PUNTAJE_CAT = [
-  { n: 1, label: "No cumple con el estandar", color: "#dc2626", text: "text-white" },
-  { n: 2, label: "Regular", color: "#f97316", text: "text-white" },
-  { n: 3, label: "Bueno", color: "#facc15", text: "text-slate-900" },
-  { n: 4, label: "Muy bueno", color: "#a3e635", text: "text-slate-900" },
-  { n: 5, label: "Excelente", color: "#16a34a", text: "text-white" },
+  { n: 1, label: "No cumple con el estandar", short: "No cumple", color: "#dc2626", text: "text-white" },
+  { n: 2, label: "Regular", short: "Regular", color: "#f97316", text: "text-white" },
+  { n: 3, label: "Bueno", short: "Bueno", color: "#facc15", text: "text-slate-900" },
+  { n: 4, label: "Muy bueno", short: "Muy bueno", color: "#a3e635", text: "text-slate-900" },
+  { n: 5, label: "Excelente", short: "Excelente", color: "#16a34a", text: "text-white" },
 ] as const;
 
 export function colorPuntajeCategorizacion(valor: number | null | undefined): string {
@@ -37,16 +37,15 @@ export function CatBarChartModulos({
 }) {
   const map = { capacitacion, operaciones, enfoque };
   const max = CAT_ESCALA_MAX;
+
+  /** En presentación: ~mitad de altura para dejar espacio a faltas/bonos/etc. */
   const barAreaH = presentacion
-    ? "h-[7.5rem] sm:h-36 md:h-40 [@media(max-height:800px)]:h-[6.5rem]"
+    ? "h-[7.5rem] sm:h-[8.5rem]"
     : "h-28 sm:h-32 lg:h-36";
-  const barInnerH = presentacion
-    ? "h-[5.5rem] sm:h-28 md:h-32 [@media(max-height:800px)]:h-24"
-    : "h-20 sm:h-24 lg:h-28";
 
   return (
-    <div className="flex min-w-0 flex-col">
-      <div className="mb-2 grid grid-cols-5 gap-0.5">
+    <div className="flex w-full min-w-0 shrink-0 flex-col">
+      <div className="mb-1.5 grid shrink-0 grid-cols-5 gap-0.5">
         {ESCALA_PUNTAJE_CAT.map((e) => (
           <div
             key={e.n}
@@ -55,25 +54,26 @@ export function CatBarChartModulos({
             title={`${e.n} = ${e.label}`}
           >
             <span className="block tabular-nums">{e.n}</span>
-            <span className="mt-0.5 block line-clamp-2 font-semibold normal-case tracking-tight opacity-95">
-              {e.label}
+            <span className="mt-0.5 block truncate font-semibold normal-case tracking-tight opacity-95">
+              <span className="hidden sm:inline">{e.short}</span>
+              <span className="sm:hidden">{e.n}</span>
             </span>
           </div>
         ))}
       </div>
 
       <div
-        className={`relative flex items-end justify-center gap-2 border-b border-l border-slate-300 pb-8 pl-6 pr-2 pt-2 sm:gap-4 sm:pb-9 sm:pl-7 ${barAreaH}`}
+        className={`relative flex w-full min-w-0 items-end justify-around gap-1 overflow-hidden border-b border-l border-slate-300 px-1 pb-7 pt-1.5 sm:gap-2 sm:px-2 sm:pb-8 ${barAreaH}`}
       >
         {[1, 2, 3, 4, 5].map((n) => (
           <div
             key={n}
-            className="pointer-events-none absolute left-6 right-0 border-t border-dashed border-slate-200 sm:left-7"
-            style={{ bottom: `${(n / max) * 72 + 12}%` }}
+            className="pointer-events-none absolute left-5 right-0 border-t border-dashed border-slate-200 sm:left-6"
+            style={{ bottom: `${((n - CAT_ESCALA_MIN) / (max - CAT_ESCALA_MIN)) * 58 + 20}%` }}
             aria-hidden
           />
         ))}
-        <div className="absolute bottom-1.5 left-0 top-1.5 flex w-5 flex-col justify-between text-[9px] font-bold text-slate-500 sm:w-6 sm:text-[10px]">
+        <div className="absolute bottom-1 left-0 top-1 flex w-4 flex-col justify-between text-[8px] font-bold text-slate-500 sm:w-5 sm:text-[10px]">
           <span>{max}</span>
           <span>{CAT_ESCALA_MIN}</span>
         </div>
@@ -81,22 +81,33 @@ export function CatBarChartModulos({
         {BARRAS.map((b) => {
           const valor = map[b.valorKey];
           const barColor = colorPuntajeCategorizacion(valor);
+          const pct =
+            valor != null
+              ? Math.max(8, ((valor - CAT_ESCALA_MIN) / (max - CAT_ESCALA_MIN)) * 100)
+              : 4;
           return (
-            <div key={b.key} className="flex min-w-0 max-w-[6.5rem] flex-1 flex-col items-center justify-end">
-              <span className="mb-1 text-sm font-extrabold tabular-nums text-slate-900 sm:text-base">
+            <div
+              key={b.key}
+              className="flex h-full min-w-0 max-w-[7rem] flex-1 flex-col items-center justify-end px-0.5"
+            >
+              <span className="mb-0.5 shrink-0 text-sm font-extrabold tabular-nums text-slate-900 sm:text-base">
                 {valor != null ? valor.toFixed(1) : "—"}
               </span>
-              <div className={`flex w-full max-w-[3.5rem] items-end justify-center sm:max-w-[4rem] ${barInnerH}`}>
+              <div
+                className={`flex w-full max-w-[3rem] items-end justify-center sm:max-w-[3.25rem] ${
+                  presentacion ? "h-[4.25rem] sm:h-[5rem]" : "h-16 sm:h-20 lg:h-24"
+                }`}
+              >
                 <div
-                  className="w-[70%] max-w-[2.75rem] rounded-t-sm shadow-md ring-1 ring-black/10"
+                  className="w-[65%] max-w-[2.5rem] rounded-t-sm shadow-md ring-1 ring-black/10"
                   style={{
-                    height: valor != null ? `${(valor / max) * 100}%` : "4%",
+                    height: `${pct}%`,
                     backgroundColor: barColor,
-                    minHeight: valor != null ? 8 : 4,
+                    minHeight: valor != null ? 8 : 3,
                   }}
                 />
               </div>
-              <span className="mt-1.5 text-center text-[8px] font-bold uppercase leading-tight text-slate-800 sm:text-[9px]">
+              <span className="mt-1 shrink-0 text-center text-[8px] font-bold uppercase leading-tight text-slate-800 sm:text-[9px]">
                 {b.label}
               </span>
             </div>

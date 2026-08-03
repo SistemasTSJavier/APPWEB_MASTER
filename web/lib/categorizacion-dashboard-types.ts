@@ -8,6 +8,18 @@ export type CatDashboardRhDetalle = {
   actasAdministrativas: number | null;
 };
 
+export type CatDashboardRecompensaItem = {
+  descripcion: string;
+  mes: string;
+  mesLabel: string;
+};
+
+export type CatDashboardRecompensasDetalle = {
+  bonos: CatDashboardRecompensaItem[];
+  empleadoDelMes: CatDashboardRecompensaItem[];
+  reconocimientos: CatDashboardRecompensaItem[];
+};
+
 export type CatDashboardEmpleado = {
   noEmpleado: string;
   nombre: string;
@@ -30,6 +42,7 @@ export type CatDashboardEmpleado = {
   nivelId: CatNivelId | null;
   paqueteId: CatPaqueteId | null;
   rh: CatDashboardRhDetalle;
+  recompensas: CatDashboardRecompensasDetalle;
   faltasMesActual: number;
   faltasMesDetalle: string;
   faltasMesYm: string;

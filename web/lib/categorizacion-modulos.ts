@@ -27,7 +27,7 @@ export const CATEGORIZACION_MODULOS = [
   {
     id: "operaciones",
     label: "Operaciones",
-    description: "Oficial: 15 criterios. Jefe de turno (JT): 24 criterios calificados por cada oficial del servicio; promedio acumulado.",
+    description: "Oficial: calificado por cada JT/JS. JT/JS: criterios de liderazgo, calificados por cada oficial; promedio acumulado.",
     icon: "⚙️",
   },
   {
@@ -35,6 +35,12 @@ export const CATEGORIZACION_MODULOS = [
     label: "Enfoque al cliente",
     description: "4 criterios de servicio al cliente (1–5), promedio y comentarios.",
     icon: "🤝",
+  },
+  {
+    id: "recompensas",
+    label: "Recompensas",
+    description: "Bonos (de qué), empleado del mes (mes) y reconocimientos (motivo y mes) para el dashboard.",
+    icon: "🏆",
   },
   {
     id: "dashboard",

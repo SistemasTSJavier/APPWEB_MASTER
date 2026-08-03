@@ -12,8 +12,10 @@ import {
   contarFaltasMesDesdeCuadricula,
   etiquetaFaltasMes,
   faltasMesParaEmpleado,
-  mesCalendarioActualYm,
+  mesCalendarioAnteriorYm,
 } from "@/lib/categorizacion-faltas-cuadricula";
+import { toRecompensasDisplay } from "@/lib/categorizacion-recompensas";
+import { listCatRecompensas } from "@/lib/categorizacion-recompensas-server";
 import {
   activosCategorizacionDesdeColaboradores,
   buildResumenCategorizacion,
@@ -56,6 +58,12 @@ function rhDetalle(
   };
 }
 
+function recompensasDetalle(
+  rows: Awaited<ReturnType<typeof listCatRecompensas>>,
+): CatDashboardEmpleado["recompensas"] {
+  return toRecompensasDisplay(rows);
+}
+
 function fechaIngresoEfectiva(p: CatPersonalRow, colab: ColaboradorCompleto | undefined): string {
   const desdePersonal = parseFechaIngresoYmd(p.fechaIngreso);
   if (desdePersonal) return desdePersonal;
@@ -91,9 +99,10 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     return { empleados: [], servicios: [], generadoEn: new Date().toISOString(), logosServicio: {} };
   }
 
-  const mesYm = mesCalendarioActualYm();
+  // Desfase: faltas/ausentismos y recompensas del dashboard = mes calendario anterior.
+  const mesYm = mesCalendarioAnteriorYm();
 
-  const [colaboradores, rhList, faltasMes, opMapas, personalCat, enList, capProms, logosServicio] =
+  const [colaboradores, rhList, faltasMes, opMapas, personalCat, enList, recList, capProms, logosServicio] =
     await Promise.all([
     fetchAllColaboradoresCompletos(client),
     listCatEvaluacionesModulo("recursos_humanos", client),
@@ -101,6 +110,7 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     loadMapasPromedioOperaciones(client),
     listCatPersonal(client),
     listCatEvaluacionesModulo("enfoque_cliente", client),
+    listCatRecompensas(undefined, client).catch(() => []),
     promediosCapacitacionPorEmpleados(client),
     listLogosServicioDashboard(client),
   ]);
@@ -140,6 +150,15 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
   ).catch(() => new Map<string, string>());
   const resumenMap = new Map(resumen.map((r) => [r.noEmpleado.trim().toUpperCase(), r]));
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado.trim().toUpperCase(), r.scores]));
+  const recMap = new Map<string, typeof recList>();
+  for (const row of recList) {
+    // Solo recompensas del mes en desfase (mes anterior).
+    if (row.mes !== mesYm) continue;
+    const key = row.noEmpleado.trim().toUpperCase();
+    const list = recMap.get(key) ?? [];
+    list.push(row);
+    recMap.set(key, list);
+  }
 
   const serviciosSet = new Set<string>();
   const empleados: CatDashboardEmpleado[] = personal.map((pRaw) => {
@@ -200,6 +219,7 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       faltasMesDetalle: etiquetaFaltasMes(faltas),
       faltasMesYm: faltasMes.mesYm,
       rh: rhDetalle(rhMap.get(key) ?? {}, faltas, faltasMes.mesYm),
+      recompensas: recompensasDetalle(recMap.get(key) ?? []),
       fotoUrl,
     };
   });

@@ -638,7 +638,7 @@ export function mapaPromedioOperacionesOficial(rows: CatEvaluacionRow[]): Map<st
   return out;
 }
 
-/** Promedio operaciones JT = media de los promedios de cada oficial evaluador. */
+/** Promedio operaciones JT = media de los promedios de cada JS (o calificador) evaluador. */
 export function mapaPromedioOperacionesJefeTurno(rows: CatEvaluacionRow[]): Map<string, number | null> {
   const porJefe = new Map<string, number[]>();
   for (const r of rows) {
@@ -991,7 +991,7 @@ export async function loadMapasPromedioOperaciones(
   };
 }
 
-/** Oficial: media de los promedios de cada JT calificador. JT: media de los promedios de cada oficial calificador. */
+/** Oficial: media de JT/JS calificadores. JT/JS: media de los oficiales que los calificaron. */
 export function promedioOperacionesParaEmpleado(
   noEmpleado: string,
   puesto: string,
@@ -1094,7 +1094,7 @@ export async function upsertCatEvaluacion(
   const sub = submoduloDbParaModulo(modulo, opts?.submodulo ?? rolOp);
   const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
   if (sub === "jefe_turno" && !calificadoPor) {
-    throw new Error("Indique el N.º del oficial (calificado por) para jefe de turno.");
+    throw new Error("Indique el N.º del jefe de servicio / JS (calificado por) para jefe de turno.");
   }
   if (sub === "oficial" && !calificadoPor) {
     throw new Error("Indique el N.º del jefe de turno (calificado por) para oficial.");

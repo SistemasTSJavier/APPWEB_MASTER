@@ -6,9 +6,10 @@ import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
 import { CAT_RH_AUSENTISMOS_LABEL, camposPorModulo, labelModuloEval } from "@/lib/categorizacion-campos";
 import {
   CAT_OPERACIONES_ROLES,
-  filtrarJefesTurnoParaCalificarOficial,
+  filtrarLiderazgoParaCalificar,
   filtrarOficialesParaCalificarJefe,
   personalCoincideRolOperaciones,
+  puestoEsJefeServicio,
   puestoEsJefeTurno,
   puestoEsOficialOperaciones,
   submoduloOperaciones,
@@ -106,11 +107,13 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   const conteoServicioOperaciones = useMemo(() => {
     let oficiales = 0;
     let jefesTurno = 0;
+    let jefesServicio = 0;
     for (const p of activosEnServicioOperaciones) {
-      if (puestoEsJefeTurno(p.puesto)) jefesTurno++;
+      if (puestoEsJefeServicio(p.puesto)) jefesServicio++;
+      else if (puestoEsJefeTurno(p.puesto)) jefesTurno++;
       else if (puestoEsOficialOperaciones(p.puesto)) oficiales++;
     }
-    return { oficiales, jefesTurno };
+    return { oficiales, jefesTurno, jefesServicio };
   }, [activosEnServicioOperaciones]);
 
   function elegirServicioOperaciones(servicio: string) {
@@ -136,9 +139,9 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     [activosEnServicioOperaciones, servicioOperacionesElegido],
   );
 
-  const jefesTurnoOpciones = useMemo(
+  const liderazgoOpciones = useMemo(
     () =>
-      filtrarJefesTurnoParaCalificarOficial(
+      filtrarLiderazgoParaCalificar(
         activosEnServicioOperaciones,
         servicioOperacionesElegido,
         serviciosCoincidenCat,
@@ -146,7 +149,31 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     [activosEnServicioOperaciones, servicioOperacionesElegido],
   );
 
-  const calificadoresOpciones = esOficialOperaciones ? jefesTurnoOpciones : oficialesOpciones;
+  /** Oficial ← JT+JS; JT/JS ← oficiales del servicio (oficial por oficial). */
+  const calificadoresOpciones = useMemo(() => {
+    if (esOficialOperaciones) return liderazgoOpciones;
+
+    const byNo = new Map(oficialesOpciones.map((o) => [noKey(o.noEmpleado), o] as const));
+    // Compat: calificadores ya registrados (p. ej. JS legacy) que siguen en el servicio.
+    if (noSel) {
+      for (const e of multiEvalMap.get(noKey(noSel)) ?? []) {
+        const k = noKey(e.calificadoPor ?? "");
+        if (!k || byNo.has(k)) continue;
+        const p = activosEnServicioOperaciones.find((x) => noKey(x.noEmpleado) === k);
+        if (p) byNo.set(k, { noEmpleado: p.noEmpleado, nombre: p.nombre });
+      }
+    }
+    return [...byNo.values()].sort((a, b) =>
+      a.noEmpleado.localeCompare(b.noEmpleado, "es", { numeric: true }),
+    );
+  }, [
+    esOficialOperaciones,
+    liderazgoOpciones,
+    oficialesOpciones,
+    activosEnServicioOperaciones,
+    noSel,
+    multiEvalMap,
+  ]);
 
   function elegirServicioEnfoque(servicio: string) {
     setFiltroServicio(servicio.trim());
@@ -192,7 +219,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     const porRol = enServicio.filter((p) => personalCoincideRolOperaciones(p.puesto, rolOperaciones));
 
     // Incluir a quienes ya tienen calificación del rol actual aunque el puesto no coincida
-    // (p. ej. JT con puesto mal capturado): así no se “pierden” calificaciones oficial→JT.
+    // (p. ej. JT con puesto mal capturado): así no se “pierden” calificaciones JS→JT.
     const nosConEval = new Set<string>();
     for (const [no, evals] of multiEvalMap) {
       if (evals.length > 0) nosConEval.add(no);
@@ -436,12 +463,15 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
 
   function esCalificadorFantasma(calNo: string): boolean {
     const key = noKey(calNo);
-    if (!key) return false; // registro legacy sin calificador: no es "fantasma"
+    if (!key) return false;
     if (esOficialOperaciones) {
-      return !jefesTurnoOpciones.some((j) => noKey(j.noEmpleado) === key);
+      return !liderazgoOpciones.some((j) => noKey(j.noEmpleado) === key);
     }
     if (esJefeTurno) {
-      return !oficialesOpciones.some((o) => noKey(o.noEmpleado) === key);
+      // Oficiales vigentes; legacy (otro JT/JS) que ya calificó no cuenta como fantasma si sigue en servicio
+      const esOficial = oficialesOpciones.some((o) => noKey(o.noEmpleado) === key);
+      if (esOficial) return false;
+      return !activosEnServicioOperaciones.some((p) => noKey(p.noEmpleado) === key);
     }
     return false;
   }
@@ -450,7 +480,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     if (!esAdmin || !noSel) return;
     const calKey = noKey(calificadoPor);
     const etiqueta = calKey
-      ? `${esOficialOperaciones ? "JT" : "oficial"} ${calKey}`
+      ? `${esOficialOperaciones ? "JT/JS" : "Oficial"} ${calKey}`
       : "registro anterior (sin calificador)";
     if (
       !window.confirm(
@@ -541,7 +571,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       if (!calificadoPorSel) {
         setMsg(
           esOficialOperaciones
-            ? "SELECCIONA EL JEFE DE TURNO (CALIFICADO POR)."
+            ? "SELECCIONA EL JT O JS (CALIFICADO POR)."
             : "SELECCIONA EL OFICIAL (CALIFICADO POR).",
         );
         return;
@@ -580,7 +610,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       // Confirmar en listado antes de limpiar (evita “desaparecer” visualmente).
       await load();
 
-      const etiquetaCalificador = esOficialOperaciones ? "JT" : "OFICIAL";
+      const etiquetaCalificador = esOficialOperaciones ? "JT/JS" : "Oficial";
       const baseOk = usaEvalMultiCalificador
         ? `GUARDADO: ${empleadoGuardado} calificado por ${etiquetaCalificador} ${calificadorGuardado}${
             prom != null ? ` (prom. ${prom.toFixed(2)})` : ""
@@ -603,15 +633,15 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
         {esRh ? (
           <>
             <strong>{CAT_RH_AUSENTISMOS_LABEL}</strong> se obtiene de la cuadrícula de asistencia del mes{" "}
-            <strong>{faltasMesYm || "actual"}</strong> (códigos F). Califica rotación y actas del{" "}
+            <strong>{faltasMesYm || "anterior"}</strong> (códigos F, mes en desfase). Califica rotación y actas del{" "}
             <strong>1 al 5</strong>; el promedio RH usa solo esos criterios.
           </>
         ) : esOperaciones ? (
           <>
-            Elija primero el <strong>servicio</strong>. Después podrá calificar <strong>oficiales</strong> (15
-            criterios; cada jefe de turno del servicio califica al oficial y el promedio es la media de esas
-            calificaciones) o <strong>jefes de turno</strong> (24 criterios; cada oficial califica al JT y el promedio
-            es la media de esas calificaciones).
+            Elija primero el <strong>servicio</strong>. Después podrá calificar <strong>oficiales</strong>{" "}
+            (criterios operativos; cada JT o JS del servicio califica al oficial) o <strong>JT / JS</strong>{" "}
+            (criterios de liderazgo; cada oficial del servicio califica al JT/JS). El promedio es la media de esas
+            calificaciones.
           </>
         ) : esEnfoque ? (
           esClienteEnfoque ? (
@@ -694,8 +724,8 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           <div>
             <h2 className="text-sm font-bold uppercase text-violet-950">Paso 1 — Seleccione el servicio</h2>
             <p className="mt-1 text-xs text-slate-600">
-              Solo se listan colaboradores del servicio elegido: oficiales para el perfil estándar y jefes de turno
-              (JT) para calificación por oficiales.
+              Solo se listan colaboradores del servicio elegido: oficiales (calificados por JT o JS) y jefes de
+              turno / servicio (JT y JS, calificados por cada oficial).
             </p>
           </div>
           {busy && activos.length === 0 ? (
@@ -719,7 +749,8 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
               Servicio: <strong className="uppercase">{servicioOperacionesElegido}</strong>
               <span className="ml-2 font-normal text-slate-600">
                 {conteoServicioOperaciones.oficiales} oficial
-                {conteoServicioOperaciones.oficiales === 1 ? "" : "es"} · {conteoServicioOperaciones.jefesTurno} JT
+                {conteoServicioOperaciones.oficiales === 1 ? "" : "es"} · {conteoServicioOperaciones.jefesTurno} JT ·{" "}
+                {conteoServicioOperaciones.jefesServicio} JS
               </span>
             </p>
             <button
@@ -767,7 +798,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           <p className="rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2 text-xs font-medium text-violet-900">
             {esEnfoque
               ? "Seleccione un servicio arriba para calificar colaboradores activos de ese servicio."
-              : "Seleccione un servicio arriba para ver oficiales y jefes de turno de ese servicio."}
+              : "Seleccione un servicio arriba para ver oficiales, jefes de turno y jefes de servicio de ese servicio."}
           </p>
         ) : (
           <>
@@ -781,7 +812,13 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           ) : null}
           <div className={filtroPorServicio ? "sm:col-span-2" : "sm:col-span-3"}>
             <CatEmpleadoBuscador
-              label={esJefeTurno ? "Jefe de turno (JT) a calificar" : esOficialOperaciones ? "Oficial a calificar" : "Empleado (activo en Colaboradores)"}
+              label={
+                esJefeTurno
+                  ? "JT o JS a calificar"
+                  : esOficialOperaciones
+                    ? "Oficial a calificar"
+                    : "Empleado (activo en Colaboradores)"
+              }
               hint="Datos en vivo desde expedientes activos. Escribe N° o nombre."
               value={noSel}
               onChange={seleccionarEmpleado}
@@ -793,7 +830,11 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
         </div>
         {usaEvalMultiCalificador && noSel ? (
           <CatEmpleadoBuscador
-            label={esOficialOperaciones ? "Calificado por (jefe de turno del servicio)" : "Calificado por (oficial del servicio)"}
+            label={
+              esOficialOperaciones
+                ? "Calificado por (JT o JS del servicio)"
+                : "Calificado por (oficial del servicio)"
+            }
             value={calificadoPorSel}
             onChange={(no) => {
               setCalificadoPorSel(noKey(no));
@@ -804,8 +845,8 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
             disabled={busy || calificadoresOpciones.length === 0}
             hint={
               esOficialOperaciones
-                ? `Cada JT califica una vez al oficial. El servicio tiene ${jefesTurnoOpciones.length} JT. Puede editar su propia calificación.`
-                : "Cada oficial califica una vez al JT. Puede editar su propia calificación."
+                ? `Cada JT/JS califica una vez al oficial. El servicio tiene ${liderazgoOpciones.length} JT/JS. Puede editar su propia calificación.`
+                : `Cada oficial califica una vez al JT/JS. El servicio tiene ${oficialesOpciones.length} oficiales. Puede editar su propia calificación.`
             }
           />
         ) : null}
@@ -814,13 +855,20 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
             <p className="font-bold uppercase text-slate-600">Calificaciones registradas</p>
             {esAdmin ? (
               <p className="mt-0.5 text-[10px] font-medium text-amber-900">
-                Admin: puede eliminar registros erróneos o fantasmas (JT/oficial no vigente en el servicio).
+                Admin: puede eliminar registros erróneos o fantasmas (calificador no vigente en el servicio).
               </p>
             ) : null}
             <ul className="mt-1 space-y-1">
               {evalsMultiSel.map((e) => {
                 const cal = activos.find((p) => noKey(p.noEmpleado) === e.calificadoPor);
-                const rolLabel = esOficialOperaciones ? "JT" : "Oficial";
+                const calPuesto = cal?.puesto ?? "";
+                const rolLabel = esOficialOperaciones
+                  ? puestoEsJefeServicio(calPuesto)
+                    ? "JS"
+                    : puestoEsJefeTurno(calPuesto)
+                      ? "JT"
+                      : "Calificador"
+                  : "Oficial";
                 const fantasma = esCalificadorFantasma(e.calificadoPor ?? "");
                 const rowKey = evalRowKey(e.calificadoPor ?? "");
                 return (
@@ -856,12 +904,15 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
             </ul>
             {acumuladoMultiSel != null ? (
               <p className="mt-2 font-bold text-violet-950">
-                Promedio acumulado operaciones: {acumuladoMultiSel.toFixed(2)} ({evalsMultiSel.length}{" "}
-                {esOficialOperaciones ? "JT" : "oficial"}
-                {evalsMultiSel.length === 1 ? "" : "es"}
-                {esOficialOperaciones && jefesTurnoOpciones.length > 0
-                  ? ` de ${jefesTurnoOpciones.length} en el servicio`
-                  : ""}
+                Promedio acumulado operaciones: {acumuladoMultiSel.toFixed(2)} (
+                {evalsMultiSel.length}{" "}
+                {esOficialOperaciones ? "JT/JS" : "oficial"}
+                {evalsMultiSel.length === 1 ? "" : esOficialOperaciones ? "" : "es"}
+                {esOficialOperaciones && liderazgoOpciones.length > 0
+                  ? ` de ${liderazgoOpciones.length} en el servicio`
+                  : !esOficialOperaciones && oficialesOpciones.length > 0
+                    ? ` de ${oficialesOpciones.length} en el servicio`
+                    : ""}
                 )
               </p>
             ) : null}
@@ -872,21 +923,22 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
         ) : null}
         {esJefeTurno && servicioOperacionesElegido && oficialesOpciones.length === 0 ? (
           <p className="text-xs font-medium text-amber-800">
-            No hay oficiales activos en el servicio «{servicioOperacionesElegido}». Revise puestos en Colaboradores.
+            No hay oficiales activos en el servicio «{servicioOperacionesElegido}» para calificar al JT/JS. Revise
+            puestos en Colaboradores.
           </p>
         ) : null}
-        {esOficialOperaciones && servicioOperacionesElegido && jefesTurnoOpciones.length === 0 ? (
+        {esOficialOperaciones && servicioOperacionesElegido && liderazgoOpciones.length === 0 ? (
           <p className="text-xs font-medium text-amber-800">
-            No hay jefes de turno activos en el servicio «{servicioOperacionesElegido}». Revise puestos en
-            Colaboradores.
+            No hay jefes de turno ni de servicio activos en «{servicioOperacionesElegido}». Revise puestos en
+            Colaboradores (ej. Jefe de turno, Jefe de servicio, JT, JS).
           </p>
         ) : null}
         {!noSel || (usaEvalMultiCalificador && !calificadoPorSel) ? (
           <p className="rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2 text-xs font-medium text-violet-900">
             {usaEvalMultiCalificador
               ? esOficialOperaciones
-                ? "Elige oficial y el jefe de turno que califica."
-                : "Elige jefe de turno y el oficial que califica."
+                ? "Elige oficial y el JT o JS que califica."
+                : "Elige JT o JS a calificar y el oficial que califica."
               : "Elige un empleado de la lista para calificar."}{" "}
             {usaEvalMultiCalificador ? (
               <strong>
@@ -908,7 +960,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
                 {faltasSeleccionado && faltasSeleccionado.fechas.length > 0 ? (
                   <p className="mt-1 text-[11px] font-medium text-slate-700">{faltasSeleccionado.fechas.join(" · ")}</p>
                 ) : (
-                  <p className="mt-1 text-[11px] text-slate-500">Sin faltas registradas en cuadrícula este mes.</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Sin faltas registradas en cuadrícula del mes anterior.</p>
                 )}
               </div>
             ) : null}
@@ -967,7 +1019,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       <section className="card overflow-hidden">
         <h2 className="mb-2 px-1 text-sm font-bold uppercase">
           Resumen — {labelModuloEval(modulo)}
-          {esOperaciones ? ` (${rolOperaciones === "jefe_turno" ? "Jefe de turno" : "Oficial"})` : ""} (
+          {esOperaciones ? ` (${rolOperaciones === "jefe_turno" ? "JT / JS" : "Oficial"})` : ""} (
           {evaluadosCount} evaluado(s) de {personalPorServicio.length} activo(s)
           {esOperaciones ? "" : filtroServicio && activosPorRol.length !== personalPorServicio.length
             ? ` · ${activosPorRol.length} en perfil`
@@ -978,7 +1030,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           <p className="mb-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             {esEnfoque
               ? "Elija un servicio para ver el resumen de colaboradores activos de ese servicio."
-              : "Elija un servicio para ver el resumen de oficiales y JT de ese servicio."}
+              : "Elija un servicio para ver el resumen de oficiales, JT y JS de ese servicio."}
           </p>
         ) : (
           <>
@@ -1032,7 +1084,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
                   </>
                 ) : esOficialOperaciones ? (
                   <>
-                    <th className="p-2 text-center">JT</th>
+                    <th className="p-2 text-center">JT/JS</th>
                     <th className="p-2 text-center">Prom. acum.</th>
                   </>
                 ) : (

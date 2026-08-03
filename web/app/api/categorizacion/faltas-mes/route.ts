@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCategorizacionApi } from "@/lib/categorizacion-api-auth";
-import { contarFaltasMesDesdeCuadricula, mesCalendarioActualYm } from "@/lib/categorizacion-faltas-cuadricula";
+import { contarFaltasMesDesdeCuadricula, mesCalendarioAnteriorYm } from "@/lib/categorizacion-faltas-cuadricula";
 import {
   createSupabaseServiceRoleClient,
   isSupabaseServerConfigured,
@@ -21,7 +21,8 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const mes = url.searchParams.get("mes")?.trim() || mesCalendarioActualYm();
+  // Por defecto mes anterior (desfase de categorización / dashboard).
+  const mes = url.searchParams.get("mes")?.trim() || mesCalendarioAnteriorYm();
 
   try {
     const { mesYm, faltas } = await contarFaltasMesDesdeCuadricula(admin, mes);

@@ -5,12 +5,15 @@ import {
   type CatOperacionesRolId,
 } from "@/lib/categorizacion-operaciones-roles";
 
-export type CatEvalModuloId = "recursos_humanos" | "operaciones" | "enfoque_cliente";
+export type CatEvalModuloId =
+  | "recursos_humanos"
+  | "operaciones"
+  | "enfoque_cliente";
 
 export type CatCampoDef = { key: string; label: string };
 
-/** Ausentismos = faltas del mes en cuadrícula (solo lectura; no se califica 1–5). */
-export const CAT_RH_AUSENTISMOS_LABEL = "Ausentismos (faltas mes actual)";
+/** Ausentismos = faltas del mes en desfase (mes anterior) en cuadrícula (solo lectura; no se califica 1–5). */
+export const CAT_RH_AUSENTISMOS_LABEL = "Ausentismos (faltas mes anterior)";
 
 export const CAT_RH_CAMPOS: CatCampoDef[] = [
   { key: "rotacion_servicios", label: "Rotación dentro de los servicios" },

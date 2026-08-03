@@ -13,6 +13,7 @@ import {
   serviciosAgrupadosUnicosDesdePersonal,
 } from "@/lib/categorizacion-filtros-servicio";
 import {
+  puestoEsJefeServicio,
   puestoEsJefeTurno,
   puestoEsOficialOperaciones,
 } from "@/lib/categorizacion-operaciones-roles";
@@ -354,15 +355,17 @@ export function CatSelectorServicioObligatorio({
   const resumen = useMemo(() => {
     const map = new Map<
       string,
-      { servicio: string; oficiales: number; jefesTurno: number; total: number }
+      { servicio: string; oficiales: number; jefesTurno: number; jefesServicio: number; total: number }
     >();
     for (const r of personal) {
       const clave = servicioClaveFiltroCat(String(r.servicio ?? ""));
       if (!clave) continue;
-      const row = map.get(clave) ?? { servicio: clave, oficiales: 0, jefesTurno: 0, total: 0 };
+      const row =
+        map.get(clave) ?? { servicio: clave, oficiales: 0, jefesTurno: 0, jefesServicio: 0, total: 0 };
       row.total++;
       const puesto = String(r.puesto ?? "");
-      if (puestoEsJefeTurno(puesto)) row.jefesTurno++;
+      if (puestoEsJefeServicio(puesto)) row.jefesServicio++;
+      else if (puestoEsJefeTurno(puesto)) row.jefesTurno++;
       else if (puestoEsOficialOperaciones(puesto)) row.oficiales++;
       map.set(clave, row);
     }
@@ -379,11 +382,13 @@ export function CatSelectorServicioObligatorio({
   const conteoServicioSeleccionado = useMemo(() => {
     let oficiales = 0;
     let jefesTurno = 0;
+    let jefesServicio = 0;
     for (const p of personalServicio) {
-      if (puestoEsJefeTurno(p.puesto ?? "")) jefesTurno++;
+      if (puestoEsJefeServicio(p.puesto ?? "")) jefesServicio++;
+      else if (puestoEsJefeTurno(p.puesto ?? "")) jefesTurno++;
       else if (puestoEsOficialOperaciones(p.puesto ?? "")) oficiales++;
     }
-    return { oficiales, jefesTurno, total: personalServicio.length };
+    return { oficiales, jefesTurno, jefesServicio, total: personalServicio.length };
   }, [personalServicio]);
 
   if (resumen.length === 0) {
@@ -443,8 +448,7 @@ export function CatSelectorServicioObligatorio({
             >
               <span className="block uppercase leading-snug">{r.servicio}</span>
               <span className="mt-1 block font-normal text-slate-600">
-                {r.oficiales} oficial{r.oficiales === 1 ? "" : "es"} · {r.jefesTurno} jefe
-                {r.jefesTurno === 1 ? "" : "s"} de turno
+                {r.oficiales} oficial{r.oficiales === 1 ? "" : "es"} · {r.jefesTurno} JT · {r.jefesServicio} JS
               </span>
             </button>
           );

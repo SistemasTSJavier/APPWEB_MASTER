@@ -90,8 +90,10 @@ export function CatOficialFoto({
     }
   }
 
-  /* Misma proporción compacta en página y presentación: evita forzar zoom del navegador. */
-  const frameClass = `aspect-[3/4] h-[6.5rem] w-[4.85rem] shrink-0 sm:h-[7.25rem] sm:w-[5.4rem] lg:h-[7.75rem] lg:w-[5.8rem] ${className}`;
+  /* Compacta y fluida; en presentación cabe en la columna izquierda. */
+  const frameClass = presentacion
+    ? `aspect-[3/4] h-[5.5rem] w-[4.1rem] shrink-0 sm:h-[6.25rem] sm:w-[4.7rem] ${className}`
+    : `aspect-[3/4] h-[clamp(5.25rem,16vw,7rem)] w-[clamp(3.9rem,12vw,5.25rem)] shrink-0 ${className}`;
 
   return (
     <div

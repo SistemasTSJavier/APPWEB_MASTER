@@ -131,7 +131,7 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
             />
           </div>
         </div>
-        <table className="w-full min-w-[720px] text-xs">
+        <table className="w-full min-w-[800px] text-xs">
           <thead>
             <tr className="border-b text-[10px] font-bold uppercase text-slate-600">
               <th className="p-2">N°</th>

@@ -5,6 +5,7 @@ import { CatCapacitacionPanel } from "@/components/categorizacion/CatCapacitacio
 import { CatCatalogoCapacitacionesPanel } from "@/components/categorizacion/CatCatalogoCapacitacionesPanel";
 import { CatEvaluacionPanel } from "@/components/categorizacion/CatEvaluacionPanel";
 import { CatPersonalPanel } from "@/components/categorizacion/CatPersonalPanel";
+import { CatRecompensasPanel } from "@/components/categorizacion/CatRecompensasPanel";
 import { CatResumenPanel } from "@/components/categorizacion/CatResumenPanel";
 import { CategorizacionHero, CategorizacionModuloGrid } from "@/components/categorizacion/categorizacion-ui";
 import type { CatEvalModuloId } from "@/lib/categorizacion-campos";
@@ -24,6 +25,7 @@ function ModuloPanel({ moduloId, appRole }: { moduloId: CategorizacionModuloId; 
   if (moduloId === "personal") return <CatPersonalPanel />;
   if (moduloId === "catalogo-capacitaciones") return <CatCatalogoCapacitacionesPanel />;
   if (moduloId === "capacitacion") return <CatCapacitacionPanel />;
+  if (moduloId === "recompensas") return <CatRecompensasPanel />;
   if (moduloId === "nivel") return <CatResumenPanel tipo="nivel" />;
   if (moduloId === "paquete-prestaciones") return <CatResumenPanel tipo="paquete-prestaciones" />;
   const evalMod = evalModuloFromUrl(moduloId);
