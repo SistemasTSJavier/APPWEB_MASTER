@@ -34,7 +34,7 @@ export function CategorizacionHomeClient({
             Exportar dashboard (PDF / imagen)
           </Link>
         </div>
-        <CategorizacionModuloGrid />
+        <CategorizacionModuloGrid soloAdmin={appRole === "admin"} />
       </div>
     </AppModuleShell>
   );

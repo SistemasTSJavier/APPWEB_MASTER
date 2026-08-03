@@ -5,6 +5,7 @@ import { CatCapacitacionPanel } from "@/components/categorizacion/CatCapacitacio
 import { CatCatalogoCapacitacionesPanel } from "@/components/categorizacion/CatCatalogoCapacitacionesPanel";
 import { CatEvaluacionPanel } from "@/components/categorizacion/CatEvaluacionPanel";
 import { CatPersonalPanel } from "@/components/categorizacion/CatPersonalPanel";
+import { CatPromediosRapidosPanel } from "@/components/categorizacion/CatPromediosRapidosPanel";
 import { CatRecompensasPanel } from "@/components/categorizacion/CatRecompensasPanel";
 import { CatResumenPanel } from "@/components/categorizacion/CatResumenPanel";
 import { CategorizacionHero, CategorizacionModuloGrid } from "@/components/categorizacion/categorizacion-ui";
@@ -26,6 +27,7 @@ function ModuloPanel({ moduloId, appRole }: { moduloId: CategorizacionModuloId; 
   if (moduloId === "catalogo-capacitaciones") return <CatCatalogoCapacitacionesPanel />;
   if (moduloId === "capacitacion") return <CatCapacitacionPanel />;
   if (moduloId === "recompensas") return <CatRecompensasPanel />;
+  if (moduloId === "promedios-rapidos") return <CatPromediosRapidosPanel />;
   if (moduloId === "nivel") return <CatResumenPanel tipo="nivel" />;
   if (moduloId === "paquete-prestaciones") return <CatResumenPanel tipo="paquete-prestaciones" />;
   const evalMod = evalModuloFromUrl(moduloId);
@@ -62,7 +64,7 @@ export function CategorizacionModuloClient({
         {!esClienteEnfoque ? (
           <div>
             <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600">Otros módulos</p>
-            <CategorizacionModuloGrid activeId={moduloId} />
+            <CategorizacionModuloGrid activeId={moduloId} soloAdmin={appRole === "admin"} />
           </div>
         ) : null}
       </div>

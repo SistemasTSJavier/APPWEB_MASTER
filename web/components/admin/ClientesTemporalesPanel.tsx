@@ -202,7 +202,11 @@ export function ClientesTemporalesPanel({
         </h2>
         <p className="mt-1 text-xs text-slate-600">
           Active solo las secciones que el cliente debe ver. Por defecto: Categorización, Efectividad operativa y
-          Asistencia del servicio.
+          Asistencia del servicio. El cliente entra en{" "}
+          <a href="/login/cliente" className="font-bold text-sky-800 underline">
+            /login/cliente
+          </a>
+          .
         </p>
       </div>
 
@@ -286,6 +290,21 @@ export function ClientesTemporalesPanel({
           </p>
           <p>
             <strong>Contraseña:</strong> <span className="font-mono">{ultimoCreado.passwordPlano}</span>
+          </p>
+          <p className="mt-2">
+            <strong>Liga de acceso:</strong>{" "}
+            <a
+              className="font-mono font-bold text-emerald-900 underline break-all"
+              href="/login/cliente"
+              target="_blank"
+              rel="noreferrer"
+            >
+              /login/cliente
+            </a>
+          </p>
+          <p className="mt-1 text-[10px] font-medium text-emerald-900/80">
+            Envíe al cliente la liga completa de su dominio, por ejemplo{" "}
+            <span className="font-mono">https://su-dominio/login/cliente</span>
           </p>
           <p>
             <strong>Vigencia:</strong> {ultimoCreado.fechaInicio} → {ultimoCreado.fechaFin}

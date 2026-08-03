@@ -5,7 +5,7 @@ import {
   roleEsClienteEnfoque,
   roleMayAccessCategorizacion,
 } from "@/lib/app-role";
-import { isCategorizacionModuloId } from "@/lib/categorizacion-modulos";
+import { isCategorizacionModuloId, categorizacionModuloEsAdminOnly } from "@/lib/categorizacion-modulos";
 import { CategorizacionModuloClient } from "@/app/categorizacion/CategorizacionModuloClient";
 
 type Props = { params: Promise<{ modulo: string }> };
@@ -21,6 +21,9 @@ export default async function CategorizacionModuloPage({ params }: Props) {
   if (!isCategorizacionModuloId(moduloRaw)) notFound();
   if (roleEsClienteEnfoque(auth.role) && moduloRaw !== "dashboard") {
     redirect("/categorizacion/dashboard");
+  }
+  if (categorizacionModuloEsAdminOnly(moduloRaw) && auth.role !== "admin") {
+    redirect("/categorizacion");
   }
 
   const modulos = modulosHabilitadosDesdeMetadata(

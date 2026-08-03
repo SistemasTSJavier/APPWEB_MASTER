@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useEffect, useMemo, useState } from "react";
 import type { CatDashboardEmpleado } from "@/lib/categorizacion-dashboard-types";
 import type { CatNivelId, CatPaqueteId } from "@/lib/categorizacion-calificaciones";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
@@ -37,6 +37,13 @@ export const CatDashboardView = forwardRef<
   },
   ref,
 ) {
+  const [mostrarCapacitaciones, setMostrarCapacitaciones] = useState(false);
+  const capacitaciones = empleado.capacitaciones ?? [];
+
+  useEffect(() => {
+    setMostrarCapacitaciones(false);
+  }, [empleado.noEmpleado]);
+
   const nivelLabel = empleado.nivelId ? empleado.nivelId.toUpperCase() : "—";
   const paqueteLabel = empleado.paqueteId
     ? empleado.paqueteId === "basico"
@@ -144,6 +151,8 @@ export const CatDashboardView = forwardRef<
             capacitacion={empleado.promedioCapacitacion}
             operaciones={empleado.promedioOperaciones}
             enfoque={empleado.promedioEnfoque}
+            capacitacionActiva={mostrarCapacitaciones}
+            onClickCapacitacion={() => setMostrarCapacitaciones((v) => !v)}
           />
 
           <div className="mt-2.5 grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto overscroll-contain sm:gap-2.5">
@@ -187,6 +196,10 @@ export const CatDashboardView = forwardRef<
               tono="violet"
             />
           </div>
+
+          {mostrarCapacitaciones ? (
+            <KardexCapacitaciones items={capacitaciones} presentacion={presentacion} />
+          ) : null}
         </section>
 
         {/* Columna 3: nivel + paquete + resumen */}
@@ -314,6 +327,57 @@ function IndicadorCentro({
       {detalle ? (
         <p className="mt-1 line-clamp-2 text-[9px] font-medium leading-snug opacity-90 sm:text-[10px]">{detalle}</p>
       ) : null}
+    </div>
+  );
+}
+
+function KardexCapacitaciones({
+  items,
+  presentacion = false,
+}: {
+  items: CatDashboardEmpleado["capacitaciones"];
+  presentacion?: boolean;
+}) {
+  return (
+    <div
+      className={`mt-2.5 shrink-0 rounded-lg border border-violet-200 bg-violet-50/60 ${
+        presentacion ? "max-h-[7.5rem] overflow-y-auto" : "max-h-40 overflow-y-auto"
+      }`}
+    >
+      <div className="sticky top-0 z-[1] flex items-center justify-between gap-2 border-b border-violet-200 bg-violet-100/90 px-2.5 py-1.5">
+        <p className="text-[9px] font-bold uppercase text-violet-950 sm:text-[10px]">
+          Kardex de capacitaciones ({items.length})
+        </p>
+      </div>
+      {items.length === 0 ? (
+        <p className="px-2.5 py-2.5 text-[10px] font-medium text-slate-600">
+          Sin capacitaciones registradas en este mes.
+        </p>
+      ) : (
+        <ul className="divide-y divide-violet-100">
+          {items.map((c) => (
+            <li key={c.id} className="px-2.5 py-1.5">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 text-[10px] font-bold uppercase leading-snug text-slate-900 sm:text-[11px]">
+                  {c.cursoNombre}
+                </p>
+                <span className="shrink-0 font-mono text-[10px] font-extrabold tabular-nums text-violet-900 sm:text-[11px]">
+                  {c.promedio != null
+                    ? c.promedio.toFixed(1)
+                    : c.desempeno != null
+                      ? Number(c.desempeno).toFixed(1)
+                      : "—"}
+                </span>
+              </div>
+              {c.comentarios ? (
+                <p className="mt-0.5 line-clamp-2 text-[9px] font-medium leading-snug text-slate-600">
+                  {c.comentarios}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

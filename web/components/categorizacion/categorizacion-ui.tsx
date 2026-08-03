@@ -47,15 +47,25 @@ export function CategorizacionHero({
   );
 }
 
-export function CategorizacionModuloGrid({ activeId }: { activeId?: CategorizacionModuloId }) {
+export function CategorizacionModuloGrid({
+  activeId,
+  soloAdmin = false,
+}: {
+  activeId?: CategorizacionModuloId;
+  /** Si true, incluye módulos adminOnly; si false, los oculta. */
+  soloAdmin?: boolean;
+}) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
+    const base = soloAdmin
+      ? CATEGORIZACION_MODULOS
+      : CATEGORIZACION_MODULOS.filter((m) => !("adminOnly" in m && m.adminOnly));
     const n = q.trim().toLowerCase();
-    if (!n) return CATEGORIZACION_MODULOS;
-    return CATEGORIZACION_MODULOS.filter(
+    if (!n) return base;
+    return base.filter(
       (m) => m.label.toLowerCase().includes(n) || m.description.toLowerCase().includes(n),
     );
-  }, [q]);
+  }, [q, soloAdmin]);
 
   return (
     <div className="space-y-4">

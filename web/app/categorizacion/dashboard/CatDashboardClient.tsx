@@ -16,26 +16,34 @@ import {
   logoServicioDesdeMapa,
 } from "@/lib/cat-dashboard-logo-servicio";
 import { capturarDashboardComoCanvas } from "@/lib/dashboard-export-capture";
+import { mesCalendarioAnteriorYm } from "@/lib/categorizacion-faltas-cuadricula";
+import { etiquetaMesYm } from "@/lib/categorizacion-recompensas";
 
 const LOOP_MS = 20_000;
 const PDF_MARGIN_MM = 10;
 const PDF_HEADER_MM = 8;
 const PDF_JPEG_QUALITY = 0.92;
-const DASHBOARD_CACHE_KEY = "cat-dashboard-payload-v6";
+const DASHBOARD_CACHE_PREFIX = "cat-dashboard-payload-v7:";
 const DASHBOARD_CACHE_MS = 5 * 60_000;
 
 type DashboardCache = CatDashboardPayload & { cachedAt: number };
 
-function leerDashboardCache(): CatDashboardPayload | null {
+function cacheKeyDashboard(mes: string): string {
+  return `${DASHBOARD_CACHE_PREFIX}${mes}`;
+}
+
+function leerDashboardCache(mes: string): CatDashboardPayload | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+    const raw = sessionStorage.getItem(cacheKeyDashboard(mes));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as DashboardCache;
     if (!parsed?.empleados?.length || Date.now() - parsed.cachedAt > DASHBOARD_CACHE_MS) return null;
     const { cachedAt: _c, ...payload } = parsed;
     return {
       ...payload,
+      periodMonth: payload.periodMonth || mes,
+      periodosDisponibles: payload.periodosDisponibles?.length ? payload.periodosDisponibles : [mes],
       empleados: (payload.empleados ?? []).map((e) => ({ ...e, fotoUrl: e.fotoUrl ?? null })),
       logosServicio: payload.logosServicio ?? {},
     };
@@ -48,7 +56,7 @@ function guardarDashboardCache(payload: CatDashboardPayload) {
   if (typeof window === "undefined") return;
   try {
     const toStore: DashboardCache = { ...payload, cachedAt: Date.now() };
-    sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(toStore));
+    sessionStorage.setItem(cacheKeyDashboard(payload.periodMonth || mesCalendarioAnteriorYm()), JSON.stringify(toStore));
   } catch {
     /* quota / privado */
   }
@@ -145,6 +153,7 @@ export function CatDashboardClient({
   const [data, setData] = useState<CatDashboardPayload | null>(null);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [periodMonth, setPeriodMonth] = useState(mesCalendarioAnteriorYm());
   const [servicio, setServicio] = useState(initialServicio?.trim() || "");
   const [planta, setPlanta] = useState("");
   const [noSel, setNoSel] = useState(initialNo?.trim().toUpperCase() || "");
@@ -158,12 +167,17 @@ export function CatDashboardClient({
   const [fechaFinAcceso, setFechaFinAcceso] = useState("");
   const dashRef = useRef<HTMLDivElement>(null);
   const dashExportRef = useRef<HTMLDivElement>(null);
+  const loadMesSeqRef = useRef(0);
   const esClienteConsulta = roleEsClienteEnfoque(appRole);
   const puedeSubirFoto = roleMayWriteExpedienteColaborador(appRole) && !esClienteConsulta;
   const puedeSubirLogo = !esClienteConsulta;
 
   function normalizarEmpleadosDashboard(rows: CatDashboardEmpleado[]): CatDashboardEmpleado[] {
-    return rows.map((e) => ({ ...e, fotoUrl: e.fotoUrl ?? null }));
+    return rows.map((e) => ({
+      ...e,
+      fotoUrl: e.fotoUrl ?? null,
+      capacitaciones: Array.isArray(e.capacitaciones) ? e.capacitaciones : [],
+    }));
   }
 
   function actualizarLogoServicio(servicioNombre: string, url: string | null) {
@@ -194,45 +208,65 @@ export function CatDashboardClient({
     });
   }
 
-  function normalizarPayloadDashboard(j: Record<string, unknown>): CatDashboardPayload {
+  function normalizarPayloadDashboard(j: Record<string, unknown>, mesFallback: string): CatDashboardPayload {
+    const mes = String(j.periodMonth ?? mesFallback);
+    const periodos = Array.isArray(j.periodosDisponibles)
+      ? (j.periodosDisponibles as string[]).filter((m) => /^\d{4}-\d{2}$/.test(m))
+      : [];
+    if (!periodos.includes(mes)) periodos.push(mes);
+    periodos.sort((a, b) => b.localeCompare(a));
     return {
       empleados: normalizarEmpleadosDashboard((j.empleados as CatDashboardEmpleado[]) ?? []),
       servicios: (j.servicios as string[]) ?? [],
       generadoEn: String(j.generadoEn ?? new Date().toISOString()),
       logosServicio: (j.logosServicio as Record<string, string>) ?? {},
+      periodMonth: mes,
+      periodosDisponibles: periodos,
     };
   }
 
-  const load = useCallback(async (opts?: { background?: boolean }) => {
+  const load = useCallback(async (opts?: { background?: boolean; mes?: string }) => {
+    const mes = opts?.mes || periodMonth;
+    const seq = ++loadMesSeqRef.current;
     const background = Boolean(opts?.background);
     if (!background) setBusy(true);
     else setRefreshing(true);
     setErr(null);
     try {
-      const r = await fetch("/api/categorizacion/dashboard", { cache: "no-store" });
+      const r = await fetch(`/api/categorizacion/dashboard?mes=${encodeURIComponent(mes)}`, {
+        cache: "no-store",
+      });
       const j = await r.json();
+      if (seq !== loadMesSeqRef.current) return;
       if (!r.ok) throw new Error(j.error);
-      const payload = normalizarPayloadDashboard(j as Record<string, unknown>);
+      const payload = normalizarPayloadDashboard(j as Record<string, unknown>, mes);
       setData(payload);
+      // Solo corregir mes si el servidor normalizó uno distinto al pedido.
+      if (payload.periodMonth && payload.periodMonth !== mes) {
+        setPeriodMonth(payload.periodMonth);
+      }
       guardarDashboardCache(payload);
     } catch (e) {
+      if (seq !== loadMesSeqRef.current) return;
       setErr(e instanceof Error ? e.message.toUpperCase() : "ERROR AL CARGAR.");
     } finally {
-      setBusy(false);
-      setRefreshing(false);
+      if (seq === loadMesSeqRef.current) {
+        setBusy(false);
+        setRefreshing(false);
+      }
     }
-  }, []);
+  }, [periodMonth]);
 
   useEffect(() => {
-    const cached = leerDashboardCache();
+    const cached = leerDashboardCache(periodMonth);
     if (cached) {
       setData(cached);
       setBusy(false);
-      void load({ background: true });
+      void load({ background: true, mes: periodMonth });
       return;
     }
-    void load();
-  }, [load]);
+    void load({ mes: periodMonth });
+  }, [load, periodMonth]);
 
   useEffect(() => {
     if (!esClienteConsulta) return;
@@ -569,6 +603,32 @@ export function CatDashboardClient({
 
         <section className={`card ${esClienteConsulta ? "space-y-3 p-3 sm:p-4" : "space-y-4"}`}>
           <h2 className="text-sm font-bold uppercase text-slate-900">Filtros</h2>
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2">
+            <label className="space-y-1">
+              <span className="form-label">Mes del historial</span>
+              <input
+                className="form-control"
+                type="month"
+                value={periodMonth}
+                list="cat-dashboard-periodos"
+                onChange={(e) => {
+                  const m = e.target.value;
+                  if (!/^\d{4}-\d{2}$/.test(m)) return;
+                  setPeriodMonth(m);
+                  setMostrar(false);
+                  detenerLoop();
+                }}
+              />
+              <datalist id="cat-dashboard-periodos">
+                {(data?.periodosDisponibles ?? [periodMonth]).map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </label>
+            <p className="pb-1 text-[11px] font-medium capitalize text-violet-950">
+              Promedios, faltas y recompensas de {etiquetaMesYm(periodMonth)}
+            </p>
+          </div>
           {conteosServicio.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {conteosServicio.map(({ servicio: s, count }) => (

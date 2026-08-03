@@ -32,9 +32,14 @@ function isFeaturePublicPage(pathname: string): boolean {
 function isAuthPublicPath(pathname: string): boolean {
   return (
     pathname === "/login" ||
+    pathname === "/login/cliente" ||
     pathname.startsWith("/auth/callback") ||
     pathname.startsWith("/auth/signout")
   );
+}
+
+function isLoginPath(pathname: string): boolean {
+  return pathname === "/login" || pathname === "/login/cliente";
 }
 
 export async function proxy(request: NextRequest) {
@@ -113,7 +118,7 @@ export async function proxy(request: NextRequest) {
   );
 
   if (!role) {
-    if (pathname === "/login") return supabaseResponse;
+    if (isLoginPath(pathname)) return supabaseResponse;
     if (pathname.startsWith("/auth/signout")) return supabaseResponse;
     if (pathname.startsWith("/api/") && publicApiPath(pathname, method)) return supabaseResponse;
     if (pathname.startsWith("/api/")) {
@@ -126,7 +131,7 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse;
   }
 
-  if (pathname === "/login") {
+  if (isLoginPath(pathname)) {
     // Tras cerrar sesión, no reenviar al home aunque queden cookies viejas un instante.
     if (request.nextUrl.searchParams.get("logged_out") === "1") {
       return supabaseResponse;

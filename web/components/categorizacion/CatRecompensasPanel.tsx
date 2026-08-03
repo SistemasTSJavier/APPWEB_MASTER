@@ -12,6 +12,7 @@ import {
   type CatRecompensaRow,
   type CatRecompensaTipo,
 } from "@/lib/categorizacion-recompensas";
+import { filtrarPorVigenciaEnMesHistorial } from "@/lib/categorizacion-tenure";
 
 function noKey(no: string): string {
   return no.trim().toUpperCase();
@@ -30,8 +31,8 @@ export function CatRecompensasPanel() {
   const [editId, setEditId] = useState<string | null>(null);
 
   const activosFiltrados = useMemo(
-    () => filtrarPorServicio(activos, filtroServicio),
-    [activos, filtroServicio],
+    () => filtrarPorVigenciaEnMesHistorial(filtrarPorServicio(activos, filtroServicio), mes),
+    [activos, filtroServicio, mes],
   );
   const opciones = useMemo(
     () => activosFiltrados.map((a) => ({ noEmpleado: a.noEmpleado, nombre: a.nombre })),

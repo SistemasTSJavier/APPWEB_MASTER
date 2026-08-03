@@ -20,6 +20,15 @@ export type CatDashboardRecompensasDetalle = {
   reconocimientos: CatDashboardRecompensaItem[];
 };
 
+/** Registro de capacitación del mes (kardex en dashboard). */
+export type CatDashboardCapacitacionItem = {
+  id: string;
+  cursoNombre: string;
+  desempeno: number | null;
+  promedio: number | null;
+  comentarios: string;
+};
+
 export type CatDashboardEmpleado = {
   noEmpleado: string;
   nombre: string;
@@ -43,6 +52,8 @@ export type CatDashboardEmpleado = {
   paqueteId: CatPaqueteId | null;
   rh: CatDashboardRhDetalle;
   recompensas: CatDashboardRecompensasDetalle;
+  /** Capacitaciones registradas en el mes del historial. */
+  capacitaciones: CatDashboardCapacitacionItem[];
   faltasMesActual: number;
   faltasMesDetalle: string;
   faltasMesYm: string;
@@ -56,4 +67,8 @@ export type CatDashboardPayload = {
   generadoEn: string;
   /** Logo de cliente por servicio (clave normalizada). */
   logosServicio: Record<string, string>;
+  /** Mes de promedios / faltas / recompensas (YYYY-MM). */
+  periodMonth: string;
+  /** Meses con calificaciones disponibles (historial). */
+  periodosDisponibles: string[];
 };

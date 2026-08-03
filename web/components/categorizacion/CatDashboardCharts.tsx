@@ -29,11 +29,16 @@ export function CatBarChartModulos({
   operaciones,
   enfoque,
   presentacion = false,
+  capacitacionActiva = false,
+  onClickCapacitacion,
 }: {
   capacitacion: number | null;
   operaciones: number | null;
   enfoque: number | null;
   presentacion?: boolean;
+  /** Resalta la barra de Capacitación cuando el kardex está abierto. */
+  capacitacionActiva?: boolean;
+  onClickCapacitacion?: () => void;
 }) {
   const map = { capacitacion, operaciones, enfoque };
   const max = CAT_ESCALA_MAX;
@@ -85,11 +90,12 @@ export function CatBarChartModulos({
             valor != null
               ? Math.max(8, ((valor - CAT_ESCALA_MIN) / (max - CAT_ESCALA_MIN)) * 100)
               : 4;
-          return (
-            <div
-              key={b.key}
-              className="flex h-full min-w-0 max-w-[7rem] flex-1 flex-col items-center justify-end px-0.5"
-            >
+          const esCap = b.key === "cap";
+          const clickable = esCap && Boolean(onClickCapacitacion);
+          const activa = esCap && capacitacionActiva;
+
+          const inner = (
+            <>
               <span className="mb-0.5 shrink-0 text-sm font-extrabold tabular-nums text-slate-900 sm:text-base">
                 {valor != null ? valor.toFixed(1) : "—"}
               </span>
@@ -99,7 +105,9 @@ export function CatBarChartModulos({
                 }`}
               >
                 <div
-                  className="w-[65%] max-w-[2.5rem] rounded-t-sm shadow-md ring-1 ring-black/10"
+                  className={`w-[65%] max-w-[2.5rem] rounded-t-sm shadow-md ring-1 ring-black/10 ${
+                    activa ? "ring-2 ring-violet-600" : ""
+                  }`}
                   style={{
                     height: `${pct}%`,
                     backgroundColor: barColor,
@@ -107,9 +115,44 @@ export function CatBarChartModulos({
                   }}
                 />
               </div>
-              <span className="mt-1 shrink-0 text-center text-[8px] font-bold uppercase leading-tight text-slate-800 sm:text-[9px]">
+              <span
+                className={`mt-1 shrink-0 text-center text-[8px] font-bold uppercase leading-tight sm:text-[9px] ${
+                  activa ? "text-violet-800" : "text-slate-800"
+                }`}
+              >
                 {b.label}
+                {clickable ? (
+                  <span className="mt-0.5 block text-[7px] font-semibold normal-case text-violet-700">
+                    {activa ? "ocultar" : "ver kardex"}
+                  </span>
+                ) : null}
               </span>
+            </>
+          );
+
+          if (clickable) {
+            return (
+              <button
+                key={b.key}
+                type="button"
+                className={`flex h-full min-w-0 max-w-[7rem] flex-1 flex-col items-center justify-end px-0.5 rounded-md transition hover:bg-violet-50/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
+                  activa ? "bg-violet-50" : ""
+                }`}
+                onClick={onClickCapacitacion}
+                title="Ver capacitaciones del mes"
+                aria-pressed={activa}
+              >
+                {inner}
+              </button>
+            );
+          }
+
+          return (
+            <div
+              key={b.key}
+              className="flex h-full min-w-0 max-w-[7rem] flex-1 flex-col items-center justify-end px-0.5"
+            >
+              {inner}
             </div>
           );
         })}

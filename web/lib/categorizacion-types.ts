@@ -23,6 +23,8 @@ export type CatColaboradorActivoOpcion = {
   puesto: string;
   /** Planta en expediente (relevante para filtro CAT / U-ERRE). */
   planta?: string;
+  /** Fecha de ingreso YYYY-MM-DD (para historial por mes). */
+  fechaIngreso?: string;
 };
 
 export type CatEvaluacionRow = {
@@ -32,6 +34,8 @@ export type CatEvaluacionRow = {
   submodulo?: string;
   /** N.º del evaluador (JT/JS según el perfil). */
   calificadoPor?: string;
+  /** Mes de la calificación YYYY-MM (historial). */
+  periodMonth: string;
   scores: Record<string, number>;
   comentarios: string;
   promedio: number | null;
@@ -50,6 +54,8 @@ export type CatCapacitacionRegistro = {
   noEmpleado: string;
   cursoId: string;
   cursoNombre?: string;
+  /** Mes YYYY-MM del registro (historial). */
+  periodMonth: string;
   asistencia: number | null;
   desempeno: number | null;
   promedio: number | null;

@@ -3,18 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CatCapacitacionCurso } from "@/lib/categorizacion-types";
-import {
-  etiquetaEstadoCurso,
-  estadoCursoCapacitacion,
-  filtrarCursosPorNombre,
-} from "@/lib/categorizacion-capacitacion-curso";
+import { filtrarCursosPorNombre } from "@/lib/categorizacion-capacitacion-curso";
 import { CatListaFiltro } from "@/components/categorizacion/CatEmpleadoBuscador";
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
 
 const EMPTY_FORM = {
   nombre: "",
-  fechaInicio: "",
-  fechaVencimiento: "",
   activo: true,
 };
 
@@ -56,20 +50,14 @@ export function CatCatalogoCapacitacionesPanel() {
     setEditId(c.id);
     setForm({
       nombre: c.nombre,
-      fechaInicio: c.fechaInicio,
-      fechaVencimiento: c.fechaVencimiento,
       activo: c.activo,
     });
     setMsg(null);
   }
 
   async function guardar() {
-    if (!form.nombre.trim() || !form.fechaVencimiento) {
-      setMsg("NOMBRE Y FECHA DE VENCIMIENTO SON OBLIGATORIOS.");
-      return;
-    }
-    if (form.fechaInicio && form.fechaInicio > form.fechaVencimiento) {
-      setMsg("LA FECHA DE INICIO NO PUEDE SER POSTERIOR AL VENCIMIENTO.");
+    if (!form.nombre.trim()) {
+      setMsg("EL NOMBRE DE LA CAPACITACIÓN ES OBLIGATORIO.");
       return;
     }
     setBusy(true);
@@ -82,8 +70,6 @@ export function CatCatalogoCapacitacionesPanel() {
           action: "save_curso",
           id: editId ?? undefined,
           nombre: form.nombre,
-          fechaInicio: form.fechaInicio,
-          fechaVencimiento: form.fechaVencimiento,
           activo: form.activo,
         }),
       });
@@ -94,6 +80,28 @@ export function CatCatalogoCapacitacionesPanel() {
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL GUARDAR.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function eliminar(c: CatCapacitacionCurso) {
+    if (!window.confirm(`¿Eliminar la capacitación "${c.nombre}"?`)) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/categorizacion/capacitacion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_curso", id: c.id }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      if (editId === c.id) empezarNueva();
+      setMsg("CAPACITACIÓN ELIMINADA.");
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message.toUpperCase() : "ERROR AL ELIMINAR.");
     } finally {
       setBusy(false);
     }
@@ -118,33 +126,14 @@ export function CatCatalogoCapacitacionesPanel() {
             </button>
           ) : null}
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="space-y-1 sm:col-span-2 lg:col-span-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="space-y-1 sm:col-span-2">
             <span className="form-label">Nombre de la capacitación</span>
             <input
               className="form-control uppercase"
               value={form.nombre}
               onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
               placeholder="EJ. SEGURIDAD INDUSTRIAL"
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="form-label">Fecha de inicio</span>
-            <input
-              type="date"
-              className="form-control"
-              value={form.fechaInicio}
-              onChange={(e) => setForm((f) => ({ ...f, fechaInicio: e.target.value }))}
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="form-label">Fecha de vencimiento</span>
-            <input
-              type="date"
-              className="form-control"
-              value={form.fechaVencimiento}
-              onChange={(e) => setForm((f) => ({ ...f, fechaVencimiento: e.target.value }))}
-              required
             />
           </label>
         </div>
@@ -154,7 +143,7 @@ export function CatCatalogoCapacitacionesPanel() {
             checked={form.activo}
             onChange={(e) => setForm((f) => ({ ...f, activo: e.target.checked }))}
           />
-          Activa (visible para registro de colaboradores si está vigente)
+          Activa (disponible para registro de colaboradores)
         </label>
         <button type="button" className="btn-primary uppercase" disabled={busy} onClick={() => void guardar()}>
           {editId ? "Guardar cambios" : "Crear capacitación"}
@@ -167,39 +156,49 @@ export function CatCatalogoCapacitacionesPanel() {
         <h2 className="mb-2 text-sm font-bold uppercase">Catálogo ({cursos.length})</h2>
         <CatListaFiltro value={filtro} onChange={setFiltro} total={cursos.length} filtrados={cursosFiltrados.length} />
         {busy && cursos.length === 0 ? <p className="text-sm text-slate-500">Cargando…</p> : null}
-        <table className="w-full min-w-[720px] text-xs">
+        <table className="w-full min-w-[480px] text-xs">
           <thead>
             <tr className="border-b text-[10px] font-bold uppercase text-slate-600">
               <th className="p-2 text-left">Capacitación</th>
-              <th className="p-2 text-left">Inicio</th>
-              <th className="p-2 text-left">Vence</th>
               <th className="p-2 text-left">Estado</th>
               <th className="p-2" />
             </tr>
           </thead>
           <tbody>
-            {cursosFiltrados.map((c) => {
-              const estado = estadoCursoCapacitacion(c);
-              return (
-                <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="p-2 font-semibold uppercase">{c.nombre}</td>
-                  <td className="p-2">{c.fechaInicio || "—"}</td>
-                  <td className="p-2">{c.fechaVencimiento}</td>
-                  <td className="p-2">
-                    <EstadoBadge estado={estado} />
-                  </td>
-                  <td className="p-2 text-right">
+            {cursosFiltrados.map((c) => (
+              <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
+                <td className="p-2 font-semibold uppercase">{c.nombre}</td>
+                <td className="p-2">
+                  <span
+                    className={`inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      c.activo ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    {c.activo ? "Activa" : "Inactiva"}
+                  </span>
+                </td>
+                <td className="p-2 text-right">
+                  <div className="flex flex-wrap justify-end gap-3">
                     <button
                       type="button"
                       className="text-[10px] font-bold uppercase text-violet-800"
+                      disabled={busy}
                       onClick={() => empezarEdicion(c)}
                     >
                       Editar
                     </button>
-                  </td>
-                </tr>
-              );
-            })}
+                    <button
+                      type="button"
+                      className="text-[10px] font-bold uppercase text-rose-700"
+                      disabled={busy}
+                      onClick={() => void eliminar(c)}
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
         {cursosFiltrados.length === 0 && !busy ? (
@@ -207,21 +206,5 @@ export function CatCatalogoCapacitacionesPanel() {
         ) : null}
       </section>
     </div>
-  );
-}
-
-function EstadoBadge({ estado }: { estado: ReturnType<typeof estadoCursoCapacitacion> }) {
-  const cls =
-    estado === "vigente"
-      ? "bg-emerald-100 text-emerald-900"
-      : estado === "programada"
-        ? "bg-sky-100 text-sky-900"
-        : estado === "vencida"
-          ? "bg-amber-100 text-amber-900"
-          : "bg-slate-200 text-slate-700";
-  return (
-    <span className={`inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase ${cls}`}>
-      {etiquetaEstadoCurso(estado)}
-    </span>
   );
 }

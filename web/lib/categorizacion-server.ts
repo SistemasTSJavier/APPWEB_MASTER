@@ -23,7 +23,7 @@ import {
 } from "@/lib/colaboradores-baja";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
-import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
+import { colaboradorVigenteEnMesHistorial, parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
 import {
   normalizarSubmoduloOperaciones,
   rolOperacionesDesdePuesto,
@@ -36,6 +36,8 @@ import {
   servicioCatPersonalEsCalificable,
 } from "@/lib/categorizacion-servicios-calificables";
 import { servicioCoincideFiltroCat } from "@/lib/categorizacion-filtros-servicio";
+import { mesCalendarioAnteriorYm } from "@/lib/categorizacion-faltas-cuadricula";
+import { normalizarMesYm } from "@/lib/categorizacion-recompensas";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { textoEdadDesdeExpediente } from "@/lib/edad-desde-nacimiento";
 import {
@@ -123,6 +125,9 @@ export function mapColaboradorActivoCategorizacion(c: ColaboradorCompleto): CatC
     servicio: servicioVigenteColaboradorCategorizacion(c),
     puesto: String(c.puesto ?? f.puesto ?? "").trim(),
     planta: String(f.planta ?? "").trim(),
+    fechaIngreso:
+      fechaIngresoNormalizadaColaborador(c) ||
+      parseFechaIngresoYmd(String(c.fechaIngreso ?? f.fechaIngreso ?? "")),
   };
 }
 
@@ -347,11 +352,13 @@ function expandOperacionesLegacyRows(
   rawRows: Record<string, unknown>[],
   subOperaciones: string | null,
 ): CatEvaluacionRow[] {
+  const fallbackMes = mesCalendarioAnteriorYm();
   const out: CatEvaluacionRow[] = [];
   for (const r of rawRows) {
     const noEmpleado = normalizarNoEmpleado(String(r.no_empleado));
     const subRaw = String(r.submodulo ?? "").trim();
     const calificadoPorRow = normalizarNoEmpleado(String(r.calificado_por ?? ""));
+    const periodMonth = periodMonthEvaluacion(String(r.period_month ?? "")) || fallbackMes;
     const jtBucket = parseJtBucketRaw(r.scores);
     const jtKeys = Object.keys(jtBucket);
 
@@ -364,6 +371,7 @@ function expandOperacionesLegacyRows(
           modulo: "operaciones",
           submodulo: "jefe_turno",
           calificadoPor,
+          periodMonth,
           scores: e.scores,
           comentarios: e.comentarios,
           promedio: e.promedio,
@@ -381,6 +389,7 @@ function expandOperacionesLegacyRows(
         modulo: "operaciones",
         submodulo: "jefe_turno",
         calificadoPor: calificadoPorRow,
+        periodMonth,
         scores,
         comentarios: String(r.comentarios ?? ""),
         promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(scores),
@@ -401,6 +410,7 @@ function expandOperacionesLegacyRows(
         modulo: "operaciones",
         submodulo: "jefe_turno",
         calificadoPor: calificadoPorRow,
+        periodMonth,
         scores: flatScores,
         comentarios: String(r.comentarios ?? ""),
         promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(flatScores),
@@ -413,6 +423,7 @@ function expandOperacionesLegacyRows(
       modulo: "operaciones",
       submodulo: "oficial",
       calificadoPor: subRaw === "oficial" || subRaw === "" ? calificadoPorRow : "",
+      periodMonth,
       scores: flatScores,
       comentarios: String(r.comentarios ?? ""),
       promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(flatScores),
@@ -424,7 +435,7 @@ function expandOperacionesLegacyRows(
 /** Une filas de evaluación; la fuente `primary` gana en duplicados. */
 function mergeCatEvalRows(primary: CatEvaluacionRow[], extra: CatEvaluacionRow[]): CatEvaluacionRow[] {
   const keyOf = (r: CatEvaluacionRow) =>
-    `${normalizarNoEmpleado(r.noEmpleado)}|${r.submodulo}|${normalizarNoEmpleado(r.calificadoPor ?? "")}`;
+    `${normalizarNoEmpleado(r.noEmpleado)}|${r.submodulo}|${normalizarNoEmpleado(r.calificadoPor ?? "")}|${r.periodMonth}`;
   const map = new Map<string, CatEvaluacionRow>();
   for (const r of extra) map.set(keyOf(r), r);
   for (const r of primary) map.set(keyOf(r), r);
@@ -465,6 +476,7 @@ async function getCatEvaluacionLegacyMinimal(
       modulo,
       submodulo: "jefe_turno",
       calificadoPor,
+      periodMonth: periodMonthEvaluacion(String((data as { period_month?: string }).period_month ?? "")),
       scores: entry.scores,
       comentarios: entry.comentarios,
       promedio: entry.promedio,
@@ -477,6 +489,7 @@ async function getCatEvaluacionLegacyMinimal(
     modulo,
     submodulo: modulo === "operaciones" ? "oficial" : "",
     calificadoPor: "",
+    periodMonth: periodMonthEvaluacion(String((data as { period_month?: string }).period_month ?? "")),
     scores,
     comentarios: String(data.comentarios ?? ""),
     promedio: data.promedio != null ? Number(data.promedio) : promedioDeScores(scores),
@@ -540,6 +553,7 @@ async function upsertCatEvaluacionJtLegacyJson(
     modulo: "operaciones",
     submodulo: "jefe_turno",
     calificadoPor,
+    periodMonth: mesCalendarioAnteriorYm(),
     scores: filtered,
     comentarios: comentarios.trim(),
     promedio,
@@ -591,6 +605,7 @@ async function upsertCatEvaluacionLegacyMinimal(
     modulo,
     submodulo: modulo === "operaciones" ? "oficial" : "",
     calificadoPor: "",
+    periodMonth: mesCalendarioAnteriorYm(),
     scores: filtered,
     comentarios: comentarios.trim(),
     promedio,
@@ -600,6 +615,16 @@ async function upsertCatEvaluacionLegacyMinimal(
 function submoduloDbParaModulo(modulo: CatEvalModuloId, submodulo?: string): string {
   if (modulo !== "operaciones") return "";
   return submoduloOperaciones(normalizarSubmoduloOperaciones(submodulo));
+}
+
+/** Mes YYYY-MM obligatorio; si falta o es inválido, usa mes anterior (desfase). */
+export function periodMonthEvaluacion(raw?: string | null): string {
+  return normalizarMesYm(String(raw ?? "")) ?? mesCalendarioAnteriorYm();
+}
+
+/** Mes de una fila DB: solo YYYY-MM válido; vacío si falta (no inventar mes actual). */
+function periodMonthDesdeFila(raw?: string | null): string {
+  return normalizarMesYm(String(raw ?? "")) ?? "";
 }
 
 function rowToCatEvaluacion(r: Record<string, unknown>, modulo: CatEvalModuloId): CatEvaluacionRow {
@@ -616,6 +641,7 @@ function rowToCatEvaluacion(r: Record<string, unknown>, modulo: CatEvalModuloId)
     modulo,
     submodulo,
     calificadoPor: normalizarNoEmpleado(String(r.calificado_por ?? "")),
+    periodMonth: periodMonthDesdeFila(String(r.period_month ?? r.periodMonth ?? "")),
     scores,
     comentarios: String(r.comentarios ?? ""),
     promedio: r.promedio != null ? Number(r.promedio) : promedioDeScores(scores),
@@ -660,8 +686,14 @@ async function deleteCatEvaluacionModern(
   modulo: CatEvalModuloId,
   sub: string,
   calificadoPor: string,
+  periodMonth: string,
 ): Promise<boolean> {
-  let q = client.from("cat_evaluacion").delete().eq("no_empleado", no).eq("modulo", modulo);
+  let q = client
+    .from("cat_evaluacion")
+    .delete()
+    .eq("no_empleado", no)
+    .eq("modulo", modulo)
+    .eq("period_month", periodMonth);
   if (modulo === "operaciones") {
     q = q.eq("submodulo", sub).eq("calificado_por", calificadoPor);
   }
@@ -728,12 +760,12 @@ async function deleteCatEvaluacionLegacyMinimal(
   return (data?.length ?? 0) > 0;
 }
 
-/** Elimina una calificación (admin). Operaciones: por submodulo + calificado_por; RH/Enfoque: fila única. */
+/** Elimina una calificación (admin). Operaciones: por submodulo + calificado_por + mes; RH/Enfoque: fila del mes. */
 export async function deleteCatEvaluacion(
   noEmpleado: string,
   modulo: CatEvalModuloId,
   admin?: SupabaseClient | null,
-  opts?: { submodulo?: string; calificadoPor?: string },
+  opts?: { submodulo?: string; calificadoPor?: string; periodMonth?: string },
 ): Promise<void> {
   const client = admin ?? db();
   if (!client) throw new Error("Supabase no configurado");
@@ -741,11 +773,16 @@ export async function deleteCatEvaluacion(
   if (!no) throw new Error("Número de empleado requerido.");
   const sub = submoduloDbParaModulo(modulo, opts?.submodulo);
   const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
+  const periodMonth = periodMonthEvaluacion(opts?.periodMonth);
 
   try {
-    if (await deleteCatEvaluacionModern(client, no, modulo, sub, calificadoPor)) return;
+    const deleted = await deleteCatEvaluacionModern(client, no, modulo, sub, calificadoPor, periodMonth);
+    if (deleted) return;
+    // Esquema moderno OK: no hay fila en ese mes — no borrar otros meses vía legacy.
+    throw new Error("No se encontró la calificación a eliminar.");
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("No se encontró la calificación")) throw e;
     if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
       throw new Error(mensajeErrorCatEvaluacionSchema(msg, no));
     }
@@ -766,16 +803,18 @@ export async function getCatEvaluacion(
   noEmpleado: string,
   modulo: CatEvalModuloId,
   admin?: SupabaseClient | null,
-  opts?: { submodulo?: string; calificadoPor?: string },
+  opts?: { submodulo?: string; calificadoPor?: string; periodMonth?: string },
 ): Promise<CatEvaluacionRow | null> {
   const client = admin ?? db();
   if (!client) return null;
   const sub = submoduloDbParaModulo(modulo, opts?.submodulo);
   const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
+  const periodMonth = periodMonthEvaluacion(opts?.periodMonth);
 
   try {
-    const viaRpc = await getCatEvaluacionViaRpc(client, noEmpleado, modulo, sub, calificadoPor);
-    if (viaRpc) return viaRpc;
+    const viaRpc = await getCatEvaluacionViaRpc(client, noEmpleado, modulo, sub, calificadoPor, periodMonth);
+    // RPC respondió: null = no hay calificación en ese mes (no rellenar con otro mes).
+    return viaRpc;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
@@ -783,13 +822,17 @@ export async function getCatEvaluacion(
     }
   }
 
-  // JT: buscar también en el JSON legacy (__jt_evaluaciones_oficiales__).
+  // Solo esquema legacy (sin period_month / RPC).
   if (modulo === "operaciones" && sub === "jefe_turno" && calificadoPor) {
-    return getCatEvaluacionLegacyMinimal(client, noEmpleado, modulo, sub, calificadoPor);
+    const legacy = await getCatEvaluacionLegacyMinimal(client, noEmpleado, modulo, sub, calificadoPor);
+    if (legacy) return { ...legacy, periodMonth };
+    return null;
   }
 
   try {
-    return await getCatEvaluacionLegacyMinimal(client, noEmpleado, modulo, sub, calificadoPor);
+    const legacy = await getCatEvaluacionLegacyMinimal(client, noEmpleado, modulo, sub, calificadoPor);
+    if (legacy) return { ...legacy, periodMonth };
+    return null;
   } catch {
     return null;
   }
@@ -861,7 +904,7 @@ function mensajeErrorCatEvaluacionSchema(message: string, noEmpleado?: string): 
     return mensajeErrorFkCatPersonal(noEmpleado);
   }
   if (errorPareceSchemaCacheColumnas(message) || errorPareceRpcCatEvaluacionFalta(message)) {
-    return `${message} — Ejecuta en Supabase SQL Editor: web/supabase/migrations/025_cat_evaluacion_rpc.sql (incluye columnas + funciones RPC). Espera 20 s y guarda de nuevo. Si persiste, reinicia el proyecto en Supabase → Settings → General → Restart project.`;
+    return `${message} — Ejecuta en Supabase SQL Editor: web/supabase/migrations/059_cat_evaluacion_period_month.sql (mes/historial + RPC). Espera 20 s y guarda de nuevo.`;
   }
   return hintSupabaseClientError(message);
 }
@@ -880,6 +923,7 @@ async function upsertCatEvaluacionViaRpc(
   filtered: Record<string, number>,
   comentarios: string,
   promedio: number | null,
+  periodMonth: string,
 ): Promise<CatEvaluacionRow> {
   const { data, error } = await client.rpc("cat_upsert_evaluacion", {
     p_no_empleado: noEmpleado.trim().toUpperCase(),
@@ -889,6 +933,7 @@ async function upsertCatEvaluacionViaRpc(
     p_scores: filtered,
     p_comentarios: comentarios.trim(),
     p_promedio: promedio,
+    p_period_month: periodMonth,
   });
   if (error) throw new Error(error.message);
   return rpcRowFromJson(data, modulo);
@@ -898,10 +943,13 @@ async function listCatEvaluacionesModuloViaRpc(
   client: SupabaseClient,
   modulo: CatEvalModuloId,
   subOperaciones: string | null,
+  periodMonth: string | null,
 ): Promise<CatEvaluacionRow[]> {
+  // Siempre enviar los 3 args para evitar ambigüedad de overloads en Postgres.
   const { data, error } = await client.rpc("cat_list_evaluaciones_modulo", {
     p_modulo: modulo,
     p_submodulo: subOperaciones ?? "",
+    p_period_month: periodMonth ?? "",
   });
   if (error) throw new Error(error.message);
   const rows = Array.isArray(data) ? data : [];
@@ -914,12 +962,14 @@ async function getCatEvaluacionViaRpc(
   modulo: CatEvalModuloId,
   sub: string,
   calificadoPor: string,
+  periodMonth: string,
 ): Promise<CatEvaluacionRow | null> {
   const { data, error } = await client.rpc("cat_get_evaluacion", {
     p_no_empleado: noEmpleado.trim().toUpperCase(),
     p_modulo: modulo,
     p_submodulo: sub,
     p_calificado_por: calificadoPor,
+    p_period_month: periodMonth || "",
   });
   if (error) throw new Error(error.message);
   if (!data) return null;
@@ -929,10 +979,11 @@ async function getCatEvaluacionViaRpc(
 export async function listCatEvaluacionesModulo(
   modulo: CatEvalModuloId,
   admin?: SupabaseClient | null,
-  opts?: { submodulo?: string },
+  opts?: { submodulo?: string; periodMonth?: string },
 ): Promise<CatEvaluacionRow[]> {
   const client = admin ?? db();
   if (!client) return [];
+  const periodMonth = opts?.periodMonth ? periodMonthEvaluacion(opts.periodMonth) : null;
   const subOperaciones =
     modulo === "operaciones" && opts?.submodulo != null
       ? submoduloDbParaModulo(modulo, opts.submodulo)
@@ -942,25 +993,43 @@ export async function listCatEvaluacionesModulo(
   let rpcOk = false;
 
   try {
-    // Operaciones: pedir todas las filas (p_submodulo vacío) y filtrar en TS.
-    // Evita RPCs viejas (025) que ocultaban oficiales con calificado_por o JT modernos.
     const subRpc = modulo === "operaciones" ? "" : subOperaciones;
-    rows = await listCatEvaluacionesModuloViaRpc(client, modulo, subRpc);
+    rows = await listCatEvaluacionesModuloViaRpc(client, modulo, subRpc, periodMonth);
     rpcOk = true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
-      throw new Error(mensajeErrorCatEvaluacionSchema(msg));
+    try {
+      let q = client.from("cat_evaluacion").select("*").eq("modulo", modulo);
+      if (periodMonth) q = q.eq("period_month", periodMonth);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      rows = (data ?? []).map((r) => rowToCatEvaluacion(r as Record<string, unknown>, modulo));
+      rpcOk = true;
+    } catch {
+      if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
+        throw new Error(mensajeErrorCatEvaluacionSchema(msg));
+      }
     }
   }
 
+  if (periodMonth) {
+    rows = rows.filter((r) => r.periodMonth === periodMonth);
+  }
+
   if (modulo === "operaciones") {
-    try {
-      const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
-      const fromLegacy = expandOperacionesLegacyRows(rawRows, subOperaciones);
-      rows = mergeCatEvalRows(rows, fromLegacy);
-    } catch {
-      if (!rpcOk) {
+    // Si el listado moderno/RPC ya respondió, no mezclar filas legacy (contaminan otros meses).
+    if (!rpcOk) {
+      try {
+        const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
+        const fromLegacy = expandOperacionesLegacyRows(rawRows, subOperaciones).map((r) => ({
+          ...r,
+          periodMonth: r.periodMonth || periodMonth || mesCalendarioAnteriorYm(),
+        }));
+        const legacyFiltered = periodMonth
+          ? fromLegacy.filter((r) => r.periodMonth === periodMonth)
+          : fromLegacy;
+        rows = mergeCatEvalRows(rows, legacyFiltered);
+      } catch {
         /* sin datos */
       }
     }
@@ -970,7 +1039,46 @@ export async function listCatEvaluacionesModulo(
   if (rpcOk) return rows;
 
   const rawRows = await listCatEvaluacionesModuloLegacyMinimal(client, modulo);
-  return rawRows.map((row) => rowToCatEvaluacion(row, modulo));
+  return rawRows
+    .map((row) => rowToCatEvaluacion(row, modulo))
+    .filter((r) => !periodMonth || r.periodMonth === periodMonth);
+}
+
+export async function listCatEvaluacionPeriodMonths(
+  admin?: SupabaseClient | null,
+): Promise<string[]> {
+  const client = admin ?? db();
+  if (!client) return [];
+  try {
+    const { data, error } = await client.rpc("cat_list_period_months");
+    if (!error && Array.isArray(data)) {
+      return data.map((x) => String(x)).filter((m) => /^\d{4}-\d{2}$/.test(m));
+    }
+  } catch {
+    /* fallback tabla */
+  }
+  const set = new Set<string>();
+  try {
+    const { data: evalData } = await client.from("cat_evaluacion").select("period_month");
+    for (const row of evalData ?? []) {
+      const m = String((row as { period_month?: string }).period_month ?? "");
+      if (/^\d{4}-\d{2}$/.test(m)) set.add(m);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { data: capData } = await client.from("cat_capacitacion_registro").select("period_month");
+    for (const row of capData ?? []) {
+      const m = String((row as { period_month?: string }).period_month ?? "");
+      if (/^\d{4}-\d{2}$/.test(m)) set.add(m);
+    }
+  } catch {
+    /* columna ausente u otro error */
+  }
+  const prev = mesCalendarioAnteriorYm();
+  set.add(prev);
+  return [...set].sort((a, b) => b.localeCompare(a));
 }
 
 export type MapasPromedioOperaciones = {
@@ -980,10 +1088,12 @@ export type MapasPromedioOperaciones = {
 
 export async function loadMapasPromedioOperaciones(
   admin?: SupabaseClient | null,
+  opts?: { periodMonth?: string },
 ): Promise<MapasPromedioOperaciones> {
+  const periodMonth = opts?.periodMonth ? periodMonthEvaluacion(opts.periodMonth) : undefined;
   const [opOficialList, opJefeList] = await Promise.all([
-    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "oficial" }),
-    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "jefe_turno" }),
+    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "oficial", periodMonth }),
+    listCatEvaluacionesModulo("operaciones", admin, { submodulo: "jefe_turno", periodMonth }),
   ]);
   return {
     oficial: mapaPromedioOperacionesOficial(opOficialList),
@@ -1020,12 +1130,13 @@ function mergePersonalConActivos(
         nombre: prev.nombre || a.nombre,
         servicio: prev.servicio || a.servicio,
         puesto: prev.puesto || a.puesto,
+        fechaIngreso: prev.fechaIngreso || a.fechaIngreso || "",
       });
     } else {
       map.set(no, {
         noEmpleado: no,
         periodoEvaluacion: "",
-        fechaIngreso: "",
+        fechaIngreso: a.fechaIngreso || "",
         nombre: a.nombre,
         servicio: a.servicio,
         puesto: a.puesto,
@@ -1049,6 +1160,7 @@ async function upsertCatEvaluacionModernTable(
   filtered: Record<string, number>,
   comentarios: string,
   promedio: number | null,
+  periodMonth: string,
 ): Promise<CatEvaluacionRow> {
   const no = noEmpleado.trim().toUpperCase();
   const cal = normalizarNoEmpleado(calificadoPor);
@@ -1057,6 +1169,7 @@ async function upsertCatEvaluacionModernTable(
     modulo,
     submodulo: sub,
     calificado_por: cal,
+    period_month: periodMonth,
     scores: filtered,
     comentarios: comentarios.trim(),
     promedio,
@@ -1064,8 +1177,8 @@ async function upsertCatEvaluacionModernTable(
   };
   const { data, error } = await client
     .from("cat_evaluacion")
-    .upsert(payload, { onConflict: "no_empleado,modulo,submodulo,calificado_por" })
-    .select("no_empleado, modulo, submodulo, calificado_por, scores, comentarios, promedio")
+    .upsert(payload, { onConflict: "no_empleado,modulo,submodulo,calificado_por,period_month" })
+    .select("no_empleado, modulo, submodulo, calificado_por, period_month, scores, comentarios, promedio")
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (data) return rowToCatEvaluacion(data as Record<string, unknown>, modulo);
@@ -1074,6 +1187,7 @@ async function upsertCatEvaluacionModernTable(
     modulo,
     submodulo: sub,
     calificadoPor: cal,
+    periodMonth,
     scores: filtered,
     comentarios: comentarios.trim(),
     promedio,
@@ -1086,13 +1200,19 @@ export async function upsertCatEvaluacion(
   scores: Record<string, number>,
   comentarios: string,
   admin?: SupabaseClient | null,
-  opts?: { submodulo?: string; rolOperaciones?: CatOperacionesRolId; calificadoPor?: string },
+  opts?: {
+    submodulo?: string;
+    rolOperaciones?: CatOperacionesRolId;
+    calificadoPor?: string;
+    periodMonth?: string;
+  },
 ): Promise<CatEvaluacionRow> {
   const client = admin ?? db();
   if (!client) throw new Error("Supabase no configurado");
   const rolOp = opts?.rolOperaciones ?? normalizarSubmoduloOperaciones(opts?.submodulo);
   const sub = submoduloDbParaModulo(modulo, opts?.submodulo ?? rolOp);
   const calificadoPor = normalizarNoEmpleado(String(opts?.calificadoPor ?? ""));
+  const periodMonth = periodMonthEvaluacion(opts?.periodMonth);
   if (sub === "jefe_turno" && !calificadoPor) {
     throw new Error("Indique el N.º del jefe de servicio / JS (calificado por) para jefe de turno.");
   }
@@ -1120,6 +1240,7 @@ export async function upsertCatEvaluacion(
       filtered,
       comentarios,
       promedio,
+      periodMonth,
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -1128,30 +1249,29 @@ export async function upsertCatEvaluacion(
     }
   }
 
-  // 2) Upsert directo con submodulo + calificado_por (no pierde calificaciones multi-evaluador)
-  if (modulo === "operaciones" && calificadoPor) {
-    try {
-      return await upsertCatEvaluacionModernTable(
-        client,
-        noEmpleado,
-        modulo,
-        sub,
-        calificadoPor,
-        filtered,
-        comentarios,
-        promedio,
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
-        throw new Error(mensajeErrorCatEvaluacionSchema(msg, noEmpleado));
-      }
+  // 2) Upsert directo con period_month (+ submodulo/calificado_por en operaciones)
+  try {
+    return await upsertCatEvaluacionModernTable(
+      client,
+      noEmpleado,
+      modulo,
+      sub,
+      calificadoPor,
+      filtered,
+      comentarios,
+      promedio,
+      periodMonth,
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!debeUsarLegacyJsonCatEvaluacion(msg)) {
+      throw new Error(mensajeErrorCatEvaluacionSchema(msg, noEmpleado));
     }
   }
 
-  // 3) Solo JT: JSON legacy (último recurso)
+  // 3) Solo JT: JSON legacy (último recurso; sin historial real por mes)
   if (modulo === "operaciones" && sub === "jefe_turno" && calificadoPor) {
-    return upsertCatEvaluacionJtLegacyJson(
+    const row = await upsertCatEvaluacionJtLegacyJson(
       client,
       noEmpleado,
       calificadoPor,
@@ -1159,17 +1279,17 @@ export async function upsertCatEvaluacion(
       comentarios,
       promedio,
     );
+    return { ...row, periodMonth };
   }
 
-  // 4) RH / Enfoque / oficial sin multi-calificador: fila mínima
   if (modulo === "operaciones" && calificadoPor) {
     throw new Error(
-      "No se pudo guardar la calificación de operaciones (faltan columnas submodulo/calificado_por). Ejecuta en Supabase: web/supabase/migrations/030_cat_evaluacion_oficial_jt.sql",
+      "No se pudo guardar la calificación de operaciones. Ejecuta en Supabase: web/supabase/migrations/059_cat_evaluacion_period_month.sql",
     );
   }
 
   try {
-    return await upsertCatEvaluacionLegacyMinimal(
+    const row = await upsertCatEvaluacionLegacyMinimal(
       client,
       noEmpleado,
       modulo,
@@ -1177,6 +1297,7 @@ export async function upsertCatEvaluacion(
       comentarios,
       promedio,
     );
+    return { ...row, periodMonth };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(mensajeErrorCatEvaluacionSchema(msg, noEmpleado));
@@ -1186,25 +1307,53 @@ export async function upsertCatEvaluacion(
 export async function promedioCapacitacionEmpleado(
   noEmpleado: string,
   admin?: SupabaseClient | null,
+  opts?: { periodMonth?: string },
 ): Promise<number | null> {
-  const map = await promediosCapacitacionPorEmpleados(admin);
+  const map = await promediosCapacitacionPorEmpleados(admin, opts);
   return map.get(normalizarNoEmpleado(noEmpleado)) ?? null;
 }
 
-/** Una sola consulta para promedios de capacitación de todos los colaboradores. */
+/** Una sola consulta para promedios de capacitación (opcionalmente filtrados por mes). */
 export async function promediosCapacitacionPorEmpleados(
   admin?: SupabaseClient | null,
+  opts?: { periodMonth?: string },
 ): Promise<Map<string, number | null>> {
   const client = admin ?? db();
   const out = new Map<string, number | null>();
   if (!client) return out;
 
-  const { data, error } = await client.from("cat_capacitacion_registro").select("no_empleado, promedio");
-  if (error) throw new Error(hintSupabaseClientError(error.message));
+  const periodMonth = opts?.periodMonth ? periodMonthEvaluacion(opts.periodMonth) : null;
+  let q = client.from("cat_capacitacion_registro").select("no_empleado, promedio, period_month");
+  if (periodMonth) q = q.eq("period_month", periodMonth);
+  const { data, error } = await q;
+  if (error) {
+    // Fallback si aún no existe period_month: no atribuir todos los meses al mes pedido.
+    if (/period_month/i.test(error.message)) {
+      if (periodMonth) return out;
+      const legacy = await client.from("cat_capacitacion_registro").select("no_empleado, promedio");
+      if (legacy.error) throw new Error(hintSupabaseClientError(legacy.error.message));
+      const accLegacy = new Map<string, number[]>();
+      for (const row of legacy.data ?? []) {
+        const r = row as { no_empleado?: string; promedio?: number | null };
+        const no = normalizarNoEmpleado(String(r.no_empleado ?? ""));
+        const p = r.promedio;
+        if (!no || p == null || !Number.isFinite(p)) continue;
+        const list = accLegacy.get(no) ?? [];
+        list.push(p);
+        accLegacy.set(no, list);
+      }
+      for (const [no, vals] of accLegacy) {
+        out.set(no, Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100);
+      }
+      return out;
+    }
+    throw new Error(hintSupabaseClientError(error.message));
+  }
 
   const acc = new Map<string, number[]>();
   for (const row of data ?? []) {
-    const r = row as { no_empleado?: string; promedio?: number | null };
+    const r = row as { no_empleado?: string; promedio?: number | null; period_month?: string };
+    if (periodMonth && String(r.period_month ?? "") !== periodMonth) continue;
     const no = normalizarNoEmpleado(String(r.no_empleado ?? ""));
     const p = r.promedio;
     if (!no || p == null || !Number.isFinite(p)) continue;
@@ -1225,23 +1374,35 @@ export type BuildResumenCategorizacionOpts = {
   rhList?: CatEvaluacionRow[];
   enList?: CatEvaluacionRow[];
   capProms?: Map<string, number | null>;
+  periodMonth?: string;
 };
 
 export async function buildResumenCategorizacion(
   admin?: SupabaseClient | null,
   opts?: BuildResumenCategorizacionOpts,
 ): Promise<CatResumenEmpleado[]> {
+  const periodMonth = periodMonthEvaluacion(opts?.periodMonth);
   const [personalCat, activos, rhList, opMapas, enList, capProms] = await Promise.all([
     opts?.personalCat != null ? Promise.resolve(opts.personalCat) : listCatPersonal(admin),
     opts?.activos != null
       ? Promise.resolve(opts.activos)
       : listColaboradoresActivosParaCategorizacion(undefined, admin),
-    opts?.rhList != null ? Promise.resolve(opts.rhList) : listCatEvaluacionesModulo("recursos_humanos", admin),
-    opts?.opMapas != null ? Promise.resolve(opts.opMapas) : loadMapasPromedioOperaciones(admin),
-    opts?.enList != null ? Promise.resolve(opts.enList) : listCatEvaluacionesModulo("enfoque_cliente", admin),
-    opts?.capProms != null ? Promise.resolve(opts.capProms) : promediosCapacitacionPorEmpleados(admin),
+    opts?.rhList != null
+      ? Promise.resolve(opts.rhList)
+      : listCatEvaluacionesModulo("recursos_humanos", admin, { periodMonth }),
+    opts?.opMapas != null
+      ? Promise.resolve(opts.opMapas)
+      : loadMapasPromedioOperaciones(admin, { periodMonth }),
+    opts?.enList != null
+      ? Promise.resolve(opts.enList)
+      : listCatEvaluacionesModulo("enfoque_cliente", admin, { periodMonth }),
+    opts?.capProms != null
+      ? Promise.resolve(opts.capProms)
+      : promediosCapacitacionPorEmpleados(admin, { periodMonth }),
   ]);
-  const personal = mergePersonalConActivos(personalCat, activos);
+  const personal = mergePersonalConActivos(personalCat, activos).filter((p) =>
+    colaboradorVigenteEnMesHistorial(p.fechaIngreso, periodMonth),
+  );
   const rhMap = new Map(rhList.map((r) => [r.noEmpleado, r.promedio]));
   const enMap = new Map(enList.map((r) => [r.noEmpleado, r.promedio]));
 
@@ -1272,6 +1433,8 @@ export async function buildResumenCategorizacion(
 
 const CAT_CURSO_COLS_BASE = "id, nombre, fecha_vencimiento, activo, created_at";
 const CAT_CURSO_COLS_FULL = "id, nombre, fecha_inicio, fecha_vencimiento, activo, created_at";
+/** Valor técnico para cumplir NOT NULL en BD; la UI ya no usa vencimiento. */
+const FECHA_VENCIMIENTO_SIN_LIMITE = "9999-12-31";
 
 function isMissingFechaInicioColumn(message: string): boolean {
   return /fecha_inicio/i.test(message) && /schema cache|could not find|column/i.test(message);
@@ -1283,7 +1446,7 @@ export async function listCursosCapacitacion(admin?: SupabaseClient | null): Pro
   const full = await client
     .from("cat_capacitacion_curso")
     .select(CAT_CURSO_COLS_FULL)
-    .order("fecha_vencimiento", { ascending: true });
+    .order("nombre", { ascending: true });
   if (!full.error) {
     return (full.data ?? []).map((r) => mapCursoCapacitacion(r as Record<string, unknown>));
   }
@@ -1291,7 +1454,7 @@ export async function listCursosCapacitacion(admin?: SupabaseClient | null): Pro
     const basic = await client
       .from("cat_capacitacion_curso")
       .select(CAT_CURSO_COLS_BASE)
-      .order("fecha_vencimiento", { ascending: true });
+      .order("nombre", { ascending: true });
     if (basic.error) throw new Error(hintSupabaseClientError(basic.error.message));
     return (basic.data ?? []).map((r) => mapCursoCapacitacion(r as Record<string, unknown>));
   }
@@ -1300,28 +1463,36 @@ export async function listCursosCapacitacion(admin?: SupabaseClient | null): Pro
 
 function mapCursoCapacitacion(row: Record<string, unknown>): CatCapacitacionCurso {
   const inicio = row.fecha_inicio;
+  const vence = String(row.fecha_vencimiento ?? "").slice(0, 10);
   return {
     id: String(row.id),
     nombre: String(row.nombre ?? ""),
     fechaInicio: inicio ? String(inicio).slice(0, 10) : "",
-    fechaVencimiento: String(row.fecha_vencimiento ?? "").slice(0, 10),
+    fechaVencimiento: vence === FECHA_VENCIMIENTO_SIN_LIMITE ? "" : vence,
     activo: Boolean(row.activo),
   };
 }
 
 export async function upsertCursoCapacitacion(
-  curso: Omit<CatCapacitacionCurso, "id"> & { id?: string },
+  curso: Partial<Omit<CatCapacitacionCurso, "id">> & { id?: string; nombre: string; activo?: boolean },
   admin?: SupabaseClient | null,
 ): Promise<CatCapacitacionCurso> {
   const client = admin ?? db();
   if (!client) throw new Error("Supabase no configurado");
+  const nombre = curso.nombre.trim();
+  if (!nombre) throw new Error("El nombre de la capacitación es obligatorio");
+  const fechaVencimientoRaw = String(curso.fechaVencimiento ?? "").trim().slice(0, 10);
+  const fechaVencimiento =
+    fechaVencimientoRaw && /^\d{4}-\d{2}-\d{2}$/.test(fechaVencimientoRaw)
+      ? fechaVencimientoRaw
+      : FECHA_VENCIMIENTO_SIN_LIMITE;
   const base: Record<string, unknown> = {
-    nombre: curso.nombre.trim(),
-    fecha_vencimiento: curso.fechaVencimiento,
-    activo: curso.activo,
+    nombre,
+    fecha_vencimiento: fechaVencimiento,
+    activo: curso.activo !== false,
   };
-  const inicio = curso.fechaInicio.trim();
-  const payloadWithInicio = inicio ? { ...base, fecha_inicio: inicio } : base;
+  const inicio = String(curso.fechaInicio ?? "").trim();
+  const payloadWithInicio = inicio ? { ...base, fecha_inicio: inicio } : { ...base, fecha_inicio: null };
 
   const writeFull = async (payload: Record<string, unknown>) => {
     if (curso.id) {
@@ -1336,39 +1507,88 @@ export async function upsertCursoCapacitacion(
   };
 
   const writeBase = async (payload: Record<string, unknown>) => {
+    const { fecha_inicio: _fi, ...withoutInicio } = payload;
     if (curso.id) {
       return client
         .from("cat_capacitacion_curso")
-        .update(payload)
+        .update(withoutInicio)
         .eq("id", curso.id)
         .select(CAT_CURSO_COLS_BASE)
         .single();
     }
-    return client.from("cat_capacitacion_curso").insert(payload).select(CAT_CURSO_COLS_BASE).single();
+    return client.from("cat_capacitacion_curso").insert(withoutInicio).select(CAT_CURSO_COLS_BASE).single();
   };
 
-  let { data, error } = inicio ? await writeFull(payloadWithInicio) : await writeBase(base);
+  let data: unknown = null;
+  let error: { message: string } | null = null;
+  {
+    const full = await writeFull(payloadWithInicio);
+    data = full.data;
+    error = full.error;
+  }
   if (error && isMissingFechaInicioColumn(error.message)) {
-    if (inicio) {
-      throw new Error(
-        "Falta la columna fecha_inicio en Supabase. Ejecute web/supabase/migrations/017_cat_capacitacion_fecha_inicio.sql en el SQL Editor.",
-      );
-    }
-    ({ data, error } = await writeBase(base));
+    const basic = await writeBase(base);
+    data = basic.data;
+    error = basic.error;
   }
   if (error) throw new Error(hintSupabaseClientError(error.message));
   if (!data) throw new Error("Sin respuesta al guardar curso");
-  return mapCursoCapacitacion(data as unknown as Record<string, unknown>);
+  return mapCursoCapacitacion(data as Record<string, unknown>);
 }
 
-export async function listRegistrosCapacitacion(admin?: SupabaseClient | null): Promise<CatCapacitacionRegistro[]> {
+export async function deleteCursoCapacitacion(id: string, admin?: SupabaseClient | null): Promise<void> {
+  const client = admin ?? db();
+  if (!client) throw new Error("Supabase no configurado");
+  const { error } = await client.from("cat_capacitacion_curso").delete().eq("id", id);
+  if (error) {
+    if (/foreign key|violates|restrict/i.test(error.message)) {
+      throw new Error(
+        "No se puede eliminar: hay colaboradores registrados en esta capacitación. Elimina esos registros primero.",
+      );
+    }
+    throw new Error(hintSupabaseClientError(error.message));
+  }
+}
+
+export async function listRegistrosCapacitacion(
+  admin?: SupabaseClient | null,
+  opts?: { periodMonth?: string },
+): Promise<CatCapacitacionRegistro[]> {
   const client = admin ?? db();
   if (!client) return [];
-  const { data, error } = await client
+  const periodMonth = opts?.periodMonth ? periodMonthEvaluacion(opts.periodMonth) : null;
+  let q = client
     .from("cat_capacitacion_registro")
     .select("*, cat_capacitacion_curso(nombre)")
     .order("updated_at", { ascending: false });
-  if (error) throw new Error(hintSupabaseClientError(error.message));
+  if (periodMonth) q = q.eq("period_month", periodMonth);
+  const { data, error } = await q;
+  if (error) {
+    if (/period_month/i.test(error.message)) {
+      // Sin columna period_month: no inventar el mes pedido con todo el historial.
+      if (periodMonth) return [];
+      const legacy = await client
+        .from("cat_capacitacion_registro")
+        .select("*, cat_capacitacion_curso(nombre)")
+        .order("updated_at", { ascending: false });
+      if (legacy.error) throw new Error(hintSupabaseClientError(legacy.error.message));
+      return (legacy.data ?? []).map((row) => {
+        const r = row as Record<string, unknown> & { cat_capacitacion_curso?: { nombre?: string } };
+        return {
+          id: String(r.id),
+          noEmpleado: String(r.no_empleado),
+          cursoId: String(r.curso_id),
+          cursoNombre: r.cat_capacitacion_curso?.nombre,
+          periodMonth: mesCalendarioAnteriorYm(),
+          asistencia: r.asistencia != null ? Number(r.asistencia) : null,
+          desempeno: r.desempeno != null ? Number(r.desempeno) : null,
+          promedio: r.promedio != null ? Number(r.promedio) : null,
+          comentarios: String(r.comentarios ?? ""),
+        };
+      });
+    }
+    throw new Error(hintSupabaseClientError(error.message));
+  }
   return (data ?? []).map((row) => {
     const r = row as Record<string, unknown> & { cat_capacitacion_curso?: { nombre?: string } };
     return {
@@ -1376,6 +1596,7 @@ export async function listRegistrosCapacitacion(admin?: SupabaseClient | null): 
       noEmpleado: String(r.no_empleado),
       cursoId: String(r.curso_id),
       cursoNombre: r.cat_capacitacion_curso?.nombre,
+      periodMonth: periodMonthDesdeFila(String(r.period_month ?? "")) || periodMonth || "",
       asistencia: r.asistencia != null ? Number(r.asistencia) : null,
       desempeno: r.desempeno != null ? Number(r.desempeno) : null,
       promedio: r.promedio != null ? Number(r.promedio) : null,
@@ -1391,15 +1612,31 @@ export async function upsertRegistroCapacitacion(
     cursoId: string;
     asistencia: number | null;
     desempeno: number | null;
+    /** Si se envía, se guarda tal cual en `promedio` (permite decimales; `desempeno` sigue siendo entero). */
+    promedio?: number | null;
     comentarios: string;
+    periodMonth?: string;
   },
   admin?: SupabaseClient | null,
 ): Promise<CatCapacitacionRegistro> {
   const client = admin ?? db();
   if (!client) throw new Error("Supabase no configurado");
+  const periodMonth = periodMonthEvaluacion(input.periodMonth);
+  const desempenoRaw =
+    input.desempeno != null && Number.isFinite(input.desempeno) ? Number(input.desempeno) : null;
+  // Columna smallint: solo enteros 1–5
   const desempeno =
-    input.desempeno != null && Number.isFinite(input.desempeno) ? input.desempeno : null;
-  const promedio = desempeno != null ? Math.round(desempeno * 100) / 100 : null;
+    desempenoRaw != null
+      ? Math.max(1, Math.min(5, Math.round(desempenoRaw)))
+      : null;
+  const promedioOverride =
+    input.promedio != null && Number.isFinite(input.promedio) ? Number(input.promedio) : null;
+  const promedio =
+    promedioOverride != null
+      ? Math.round(Math.max(1, Math.min(5, promedioOverride)) * 100) / 100
+      : desempeno != null
+        ? Math.round(desempeno * 100) / 100
+        : null;
   const payload = {
     no_empleado: input.noEmpleado.trim().toUpperCase(),
     curso_id: input.cursoId,
@@ -1407,6 +1644,7 @@ export async function upsertRegistroCapacitacion(
     desempeno,
     promedio,
     comentarios: input.comentarios.trim(),
+    period_month: periodMonth,
     updated_at: new Date().toISOString(),
   };
   if (input.id) {
@@ -1423,6 +1661,7 @@ export async function upsertRegistroCapacitacion(
       noEmpleado: String(r.no_empleado),
       cursoId: String(r.curso_id),
       cursoNombre: r.cat_capacitacion_curso?.nombre,
+      periodMonth: periodMonthEvaluacion(String(r.period_month ?? periodMonth)),
       asistencia: r.asistencia != null ? Number(r.asistencia) : null,
       desempeno: r.desempeno != null ? Number(r.desempeno) : null,
       promedio: r.promedio != null ? Number(r.promedio) : null,
@@ -1441,6 +1680,7 @@ export async function upsertRegistroCapacitacion(
     noEmpleado: String(r.no_empleado),
     cursoId: String(r.curso_id),
     cursoNombre: r.cat_capacitacion_curso?.nombre,
+    periodMonth: periodMonthEvaluacion(String(r.period_month ?? periodMonth)),
     asistencia: r.asistencia != null ? Number(r.asistencia) : null,
     desempeno: r.desempeno != null ? Number(r.desempeno) : null,
     promedio: r.promedio != null ? Number(r.promedio) : null,

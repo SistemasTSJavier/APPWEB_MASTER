@@ -5,8 +5,12 @@ import {
   paqueteDesdePromedio,
   promedioGeneralCategorizacion,
 } from "@/lib/categorizacion-calificaciones";
-import type { CatDashboardEmpleado, CatDashboardPayload } from "@/lib/categorizacion-dashboard-types";
-import { parseFechaIngresoYmd, textoTiempoEnEmpresa } from "@/lib/categorizacion-tenure";
+import type {
+  CatDashboardCapacitacionItem,
+  CatDashboardEmpleado,
+  CatDashboardPayload,
+} from "@/lib/categorizacion-dashboard-types";
+import { parseFechaIngresoYmd, textoTiempoEnEmpresa, colaboradorVigenteEnMesHistorial } from "@/lib/categorizacion-tenure";
 import type { CatPersonalRow } from "@/lib/categorizacion-types";
 import {
   contarFaltasMesDesdeCuadricula,
@@ -14,14 +18,22 @@ import {
   faltasMesParaEmpleado,
   mesCalendarioAnteriorYm,
 } from "@/lib/categorizacion-faltas-cuadricula";
-import { toRecompensasDisplay } from "@/lib/categorizacion-recompensas";
+import { mesCalendarioActualYm, toRecompensasDisplay } from "@/lib/categorizacion-recompensas";
 import { listCatRecompensas } from "@/lib/categorizacion-recompensas-server";
+import {
+  comentarioKardexVisible,
+  etiquetaCursoKardexVisible,
+} from "@/lib/categorizacion-kardex";
 import {
   activosCategorizacionDesdeColaboradores,
   buildResumenCategorizacion,
+  listCatEvaluacionPeriodMonths,
   listCatEvaluacionesModulo,
   listCatPersonal,
+  listCursosCapacitacion,
+  listRegistrosCapacitacion,
   loadMapasPromedioOperaciones,
+  periodMonthEvaluacion,
   promedioOperacionesParaEmpleado,
   promediosCapacitacionPorEmpleados,
 } from "@/lib/categorizacion-server";
@@ -91,28 +103,41 @@ function enriquecerDesdeColaborador(p: CatPersonalRow, colab: ColaboradorComplet
   };
 }
 
-export async function buildCategorizacionDashboard(admin?: SupabaseClient | null): Promise<CatDashboardPayload> {
+export async function buildCategorizacionDashboard(
+  admin?: SupabaseClient | null,
+  opts?: { periodMonth?: string },
+): Promise<CatDashboardPayload> {
   const client =
     admin ?? (isSupabaseServerConfigured() ? createSupabaseServiceRoleClient() : null);
 
   if (!client) {
-    return { empleados: [], servicios: [], generadoEn: new Date().toISOString(), logosServicio: {} };
+    return {
+      empleados: [],
+      servicios: [],
+      generadoEn: new Date().toISOString(),
+      logosServicio: {},
+      periodMonth: periodMonthEvaluacion(opts?.periodMonth),
+      periodosDisponibles: [periodMonthEvaluacion(opts?.periodMonth)],
+    };
   }
 
-  // Desfase: faltas/ausentismos y recompensas del dashboard = mes calendario anterior.
-  const mesYm = mesCalendarioAnteriorYm();
+  // Mes de historial (default: anterior / desfase). Eval + cap + faltas + recompensas alineados.
+  const mesYm = periodMonthEvaluacion(opts?.periodMonth);
 
-  const [colaboradores, rhList, faltasMes, opMapas, personalCat, enList, recList, capProms, logosServicio] =
+  const [colaboradores, rhList, faltasMes, opMapas, personalCat, enList, recList, capProms, capRegs, cursosCap, logosServicio, periodosDisponibles] =
     await Promise.all([
     fetchAllColaboradoresCompletos(client),
-    listCatEvaluacionesModulo("recursos_humanos", client),
+    listCatEvaluacionesModulo("recursos_humanos", client, { periodMonth: mesYm }),
     contarFaltasMesDesdeCuadricula(client, mesYm).catch(() => ({ mesYm, faltas: {} as Record<string, never> })),
-    loadMapasPromedioOperaciones(client),
+    loadMapasPromedioOperaciones(client, { periodMonth: mesYm }),
     listCatPersonal(client),
-    listCatEvaluacionesModulo("enfoque_cliente", client),
+    listCatEvaluacionesModulo("enfoque_cliente", client, { periodMonth: mesYm }),
     listCatRecompensas(undefined, client).catch(() => []),
-    promediosCapacitacionPorEmpleados(client),
+    promediosCapacitacionPorEmpleados(client, { periodMonth: mesYm }).catch(() => new Map()),
+    listRegistrosCapacitacion(client, { periodMonth: mesYm }).catch(() => []),
+    listCursosCapacitacion(client).catch(() => []),
     listLogosServicioDashboard(client),
+    listCatEvaluacionPeriodMonths(client).catch(() => [mesYm]),
   ]);
 
   const activos = activosCategorizacionDesdeColaboradores(colaboradores);
@@ -125,12 +150,13 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     rhList,
     enList,
     capProms,
+    periodMonth: mesYm,
   });
 
   const personal: CatPersonalRow[] = activos.map((a) => ({
     noEmpleado: a.noEmpleado,
     periodoEvaluacion: "",
-    fechaIngreso: "",
+    fechaIngreso: a.fechaIngreso || "",
     nombre: a.nombre,
     servicio: a.servicio,
     puesto: a.puesto,
@@ -160,18 +186,78 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
     recMap.set(key, list);
   }
 
-  const serviciosSet = new Set<string>();
+  const cursoNombrePorId = new Map(cursosCap.map((c) => [c.id, c.nombre.trim()]));
+  const capMap = new Map<string, CatDashboardCapacitacionItem[]>();
+  for (const row of capRegs) {
+    const key = row.noEmpleado.trim().toUpperCase();
+    const list = capMap.get(key) ?? [];
+    const nombre =
+      etiquetaCursoKardexVisible(row.cursoNombre) ||
+      etiquetaCursoKardexVisible(cursoNombrePorId.get(row.cursoId)) ||
+      "Capacitación";
+    list.push({
+      id: row.id,
+      cursoNombre: nombre,
+      desempeno: row.desempeno,
+      promedio: row.promedio,
+      comentarios: comentarioKardexVisible(row.comentarios),
+    });
+    capMap.set(key, list);
+  }
+
   const empleados: CatDashboardEmpleado[] = personal.map((pRaw) => {
     const colab = colabMap.get(pRaw.noEmpleado.trim().toUpperCase());
     const p = enriquecerDesdeColaborador(pRaw, colab);
     const key = p.noEmpleado.trim().toUpperCase();
     const r = resumenMap.get(key);
     const servicio = p.servicio.trim() || "SIN SERVICIO";
-    serviciosSet.add(servicioClaveFiltroCat(servicio) || servicio);
     const activo = activosMap.get(key);
     const planta = String(activo?.planta ?? colab?.form?.planta ?? "").trim();
 
     const fechaIngreso = fechaIngresoEfectiva(p, colab);
+    const vigenteEnMes = colaboradorVigenteEnMesHistorial(fechaIngreso, mesYm);
+
+    // Aún no ingresaba en este mes: se lista sin calificaciones / kardex.
+    if (!vigenteEnMes) {
+      return {
+        noEmpleado: p.noEmpleado,
+        nombre: p.nombre,
+        servicio,
+        planta,
+        puesto: p.puesto,
+        periodoEvaluacion: p.periodoEvaluacion,
+        fechaIngreso,
+        tiempoEnEmpresa: textoTiempoEnEmpresa(fechaIngreso),
+        edad: p.edad,
+        escolaridad: p.escolaridad,
+        promedioRh: null,
+        promedioCapacitacion: null,
+        promedioOperaciones: null,
+        promedioEnfoque: null,
+        promedioGraficaModulos: null,
+        promedioGeneral: null,
+        nivel: "—",
+        paquete: "—",
+        nivelId: null,
+        paqueteId: null,
+        faltasMesActual: 0,
+        faltasMesDetalle: `Sin historial: ingreso ${fechaIngreso || "s/f"}`,
+        faltasMesYm: mesYm,
+        rh: {
+          faltasMesActual: 0,
+          faltasMesDetalle: "",
+          faltasMesYm: mesYm,
+          rotacionServicios: null,
+          actasAdministrativas: null,
+        },
+        recompensas: { bonos: [], empleadoDelMes: [], reconocimientos: [] },
+        capacitaciones: [],
+        fotoUrl: (() => {
+          const fotoExpediente = colab ? String(colab.form?.[FICHA_FOTO_FORM_KEY] ?? "").trim() : "";
+          return fotosStorage.get(key) || fotoExpediente || null;
+        })(),
+      };
+    }
 
     const promedioRh = r?.promedioRh ?? null;
     const promedioCapacitacion = r?.promedioCapacitacion ?? null;
@@ -220,16 +306,30 @@ export async function buildCategorizacionDashboard(admin?: SupabaseClient | null
       faltasMesYm: faltasMes.mesYm,
       rh: rhDetalle(rhMap.get(key) ?? {}, faltas, faltasMes.mesYm),
       recompensas: recompensasDetalle(recMap.get(key) ?? []),
+      capacitaciones: capMap.get(key) ?? [],
       fotoUrl,
     };
   });
 
   empleados.sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
 
+  const serviciosSetFinal = new Set<string>();
+  for (const e of empleados) {
+    serviciosSetFinal.add(servicioClaveFiltroCat(e.servicio) || e.servicio);
+  }
+
   return {
     empleados,
-    servicios: [...serviciosSet].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" })),
+    servicios: [...serviciosSetFinal].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" })),
     generadoEn: new Date().toISOString(),
     logosServicio,
+    periodMonth: mesYm,
+    periodosDisponibles: (() => {
+      const set = new Set(periodosDisponibles);
+      set.add(mesYm);
+      set.add(mesCalendarioAnteriorYm());
+      set.add(mesCalendarioActualYm());
+      return [...set].filter((m) => /^\d{4}-\d{2}$/.test(m)).sort((a, b) => b.localeCompare(a));
+    })(),
   };
 }

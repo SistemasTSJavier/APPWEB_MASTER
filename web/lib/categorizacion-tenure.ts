@@ -56,3 +56,33 @@ export function textoTiempoEnEmpresa(fechaIngreso: string, ref: Date = new Date(
   if (partes.length === 2) return `${partes[0]} y ${partes[1]}`;
   return `${partes[0]}, ${partes[1]} y ${partes[2]}`;
 }
+
+/** YYYY-MM del ingreso, o null si no hay fecha válida. */
+export function mesYmDesdeFechaIngreso(fechaIngreso: string | null | undefined): string | null {
+  const ymd = parseFechaIngresoYmd(String(fechaIngreso ?? ""));
+  if (!ymd || ymd.length < 7) return null;
+  const ym = ymd.slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(ym) ? ym : null;
+}
+
+/**
+ * ¿Debía existir el colaborador en el mes del historial?
+ * Si ingresó en abril, marzo no aplica. Sin fecha de ingreso → se incluye (no ocultar).
+ */
+export function colaboradorVigenteEnMesHistorial(
+  fechaIngreso: string | null | undefined,
+  periodMonth: string | null | undefined,
+): boolean {
+  const mesIngreso = mesYmDesdeFechaIngreso(fechaIngreso);
+  if (!mesIngreso) return true;
+  const mes = String(periodMonth ?? "").trim().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(mes)) return true;
+  return mesIngreso <= mes;
+}
+
+export function filtrarPorVigenciaEnMesHistorial<T extends { fechaIngreso?: string | null }>(
+  rows: T[],
+  periodMonth: string | null | undefined,
+): T[] {
+  return rows.filter((r) => colaboradorVigenteEnMesHistorial(r.fechaIngreso, periodMonth));
+}

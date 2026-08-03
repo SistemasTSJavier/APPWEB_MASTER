@@ -43,6 +43,13 @@ export const CATEGORIZACION_MODULOS = [
     icon: "🏆",
   },
   {
+    id: "promedios-rapidos",
+    label: "Promedios rápidos",
+    description: "Solo admin: captura rápida de promedios RH, Capacitación, Operaciones y Enfoque por colaborador y mes.",
+    icon: "⚡",
+    adminOnly: true,
+  },
+  {
     id: "dashboard",
     label: "Dashboard",
     description: "Vista analítica, gráficas, nivel y paquete. Filtro por servicio y colaborador.",
@@ -66,6 +73,11 @@ export type CategorizacionModuloId = (typeof CATEGORIZACION_MODULOS)[number]["id
 
 export function isCategorizacionModuloId(id: string): id is CategorizacionModuloId {
   return CATEGORIZACION_MODULOS.some((m) => m.id === id);
+}
+
+export function categorizacionModuloEsAdminOnly(id: CategorizacionModuloId): boolean {
+  const m = CATEGORIZACION_MODULOS.find((x) => x.id === id);
+  return Boolean(m && "adminOnly" in m && m.adminOnly);
 }
 
 export function categorizacionModuloMeta(id: CategorizacionModuloId) {

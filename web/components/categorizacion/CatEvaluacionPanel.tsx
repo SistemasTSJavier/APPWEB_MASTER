@@ -16,7 +16,9 @@ import {
   type CatOperacionesRolId,
 } from "@/lib/categorizacion-operaciones-roles";
 import type { FaltasMesMap } from "@/lib/categorizacion-faltas-cuadricula";
-import { faltasMesParaEmpleado } from "@/lib/categorizacion-faltas-cuadricula";
+import { faltasMesParaEmpleado, mesCalendarioAnteriorYm } from "@/lib/categorizacion-faltas-cuadricula";
+import { filtrarPorVigenciaEnMesHistorial } from "@/lib/categorizacion-tenure";
+import { etiquetaMesYm } from "@/lib/categorizacion-recompensas";
 import {
   promedioAcumuladoEvaluaciones,
   promedioDeScores,
@@ -71,6 +73,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   const [calificadoPorSel, setCalificadoPorSel] = useState("");
   const [faltasMap, setFaltasMap] = useState<FaltasMesMap>({});
   const [faltasMesYm, setFaltasMesYm] = useState("");
+  const [periodMonth, setPeriodMonth] = useState(mesCalendarioAnteriorYm());
   const [noSel, setNoSel] = useState("");
   const [scores, setScores] = useState<Record<string, number | "">>({});
   const [comentarios, setComentarios] = useState("");
@@ -96,12 +99,28 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
   const servicioOperacionesElegido = esOperaciones ? filtroServicio.trim() : "";
   const necesitaServicioOperaciones = esOperaciones && !servicioOperacionesElegido;
 
+  const activosMes = useMemo(
+    () => filtrarPorVigenciaEnMesHistorial(activos, periodMonth),
+    [activos, periodMonth],
+  );
+
+  useEffect(() => {
+    if (!noSel) return;
+    const ok = activosMes.some((a) => noKey(a.noEmpleado) === noKey(noSel));
+    if (!ok) {
+      setNoSel("");
+      setCalificadoPorSel("");
+      setScores({});
+      setComentarios("");
+    }
+  }, [activosMes, noSel]);
+
   const activosEnServicioOperaciones = useMemo(
     () =>
       servicioOperacionesElegido
-        ? filtrarPorServicio(activos, servicioOperacionesElegido, filtroPlanta)
+        ? filtrarPorServicio(activosMes, servicioOperacionesElegido, filtroPlanta)
         : [],
-    [activos, servicioOperacionesElegido, filtroPlanta],
+    [activosMes, servicioOperacionesElegido, filtroPlanta],
   );
 
   const conteoServicioOperaciones = useMemo(() => {
@@ -210,12 +229,12 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     if (!esOperaciones) {
       if (esEnfoque) {
         if (!servicioEnfoqueElegido) return [];
-        return filtrarPorServicio(activos, servicioEnfoqueElegido, filtroPlanta);
+        return filtrarPorServicio(activosMes, servicioEnfoqueElegido, filtroPlanta);
       }
-      return activos;
+      return activosMes;
     }
     if (!servicioOperacionesElegido) return [];
-    const enServicio = filtrarPorServicio(activos, servicioOperacionesElegido, filtroPlanta);
+    const enServicio = filtrarPorServicio(activosMes, servicioOperacionesElegido, filtroPlanta);
     const porRol = enServicio.filter((p) => personalCoincideRolOperaciones(p.puesto, rolOperaciones));
 
     // Incluir a quienes ya tienen calificación del rol actual aunque el puesto no coincida
@@ -233,7 +252,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     });
     return extras.length ? [...porRol, ...extras] : porRol;
   }, [
-    activos,
+    activosMes,
     esOperaciones,
     esEnfoque,
     rolOperaciones,
@@ -378,10 +397,11 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       }
 
       try {
+        const mesQ = encodeURIComponent(periodMonth);
         const re = await fetch(
           esOperaciones
-            ? `/api/categorizacion/evaluaciones?modulo=${modulo}&submodulo=${submoduloOperaciones(rolOperaciones)}`
-            : `/api/categorizacion/evaluaciones?modulo=${modulo}`,
+            ? `/api/categorizacion/evaluaciones?modulo=${modulo}&submodulo=${submoduloOperaciones(rolOperaciones)}&mes=${mesQ}`
+            : `/api/categorizacion/evaluaciones?modulo=${modulo}&mes=${mesQ}`,
           { cache: "no-store" },
         );
         const je = await re.json();
@@ -395,11 +415,14 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
 
       if (esRh) {
         try {
-          const rf = await fetch("/api/categorizacion/faltas-mes", { cache: "no-store" });
+          const rf = await fetch(
+            `/api/categorizacion/faltas-mes?mes=${encodeURIComponent(periodMonth)}`,
+            { cache: "no-store" },
+          );
           const jf = await rf.json();
           if (!rf.ok) throw new Error(jf.error);
           setFaltasMap(jf.faltas ?? {});
-          setFaltasMesYm(String(jf.mesYm ?? ""));
+          setFaltasMesYm(String(jf.mesYm ?? periodMonth));
         } catch (e) {
           avisos.push(e instanceof Error ? e.message.toUpperCase() : "ERROR AL CARGAR FALTAS.");
         }
@@ -409,7 +432,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     } finally {
       setBusy(false);
     }
-  }, [modulo, esRh, esOperaciones, rolOperaciones, aplicarFilasEvaluacion]);
+  }, [modulo, esRh, esOperaciones, rolOperaciones, periodMonth, aplicarFilasEvaluacion]);
 
   useEffect(() => {
     void load();
@@ -498,6 +521,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
       });
       if (esOperaciones) params.set("submodulo", submoduloOperaciones(rolOperaciones));
       if (usaEvalMultiCalificador) params.set("calificado_por", calKey);
+      params.set("mes", periodMonth);
       const r = await fetch(`/api/categorizacion/evaluaciones?${params.toString()}`, { method: "DELETE" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
@@ -527,7 +551,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
     setBusy(true);
     setMsg(null);
     try {
-      const params = new URLSearchParams({ modulo, no_empleado: noKey(noSel) });
+      const params = new URLSearchParams({ modulo, no_empleado: noKey(noSel), mes: periodMonth });
       const r = await fetch(`/api/categorizacion/evaluaciones?${params.toString()}`, { method: "DELETE" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
@@ -600,6 +624,7 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           submodulo: esOperaciones ? submoduloOperaciones(rolOperaciones) : undefined,
           rolOperaciones: esOperaciones ? rolOperaciones : undefined,
           calificadoPor: usaEvalMultiCalificador ? calificadorGuardado : undefined,
+          periodMonth,
           scores: nums,
           comentarios,
         }),
@@ -657,11 +682,36 @@ export function CatEvaluacionPanel({ modulo, appRole }: { modulo: CatEvalModuloI
           )
         ) : (
           <>
-            Califica cada criterio del <strong>1 al 5</strong>. El promedio del módulo es la media de los criterios
-            calificados ({campos.length} en {labelModuloEval(modulo)}).
+            Califica cada criterio del <strong>1 al 5</strong> para el <strong>mes seleccionado</strong>. El promedio
+            del módulo es la media de los criterios calificados ({campos.length} en {labelModuloEval(modulo)}).
           </>
         )}
       </p>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <label className="space-y-1">
+          <span className="form-label">Mes de la calificación</span>
+          <input
+            className="form-control"
+            type="month"
+            value={periodMonth}
+            onChange={(e) => {
+              const m = e.target.value;
+              if (!/^\d{4}-\d{2}$/.test(m)) return;
+              setPeriodMonth(m);
+              setNoSel("");
+              setCalificadoPorSel("");
+              setScores({});
+              setComentarios("");
+              setMsg(null);
+            }}
+            disabled={busy}
+          />
+        </label>
+        <p className="pb-1 text-[11px] font-medium text-slate-600 capitalize">
+          Historial: {etiquetaMesYm(periodMonth)}. Cada mes guarda sus propios promedios.
+        </p>
+      </div>
 
       {esEnfoque && esAdminEnfoque ? (
         <CatEnfoqueAccesosPanel serviciosDisponibles={serviciosDesdeActivos(activos)} />

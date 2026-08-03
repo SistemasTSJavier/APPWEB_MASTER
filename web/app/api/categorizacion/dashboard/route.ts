@@ -3,18 +3,23 @@ import { requireCategorizacionApi, servicioScopeCategorizacion } from "@/lib/cat
 import { buildCategorizacionDashboard } from "@/lib/categorizacion-dashboard-server";
 import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calificaciones";
 import { serviciosCoincidenCat } from "@/lib/categorizacion-servicios-calificables";
+import { periodMonthEvaluacion } from "@/lib/categorizacion-server";
 import { isSupabaseServerConfigured, supabaseServerEnvMissing } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const gate = await requireCategorizacionApi();
   if ("error" in gate) return gate.error;
   if (!isSupabaseServerConfigured()) {
     return NextResponse.json({ error: "Supabase no configurado", missingEnv: supabaseServerEnvMissing() }, { status: 503 });
   }
   try {
-    const data = await buildCategorizacionDashboard();
+    const url = new URL(req.url);
+    const periodMonth = periodMonthEvaluacion(
+      url.searchParams.get("mes") ?? url.searchParams.get("period_month"),
+    );
+    const data = await buildCategorizacionDashboard(null, { periodMonth });
     const srv = servicioScopeCategorizacion(gate.auth);
     const empleados = srv
       ? data.empleados.filter((e) => serviciosCoincidenCat(e.servicio, srv))

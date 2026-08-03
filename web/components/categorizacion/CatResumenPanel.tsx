@@ -13,6 +13,8 @@ import { CAT_NIVEL_REGLAS, CAT_PAQUETE_REGLAS } from "@/lib/categorizacion-calif
 import type { CatPersonalRow, CatResumenEmpleado } from "@/lib/categorizacion-types";
 import { CatMsg } from "@/components/categorizacion/cat-form-ui";
 import { fetchColaboradoresActivosCat } from "@/lib/categorizacion-colaboradores-client";
+import { mesCalendarioAnteriorYm } from "@/lib/categorizacion-faltas-cuadricula";
+import { etiquetaMesYm } from "@/lib/categorizacion-recompensas";
 
 type ResumenConServicio = CatResumenEmpleado & { servicio: string; planta?: string };
 
@@ -24,6 +26,7 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
   const [filtroTabla, setFiltroTabla] = useState("");
   const [filtroServicio, setFiltroServicio] = useState("");
   const [filtroPlanta, setFiltroPlanta] = useState("");
+  const [periodMonth, setPeriodMonth] = useState(mesCalendarioAnteriorYm());
 
   const rowsPorServicio = useMemo(
     () => filtrarPorServicio(rows, filtroServicio, filtroPlanta),
@@ -43,7 +46,7 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
     setBusy(true);
     try {
       const [r, activosRows] = await Promise.all([
-        fetch("/api/categorizacion/resumen", { cache: "no-store" }),
+        fetch(`/api/categorizacion/resumen?mes=${encodeURIComponent(periodMonth)}`, { cache: "no-store" }),
         fetchColaboradoresActivosCat({ forceRefresh: true }),
       ]);
       const j = await r.json();
@@ -66,7 +69,7 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [periodMonth]);
 
   useEffect(() => {
     void load();
@@ -77,6 +80,25 @@ export function CatResumenPanel({ tipo }: { tipo: "nivel" | "paquete-prestacione
   return (
     <div className="space-y-4">
       <p className="text-xs font-medium text-slate-700">{nota}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="space-y-1">
+          <span className="form-label">Mes</span>
+          <input
+            className="form-control"
+            type="month"
+            value={periodMonth}
+            onChange={(e) => {
+              const m = e.target.value;
+              if (!/^\d{4}-\d{2}$/.test(m)) return;
+              setPeriodMonth(m);
+            }}
+            disabled={busy}
+          />
+        </label>
+        <p className="pb-1 text-[11px] font-medium capitalize text-slate-600">
+          {etiquetaMesYm(periodMonth)}
+        </p>
+      </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {reglas.map((r) => (
           <div key={r.id} className="rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2 text-xs">
