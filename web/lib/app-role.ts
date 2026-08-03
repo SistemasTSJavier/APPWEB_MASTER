@@ -165,10 +165,35 @@ export const APP_MODULOS_HABILITABLES = [
   { id: "/gestores-proceso", label: "Gestores proceso" },
   { id: "/categorizacion", label: "Categorización" },
   { id: "/pruebas-efectividad-operativa", label: "Efectividad operativa" },
+  { id: "/asistencia-servicio", label: "Asistencia del servicio" },
   { id: "/bonos", label: "Bonos" },
 ] as const;
 
 export type AppModuloId = (typeof APP_MODULOS_HABILITABLES)[number]["id"];
+
+/** Módulos que un cliente temporal puede recibir (toggles en Usuarios). */
+export const CLIENT_MODULOS_HABILITABLES = [
+  { id: "/categorizacion" as const, label: "Categorización (dashboard)" },
+  { id: "/pruebas-efectividad-operativa" as const, label: "Efectividad operativa" },
+  { id: "/asistencia-servicio" as const, label: "Asistencia del servicio" },
+] as const;
+
+export type ClientModuloId = (typeof CLIENT_MODULOS_HABILITABLES)[number]["id"];
+
+/** Al crear cliente: los 3 módulos activos por defecto. */
+export const CLIENT_MODULOS_DEFAULT: readonly ClientModuloId[] = CLIENT_MODULOS_HABILITABLES.map(
+  (m) => m.id,
+);
+
+const CLIENT_MODULO_ID_SET = new Set<string>(CLIENT_MODULOS_HABILITABLES.map((m) => m.id));
+
+export function esClientModuloId(v: string): v is ClientModuloId {
+  return CLIENT_MODULO_ID_SET.has(v);
+}
+
+export function parseClientModulosHabilitados(raw: unknown): ClientModuloId[] {
+  return parseModulosHabilitados(raw).filter((m): m is ClientModuloId => esClientModuloId(m));
+}
 
 const APP_MODULO_ID_SET = new Set<string>(APP_MODULOS_HABILITABLES.map((m) => m.id));
 
@@ -253,10 +278,32 @@ export function tieneModulosExplicitos(userMetadata?: Record<string, unknown> | 
 }
 
 /** Ruta de navegación para un id de módulo (algunos apuntan a subrutas). */
-export function hrefNavParaModulo(modulo: AppModuloId): string {
+export function hrefNavParaModulo(modulo: AppModuloId, role?: AppRole | null): string {
+  if (role === "cliente_enfoque") {
+    if (modulo === "/categorizacion") return "/categorizacion/dashboard";
+    if (modulo === "/pruebas-efectividad-operativa") return "/pruebas-efectividad-operativa/dashboard";
+    if (modulo === "/asistencia-servicio") return "/asistencia-servicio";
+  }
   if (modulo === "/gerente-legal") return "/gerente-legal/contratos";
   if (modulo === "/ideas-que-transforman") return "/ideas-que-transforman/panel";
   return modulo;
+}
+
+/** Rutas de consulta permitidas para cliente_enfoque dentro de un módulo. */
+export function clienteEnfoquePathPermitido(pathname: string, modulo: AppModuloId): boolean {
+  if (modulo === "/categorizacion") {
+    return pathname === "/categorizacion/dashboard" || pathname.startsWith("/categorizacion/dashboard/");
+  }
+  if (modulo === "/pruebas-efectividad-operativa") {
+    return (
+      pathname === "/pruebas-efectividad-operativa/dashboard" ||
+      pathname.startsWith("/pruebas-efectividad-operativa/dashboard/")
+    );
+  }
+  if (modulo === "/asistencia-servicio") {
+    return pathname === "/asistencia-servicio" || pathname.startsWith("/asistencia-servicio/");
+  }
+  return false;
 }
 
 /**
@@ -354,6 +401,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/bajas": ["admin", "rh", "aux_rh", "gerente_rh", "mejora_continua", "editor_cuadricula"],
   "/colaboradores": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "aux_legal", "gerente_legal", "editor_cuadricula"],
   "/cuadricula": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula"],
+  "/asistencia-servicio": ["admin", "rh", "gerente_rh", "mejora_continua", "nominas", "editor_cuadricula", "cliente_enfoque"],
   "/expedientes-legal": ["admin", "rh", "aux_legal", "gerente_legal"],
   "/ds3": ["admin", "rh", "aux_legal", "gerente_legal"],
   "/gerente-legal": ["admin", "gerente_legal"],
@@ -464,7 +512,9 @@ export function canAccessPath(
     if (sec === "/") return true;
     const modulo = moduloIdParaPath(pathname);
     if (!modulo) return false;
-    return mods.includes(modulo);
+    if (!mods.includes(modulo)) return false;
+    if (role === "cliente_enfoque") return clienteEnfoquePathPermitido(pathname, modulo);
+    return true;
   }
 
   // Sin lista explícita: acceso por rol (comportamiento legado).
@@ -487,6 +537,10 @@ export function canAccessPath(
       );
     }
     if (!roleMayAccessPruebasEfectividad(role, userEmail)) return false;
+  } else if (sec === "/asistencia-servicio") {
+    // Legado: clientes sin lista de módulos no abren asistencia (solo Cat + Efectividad).
+    if (role === "cliente_enfoque") return false;
+    if (!roleMayAccessAsistenciaServicio(role)) return false;
   } else {
     const allowed = SECTION_ROLES[sec];
     if (!allowed) {
@@ -497,7 +551,6 @@ export function canAccessPath(
     }
   }
 
-  if (role === "cliente_enfoque") return true;
   return true;
 }
 
@@ -532,18 +585,38 @@ export function roleMayAccessExpedientesLegal(role: AppRole): boolean {
 }
 
 /** Tras login o acceso denegado. */
-export function defaultHomeForRole(role: AppRole): string {
-  if (role === "cliente_enfoque") return "/categorizacion/dashboard";
+export function defaultHomeForRole(
+  role: AppRole,
+  modulosHabilitados?: readonly string[] | null,
+): string {
+  if (role === "cliente_enfoque") {
+    const mods = parseClientModulosHabilitados(modulosHabilitados ?? []);
+    if (mods.length > 0) return hrefNavParaModulo(mods[0]!, role);
+    return "/categorizacion/dashboard";
+  }
   if (role === "relaciones_laborales" || role === "gerente_operaciones" || role === "contabilidad") return "/moper";
   if (role === "aux_rh") return "/altas";
   return "/";
 }
 
-export function inicioHrefParaRol(role: AppRole): string {
-  if (role === "cliente_enfoque") return "/categorizacion/dashboard";
-  if (role === "relaciones_laborales" || role === "gerente_operaciones" || role === "contabilidad") return "/moper";
-  if (role === "aux_rh") return "/altas";
-  return "/";
+export function inicioHrefParaRol(
+  role: AppRole,
+  modulosHabilitados?: readonly string[] | null,
+): string {
+  return defaultHomeForRole(role, modulosHabilitados);
+}
+
+/** Lectura de asistencia agregada por servicio (vista cliente / interna). */
+export function roleMayAccessAsistenciaServicio(role: AppRole): boolean {
+  return (
+    role === "admin" ||
+    role === "rh" ||
+    role === "gerente_rh" ||
+    role === "mejora_continua" ||
+    role === "nominas" ||
+    role === "editor_cuadricula" ||
+    role === "cliente_enfoque"
+  );
 }
 
 /** Enlaces del menú lateral (sin página de inicio). */
@@ -564,11 +637,13 @@ export function appSidebarModuleLinks(
   // Lista explícita del admin: menú = solo esos módulos (no el menú completo del rol).
   if (mods.length > 0) {
     const byId = new Map(APP_MODULOS_HABILITABLES.map((m) => [m.id, m.label]));
+    const clientLabels = new Map(CLIENT_MODULOS_HABILITABLES.map((m) => [m.id, m.label]));
     return mods
       .filter((id) => byId.has(id))
+      .filter((id) => (role === "cliente_enfoque" ? esClientModuloId(id) : true))
       .map((id) => ({
-        href: hrefNavParaModulo(id),
-        label: byId.get(id) ?? id,
+        href: hrefNavParaModulo(id, role),
+        label: (role === "cliente_enfoque" ? clientLabels.get(id as ClientModuloId) : null) ?? byId.get(id) ?? id,
       }));
   }
 
@@ -576,7 +651,7 @@ export function appSidebarModuleLinks(
   let links: { href: string; label: string }[];
   if (role === "cliente_enfoque") {
     links = [
-      { href: "/categorizacion/dashboard", label: "Dashboard categorización" },
+      { href: "/categorizacion/dashboard", label: "Categorización (dashboard)" },
       { href: "/pruebas-efectividad-operativa/dashboard", label: "Efectividad operativa" },
     ];
   } else if (role === "aux_rh") {

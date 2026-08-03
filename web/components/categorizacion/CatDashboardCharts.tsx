@@ -37,42 +37,43 @@ export function CatBarChartModulos({
 }) {
   const map = { capacitacion, operaciones, enfoque };
   const max = CAT_ESCALA_MAX;
-  const chartH = presentacion ? "min-h-[220px] sm:min-h-[280px]" : "min-h-[200px]";
-  const barAreaH = presentacion ? "h-36 sm:h-44 md:h-52" : "h-40 sm:h-44";
+  const barAreaH = presentacion
+    ? "h-[7.5rem] sm:h-36 md:h-40 [@media(max-height:800px)]:h-[6.5rem]"
+    : "h-28 sm:h-32 lg:h-36";
+  const barInnerH = presentacion
+    ? "h-[5.5rem] sm:h-28 md:h-32 [@media(max-height:800px)]:h-24"
+    : "h-20 sm:h-24 lg:h-28";
 
   return (
-    <div className={`flex flex-col ${chartH}`}>
-      <div className="-mx-1 overflow-x-auto pb-2">
-        <table className="mb-3 w-full min-w-[480px] border-collapse text-[8px] font-bold uppercase sm:text-[9px]">
-          <thead>
-            <tr>
-              {ESCALA_PUNTAJE_CAT.map((e) => (
-                <th
-                  key={e.n}
-                  className={`border border-slate-400/60 px-0.5 py-1.5 text-center leading-tight shadow-sm ${e.text} ${e.n === 1 ? "text-[7px] sm:text-[8px]" : ""}`}
-                  style={{ backgroundColor: e.color }}
-                  title={e.label}
-                >
-                  {e.n} = {e.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-        </table>
+    <div className="flex min-w-0 flex-col">
+      <div className="mb-2 grid grid-cols-5 gap-0.5">
+        {ESCALA_PUNTAJE_CAT.map((e) => (
+          <div
+            key={e.n}
+            className={`rounded-sm border border-slate-400/40 px-0.5 py-1 text-center text-[7px] font-bold uppercase leading-tight shadow-sm sm:text-[8px] ${e.text}`}
+            style={{ backgroundColor: e.color }}
+            title={`${e.n} = ${e.label}`}
+          >
+            <span className="block tabular-nums">{e.n}</span>
+            <span className="mt-0.5 block line-clamp-2 font-semibold normal-case tracking-tight opacity-95">
+              {e.label}
+            </span>
+          </div>
+        ))}
       </div>
 
       <div
-        className={`relative flex flex-1 items-end justify-center gap-4 border-b border-l border-slate-300 pb-10 pl-8 pr-3 pt-3 sm:gap-8 sm:pb-12 ${barAreaH}`}
+        className={`relative flex items-end justify-center gap-2 border-b border-l border-slate-300 pb-8 pl-6 pr-2 pt-2 sm:gap-4 sm:pb-9 sm:pl-7 ${barAreaH}`}
       >
         {[1, 2, 3, 4, 5].map((n) => (
           <div
             key={n}
-            className="pointer-events-none absolute left-8 right-0 border-t border-dashed border-slate-200"
+            className="pointer-events-none absolute left-6 right-0 border-t border-dashed border-slate-200 sm:left-7"
             style={{ bottom: `${(n / max) * 72 + 12}%` }}
             aria-hidden
           />
         ))}
-        <div className="absolute bottom-2 left-0 top-2 flex w-6 flex-col justify-between text-[10px] font-bold text-slate-500">
+        <div className="absolute bottom-1.5 left-0 top-1.5 flex w-5 flex-col justify-between text-[9px] font-bold text-slate-500 sm:w-6 sm:text-[10px]">
           <span>{max}</span>
           <span>{CAT_ESCALA_MIN}</span>
         </div>
@@ -81,13 +82,13 @@ export function CatBarChartModulos({
           const valor = map[b.valorKey];
           const barColor = colorPuntajeCategorizacion(valor);
           return (
-            <div key={b.key} className="flex min-w-[56px] max-w-[120px] flex-1 flex-col items-center justify-end">
-              <span className="mb-2 text-base font-extrabold tabular-nums text-slate-900 sm:text-lg">
+            <div key={b.key} className="flex min-w-0 max-w-[6.5rem] flex-1 flex-col items-center justify-end">
+              <span className="mb-1 text-sm font-extrabold tabular-nums text-slate-900 sm:text-base">
                 {valor != null ? valor.toFixed(1) : "—"}
               </span>
-              <div className={`flex w-full max-w-[72px] items-end justify-center ${presentacion ? "h-32 sm:h-40" : "h-28 sm:h-36"}`}>
+              <div className={`flex w-full max-w-[3.5rem] items-end justify-center sm:max-w-[4rem] ${barInnerH}`}>
                 <div
-                  className="w-[70%] max-w-[56px] rounded-t-sm shadow-md ring-1 ring-black/10"
+                  className="w-[70%] max-w-[2.75rem] rounded-t-sm shadow-md ring-1 ring-black/10"
                   style={{
                     height: valor != null ? `${(valor / max) * 100}%` : "4%",
                     backgroundColor: barColor,
@@ -95,7 +96,7 @@ export function CatBarChartModulos({
                   }}
                 />
               </div>
-              <span className="mt-3 text-center text-[9px] font-bold uppercase leading-tight text-slate-800 sm:text-[10px]">
+              <span className="mt-1.5 text-center text-[8px] font-bold uppercase leading-tight text-slate-800 sm:text-[9px]">
                 {b.label}
               </span>
             </div>

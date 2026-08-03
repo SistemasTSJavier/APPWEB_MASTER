@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ClientesTemporalesPanel } from "@/components/admin/ClientesTemporalesPanel";
 import {
   APP_MODULOS_HABILITABLES,
   APP_ROLE_LABEL,
@@ -204,6 +205,7 @@ export function UsuariosAdminClient({ currentUserId }: { currentUserId: string }
   const [nuevoRolLabel, setNuevoRolLabel] = useState("");
   const [nuevoRolBase, setNuevoRolBase] = useState("rh");
   const [catalogoBusy, setCatalogoBusy] = useState(false);
+  const [tab, setTab] = useState<"staff" | "clientes">("staff");
 
   const cargarCatalogos = useCallback(async () => {
     try {
@@ -484,11 +486,34 @@ export function UsuariosAdminClient({ currentUserId }: { currentUserId: string }
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-300/90">Administración</p>
         <h1 className="mt-1 text-xl font-bold uppercase tracking-wide sm:text-2xl">Usuarios</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
-          Nombre, departamento, rol y permisos por módulo (ver / editar / eliminar). Puede agregar departamentos y
-          roles personalizados. Solo administrador.
+          Personal interno (roles y permisos) y clientes temporales por servicio con módulos configurables.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={`rounded-lg px-3 py-1.5 text-[11px] font-bold uppercase ${
+              tab === "staff" ? "bg-white text-slate-900" : "bg-white/10 text-white hover:bg-white/20"
+            }`}
+            onClick={() => setTab("staff")}
+          >
+            Personal interno
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg px-3 py-1.5 text-[11px] font-bold uppercase ${
+              tab === "clientes" ? "bg-white text-slate-900" : "bg-white/10 text-white hover:bg-white/20"
+            }`}
+            onClick={() => setTab("clientes")}
+          >
+            Clientes temporales
+          </button>
+        </div>
       </header>
 
+      {tab === "clientes" ? <ClientesTemporalesPanel /> : null}
+
+      {tab === "staff" ? (
+      <>
       {error ? (
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
       ) : null}
@@ -774,6 +799,8 @@ export function UsuariosAdminClient({ currentUserId }: { currentUserId: string }
             </div>
           </div>
         </div>
+      ) : null}
+      </>
       ) : null}
     </div>
   );

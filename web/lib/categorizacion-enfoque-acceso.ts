@@ -1,6 +1,11 @@
 import { randomBytes, randomUUID } from "crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import {
+  CLIENT_MODULOS_DEFAULT,
+  parseClientModulosHabilitados,
+  type ClientModuloId,
+} from "@/lib/app-role";
+import {
   colaboradorCalificableEnCategorizacion,
   colaboradorToCatPersonal,
   listCatPersonal,
@@ -27,6 +32,7 @@ export type CatEnfoqueAccesoCliente = {
   activo: boolean;
   creadoPor: string;
   nota: string;
+  modulos: ClientModuloId[];
   createdAt: string;
   updatedAt: string;
   vigente: boolean;
@@ -59,6 +65,12 @@ export function accesoDesdeAuthUser(user: Pick<User, "id" | "email" | "user_meta
   const role = metaString(meta, "app_role").toLowerCase();
   const activo = role === "cliente_enfoque" && meta.cat_enfoque_activo !== false;
   const vigente = activo && Boolean(fechaInicio && fechaFin) && fechaInicio <= hoy && hoy <= fechaFin;
+  const modulosRaw = parseClientModulosHabilitados(meta.modulos_habilitados);
+  // Sin lista = legado (Cat + Efectividad). Con lista vacía explícita se respeta vacío vía metadata marker.
+  const modulos =
+    meta.modulos_habilitados == null
+      ? (["/categorizacion", "/pruebas-efectividad-operativa"] as ClientModuloId[])
+      : modulosRaw;
 
   return {
     id: metaString(meta, "cat_enfoque_acceso_id") || user.id,
@@ -70,6 +82,7 @@ export function accesoDesdeAuthUser(user: Pick<User, "id" | "email" | "user_meta
     activo,
     creadoPor: metaString(meta, "cat_enfoque_creado_por"),
     nota: metaString(meta, "cat_enfoque_nota"),
+    modulos,
     createdAt: metaString(meta, "cat_enfoque_created_at") || String(user.updated_at ?? ""),
     updatedAt: String(user.updated_at ?? metaString(meta, "cat_enfoque_updated_at")),
     vigente,
@@ -180,6 +193,7 @@ export async function crearCatEnfoqueAccesoCliente(input: {
   creadoPor: string;
   email?: string;
   password?: string;
+  modulos?: unknown;
   admin?: SupabaseClient | null;
 }): Promise<CatEnfoqueAccesoCreado> {
   const client = input.admin ?? db();
@@ -198,6 +212,11 @@ export async function crearCatEnfoqueAccesoCliente(input: {
   const now = new Date().toISOString();
   const creadoPor = input.creadoPor.trim();
   const nota = String(input.nota ?? "").trim();
+  const modulos =
+    input.modulos === undefined
+      ? [...CLIENT_MODULOS_DEFAULT]
+      : parseClientModulosHabilitados(input.modulos);
+  if (modulos.length === 0) throw new Error("Seleccione al menos un módulo de acceso.");
 
   const { data: authUser, error: authErr } = await client.auth.admin.createUser({
     email,
@@ -215,12 +234,12 @@ export async function crearCatEnfoqueAccesoCliente(input: {
       cat_enfoque_email: email,
       cat_enfoque_created_at: now,
       cat_enfoque_updated_at: now,
+      modulos_habilitados: modulos,
     },
   });
   if (authErr) throw new Error(authErr.message);
   if (!authUser.user) throw new Error("Usuario creado sin datos de respuesta.");
 
-  const userId = authUser.user.id;
   const acceso = accesoDesdeAuthUser(authUser.user);
   if (!acceso) throw new Error("No se pudo registrar el acceso en el usuario.");
 
@@ -229,27 +248,77 @@ export async function crearCatEnfoqueAccesoCliente(input: {
   return { ...acceso, passwordPlano: password };
 }
 
+export async function actualizarCatEnfoqueAccesoCliente(input: {
+  id: string;
+  servicio?: string;
+  fechaInicio?: string;
+  fechaFin?: string;
+  nota?: string;
+  modulos?: unknown;
+  activo?: boolean;
+  admin?: SupabaseClient | null;
+}): Promise<CatEnfoqueAccesoCliente> {
+  const client = input.admin ?? db();
+  if (!client) throw new Error("Supabase no configurado");
+
+  const user = await findAuthUserPorAccesoId(client, input.id);
+  if (!user?.id) throw new Error("Acceso no encontrado.");
+
+  const prev = accesoDesdeAuthUser(user);
+  if (!prev) throw new Error("El usuario no es un acceso de cliente válido.");
+
+  const meta = { ...(user.user_metadata ?? {}) } as Record<string, unknown>;
+  const now = new Date().toISOString();
+
+  const servicio =
+    input.servicio !== undefined
+      ? normalizarServicioCategorizacion(input.servicio)
+      : prev.servicio;
+  if (!servicio) throw new Error("Indique el servicio.");
+
+  const fechaInicio =
+    input.fechaInicio !== undefined ? input.fechaInicio.trim().slice(0, 10) : prev.fechaInicio;
+  const fechaFin = input.fechaFin !== undefined ? input.fechaFin.trim().slice(0, 10) : prev.fechaFin;
+  if (!fechaInicio || !fechaFin) throw new Error("Indique fecha de inicio y fin.");
+  if (fechaFin < fechaInicio) throw new Error("La fecha fin debe ser posterior o igual a la de inicio.");
+
+  const nota = input.nota !== undefined ? String(input.nota).trim() : prev.nota;
+  const modulos =
+    input.modulos !== undefined ? parseClientModulosHabilitados(input.modulos) : prev.modulos;
+  if (modulos.length === 0) throw new Error("Seleccione al menos un módulo de acceso.");
+
+  const activo = input.activo !== undefined ? Boolean(input.activo) : prev.activo;
+
+  const { data: updated, error } = await client.auth.admin.updateUserById(user.id, {
+    user_metadata: {
+      ...meta,
+      app_role: activo ? "cliente_enfoque" : "revocado",
+      cat_enfoque_servicio: servicio,
+      cat_enfoque_fecha_inicio: fechaInicio,
+      cat_enfoque_fecha_fin: fechaFin,
+      cat_enfoque_activo: activo,
+      cat_enfoque_nota: nota,
+      cat_enfoque_updated_at: now,
+      modulos_habilitados: modulos,
+    },
+  });
+  if (error) throw new Error(error.message);
+
+  const acceso = updated.user ? accesoDesdeAuthUser(updated.user) : null;
+  if (!acceso) throw new Error("No se pudo actualizar el acceso.");
+
+  if (servicio !== prev.servicio) {
+    await syncCatPersonalActivosPorServicio(servicio, client);
+  }
+
+  return acceso;
+}
+
 export async function revocarCatEnfoqueAccesoCliente(
   id: string,
   admin?: SupabaseClient | null,
 ): Promise<void> {
-  const client = admin ?? db();
-  if (!client) throw new Error("Supabase no configurado");
-
-  const user = await findAuthUserPorAccesoId(client, id);
-  if (!user?.id) throw new Error("Acceso no encontrado.");
-
-  const meta = { ...(user.user_metadata ?? {}) } as Record<string, unknown>;
-  const now = new Date().toISOString();
-  const { error } = await client.auth.admin.updateUserById(user.id, {
-    user_metadata: {
-      ...meta,
-      app_role: "revocado",
-      cat_enfoque_activo: false,
-      cat_enfoque_updated_at: now,
-    },
-  });
-  if (error) throw new Error(error.message);
+  await actualizarCatEnfoqueAccesoCliente({ id, activo: false, admin });
 }
 
 /** Sincroniza cat_personal solo con colaboradores activos y calificables del servicio. */

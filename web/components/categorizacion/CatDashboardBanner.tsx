@@ -26,12 +26,18 @@ function BannerBase({
   logoSlot: ReactNode;
 }) {
   return (
-    <div className="relative w-full leading-[0]">
+    <div
+      className={`relative w-full overflow-hidden leading-[0] ${
+        presentacion
+          ? "h-[min(16vh,7.5rem)] sm:h-[min(18vh,8.5rem)] [@media(max-height:800px)]:h-[5.75rem]"
+          : "h-[5.75rem] sm:h-[6.75rem] lg:h-[7.25rem]"
+      }`}
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={CAT_DASHBOARD_BANNER_SRC}
         alt=""
-        className="block h-auto w-full max-w-full select-none"
+        className="absolute inset-0 h-full w-full max-w-full select-none object-cover object-left"
         aria-hidden
         decoding="async"
         fetchPriority={presentacion ? "high" : "auto"}

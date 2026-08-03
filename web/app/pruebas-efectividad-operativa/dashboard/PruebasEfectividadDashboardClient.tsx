@@ -63,16 +63,24 @@ export function PruebasEfectividadDashboardClient({
   email,
   initialNo,
   initialServicio,
+  servicioFijo,
+  soloLecturaCliente,
   modulosHabilitados,
 }: {
   appRole: AppRole;
   email: string;
   initialNo?: string;
   initialServicio?: string;
+  /** Si viene, el servicio no se puede cambiar (cliente temporal). */
+  servicioFijo?: string | null;
+  soloLecturaCliente?: boolean;
   modulosHabilitados?: readonly string[] | null;
 }) {
+  const servicioLocked = Boolean(servicioFijo?.trim());
   const [data, setData] = useState<PeoDashboardPayload | null>(null);
-  const [servicio, setServicio] = useState(initialServicio?.trim() ?? "");
+  const [servicio, setServicio] = useState(
+    (servicioFijo ?? initialServicio)?.trim() ?? "",
+  );
   const [planta, setPlanta] = useState("");
   const [noEmpleado, setNoEmpleado] = useState(initialNo?.trim().toUpperCase() ?? "");
   const [categoria, setCategoria] = useState<PeoCategoriaId | "">("");
@@ -85,6 +93,10 @@ export function PruebasEfectividadDashboardClient({
   const [error, setError] = useState<string | null>(null);
   const informeRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (servicioFijo?.trim()) setServicio(servicioFijo.trim());
+  }, [servicioFijo]);
+
   async function cargar() {
     setBusy(true);
     setError(null);
@@ -93,7 +105,11 @@ export function PruebasEfectividadDashboardClient({
       const j = (await r.json()) as PeoDashboardPayload & { error?: string };
       if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
       setData(j);
-      if (!servicio && j.servicios.length === 1) setServicio(j.servicios[0]!);
+      if (servicioLocked) {
+        setServicio(servicioFijo!.trim());
+      } else if (!servicio && j.servicios.length === 1) {
+        setServicio(j.servicios[0]!);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar el dashboard.");
     } finally {
@@ -110,6 +126,7 @@ export function PruebasEfectividadDashboardClient({
         if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
         if (cancel) return;
         setData(j);
+        if (servicioFijo?.trim()) setServicio(servicioFijo.trim());
       } catch (e) {
         if (!cancel) setError(e instanceof Error ? e.message : "No se pudo cargar el dashboard.");
       } finally {
@@ -119,7 +136,7 @@ export function PruebasEfectividadDashboardClient({
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [servicioFijo]);
 
   const colaboradoresAlcance = useMemo(
     () => (data ? filtrarPorServicioYPlanta(data.colaboradores, servicio, planta) : []),
@@ -235,13 +252,17 @@ export function PruebasEfectividadDashboardClient({
     >
       <div className="min-w-0 space-y-4">
         <header className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-sky-900 p-5 text-white shadow-lg sm:p-7">
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-200">Vista para cliente</p>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-200">
+            {soloLecturaCliente ? "Vista cliente — solo consulta" : "Vista para cliente"}
+          </p>
           <h1 className="mt-2 text-2xl font-black uppercase sm:text-4xl">Dashboard de Efectividad Operativa</h1>
           <p className="mt-2 text-sm text-slate-200">
-            Filtre el alcance, elija una evaluación y genere el informe ejecutivo.
+            {soloLecturaCliente
+              ? "Resultados e informe ejecutivo de su servicio."
+              : "Filtre el alcance, elija una evaluación y genere el informe ejecutivo."}
           </p>
           <div className="mt-4 flex flex-wrap gap-2 print:hidden">
-            {appRole !== "cliente_enfoque" ? (
+            {!soloLecturaCliente && appRole !== "cliente_enfoque" ? (
               <Link href="/pruebas-efectividad-operativa" className="btn-secondary uppercase">
                 Nueva evaluación
               </Link>
@@ -273,16 +294,25 @@ export function PruebasEfectividadDashboardClient({
         ) : null}
 
         <section className="card grid gap-3 print:hidden md:grid-cols-2 xl:grid-cols-6">
-          <CatFiltroServicio
-            value={servicio}
-            onChange={(v) => {
-              setServicio(v);
-              setPlanta("");
-              setNoEmpleado("");
-              setSeleccionId(null);
-            }}
-            personal={data?.colaboradores ?? []}
-          />
+          {servicioLocked ? (
+            <div className="space-y-1 md:col-span-1">
+              <span className="form-label">Servicio</span>
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold uppercase text-slate-900">
+                {servicio || "—"}
+              </p>
+            </div>
+          ) : (
+            <CatFiltroServicio
+              value={servicio}
+              onChange={(v) => {
+                setServicio(v);
+                setPlanta("");
+                setNoEmpleado("");
+                setSeleccionId(null);
+              }}
+              personal={data?.colaboradores ?? []}
+            />
+          )}
           <CatFiltroPlanta
             servicioFiltro={servicio}
             value={planta}

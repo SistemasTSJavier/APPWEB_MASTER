@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
-import { modulosHabilitadosDesdeMetadata, roleMayAccessPruebasEfectividad } from "@/lib/app-role";
+import {
+  modulosHabilitadosDesdeMetadata,
+  roleEsClienteEnfoque,
+  roleMayAccessPruebasEfectividad,
+} from "@/lib/app-role";
+import { resolverContextoEnfoqueCliente } from "@/lib/categorizacion-enfoque-auth";
 import { PruebasEfectividadDashboardClient } from "./PruebasEfectividadDashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -15,12 +20,23 @@ export default async function PruebasEfectividadDashboardPage({ searchParams }: 
   const modulos = modulosHabilitadosDesdeMetadata(
     (auth.user.user_metadata ?? null) as Record<string, unknown> | null,
   );
+
+  const esCliente = roleEsClienteEnfoque(auth.role);
+  let servicioCliente: string | null = null;
+  if (esCliente) {
+    const ctx = await resolverContextoEnfoqueCliente(auth.user);
+    if (!ctx) redirect("/");
+    servicioCliente = ctx.servicio;
+  }
+
   return (
     <PruebasEfectividadDashboardClient
       appRole={auth.role}
       email={auth.user.email ?? ""}
       initialNo={sp.no}
-      initialServicio={sp.servicio}
+      initialServicio={servicioCliente ?? sp.servicio}
+      servicioFijo={servicioCliente}
+      soloLecturaCliente={esCliente}
       modulosHabilitados={modulos}
     />
   );

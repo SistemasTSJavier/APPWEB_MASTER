@@ -138,7 +138,7 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(new URL(nextParam, request.url));
       }
     }
-    return NextResponse.redirect(new URL(defaultHomeForRole(role), request.url));
+    return NextResponse.redirect(new URL(defaultHomeForRole(role, modulos), request.url));
   }
 
   if (pathname.startsWith("/api/")) {
@@ -150,7 +150,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (!canAccessPath(role, pathname, user.email, modulos)) {
-    return NextResponse.redirect(new URL(defaultHomeForRole(role), request.url));
+    return NextResponse.redirect(new URL(defaultHomeForRole(role, modulos), request.url));
   }
 
   return supabaseResponse;

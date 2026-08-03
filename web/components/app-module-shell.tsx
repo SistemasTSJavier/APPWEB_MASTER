@@ -18,7 +18,11 @@ export function AppModuleShell({
   children: ReactNode;
 }) {
   const isCuadricula = currentPath === "/cuadricula";
-  const layoutWide = isCuadricula || currentPath === "/colaboradores";
+  const layoutWide =
+    isCuadricula ||
+    currentPath === "/colaboradores" ||
+    currentPath === "/categorizacion" ||
+    currentPath.startsWith("/categorizacion/");
 
   if (isCuadricula) {
     return (

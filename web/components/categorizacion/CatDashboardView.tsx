@@ -44,6 +44,10 @@ export const CatDashboardView = forwardRef<
       : empleado.paqueteId.charAt(0).toUpperCase() + empleado.paqueteId.slice(1)
     : "—";
 
+  const pad = presentacion
+    ? "px-3 py-3 sm:px-4 sm:py-4 [@media(max-height:800px)]:px-2.5 [@media(max-height:800px)]:py-2.5"
+    : "px-3 py-3 sm:px-4 sm:py-4";
+
   return (
     <div
       ref={ref}
@@ -66,24 +70,24 @@ export const CatDashboardView = forwardRef<
         data-cat-export-expand
         className={
           presentacion
-            ? "grid min-h-0 flex-1 grid-cols-1 gap-0 overflow-y-auto xl:grid-cols-12 xl:overflow-hidden"
+            ? "grid min-h-0 flex-1 grid-cols-1 gap-0 overflow-y-auto lg:grid-cols-12 lg:overflow-hidden"
             : "grid grid-cols-1 gap-0 lg:grid-cols-12"
         }
       >
         <aside
           data-cat-export-expand
-          className={`border-b border-slate-200 bg-white px-5 py-6 sm:px-6 sm:py-8 xl:border-b-0 xl:border-r ${
-            presentacion ? "flex min-h-0 flex-col xl:col-span-3 xl:overflow-hidden" : "xl:col-span-3 xl:overflow-y-auto"
+          className={`border-b border-slate-200 bg-white lg:col-span-3 lg:border-b-0 lg:border-r ${pad} ${
+            presentacion ? "flex min-h-0 flex-col lg:overflow-hidden" : "lg:overflow-y-auto"
           }`}
         >
           <div className={presentacion ? "shrink-0" : undefined}>
-            <div className="flex flex-nowrap items-start justify-between gap-2 sm:gap-3">
+            <div className="flex flex-nowrap items-start justify-between gap-2">
               <div className="flex min-w-0 flex-1 flex-col justify-center pr-1">
-                <p className="text-[10px] font-bold uppercase text-slate-500">Nombre</p>
-                <p className="mt-1 text-sm font-extrabold uppercase leading-snug text-slate-900 sm:text-base">
+                <p className="text-[9px] font-bold uppercase text-slate-500 sm:text-[10px]">Nombre</p>
+                <p className="mt-0.5 text-xs font-extrabold uppercase leading-snug text-slate-900 sm:text-sm">
                   {empleado.nombre}
                 </p>
-                <p className="mt-0.5 font-mono text-xs text-slate-500">N° {empleado.noEmpleado}</p>
+                <p className="mt-0.5 font-mono text-[10px] text-slate-500 sm:text-xs">N° {empleado.noEmpleado}</p>
               </div>
               <CatOficialFoto
                 noEmpleado={empleado.noEmpleado}
@@ -95,33 +99,36 @@ export const CatDashboardView = forwardRef<
               />
             </div>
 
-            <p className="mt-5 text-xl font-light leading-tight text-slate-800 sm:text-2xl">{empleado.tiempoEnEmpresa}</p>
-            <p className="text-[10px] font-bold uppercase text-slate-500">en la empresa</p>
+            <p className="mt-3 text-base font-light leading-tight text-slate-800 sm:text-lg">{empleado.tiempoEnEmpresa}</p>
+            <p className="text-[9px] font-bold uppercase text-slate-500 sm:text-[10px]">en la empresa</p>
             {empleado.fechaIngreso ? (
-              <p className="mt-1 text-[11px] font-medium text-slate-500 sm:text-xs">
+              <p className="mt-0.5 text-[10px] font-medium text-slate-500 sm:text-[11px]">
                 Desde {formatearFechaLegible(empleado.fechaIngreso)} a la fecha
               </p>
             ) : null}
           </div>
 
-          <dl className="mt-5 grid grid-cols-2 gap-x-3 gap-y-0 rounded-lg border border-slate-200 bg-slate-50/80 text-[11px] sm:text-xs">
+          <dl className="mt-3 grid grid-cols-2 gap-x-0 gap-y-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/80 text-[10px] sm:text-[11px]">
             <DatoGrid label="Edad" valor={empleado.edad || "—"} />
             <DatoGrid label="Escolaridad" valor={empleado.escolaridad || "—"} />
             <DatoGrid label="Servicio" valor={empleado.servicio} />
             <DatoGrid label="Puesto" valor={empleado.puesto || "—"} />
           </dl>
 
-          {presentacion && rankingServicio && rankingServicio.length > 1 ? (
+          {rankingServicio && rankingServicio.length > 1 ? (
             <RankingServicio
               actual={empleado.noEmpleado}
               lista={rankingServicio}
               onSeleccionar={onSeleccionarColaborador}
+              presentacion={presentacion}
             />
           ) : null}
         </aside>
 
-        <section className="border-b border-slate-200 px-5 py-6 sm:px-6 sm:py-8 xl:col-span-5 xl:border-b-0 xl:border-r xl:overflow-y-auto">
-          <h3 className="mb-4 text-center text-xs font-bold uppercase text-slate-700 sm:text-sm">
+        <section
+          className={`border-b border-slate-200 lg:col-span-5 lg:border-b-0 lg:border-r lg:overflow-y-auto ${pad}`}
+        >
+          <h3 className="mb-2 text-center text-[10px] font-bold uppercase text-slate-700 sm:mb-3 sm:text-xs">
             Promedio por módulo (escala 1–5)
           </h3>
           <CatBarChartModulos
@@ -132,48 +139,58 @@ export const CatDashboardView = forwardRef<
           />
 
           {empleado.faltasMesActual > 0 ? (
-            <div className="mt-5 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-4">
-              <p className="text-[10px] font-bold uppercase text-amber-950">
+            <div className="mt-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-2.5">
+              <p className="text-[9px] font-bold uppercase text-amber-950 sm:text-[10px]">
                 Ausentismos — cuadrícula ({empleado.faltasMesYm || "mes actual"})
               </p>
-              <p className="mt-2 text-3xl font-extrabold tabular-nums text-amber-950">{empleado.faltasMesActual}</p>
-              <p className="text-xs font-semibold uppercase text-amber-900">
+              <p className="mt-1 text-2xl font-extrabold tabular-nums text-amber-950">{empleado.faltasMesActual}</p>
+              <p className="text-[10px] font-semibold uppercase text-amber-900 sm:text-xs">
                 {empleado.faltasMesActual === 1 ? "falta registrada" : "faltas registradas"} en asistencia
               </p>
               {empleado.faltasMesDetalle ? (
-                <p className="mt-2 text-[11px] font-medium leading-relaxed text-amber-950">{empleado.faltasMesDetalle}</p>
+                <p className="mt-1.5 text-[10px] font-medium leading-relaxed text-amber-950 sm:text-[11px]">
+                  {empleado.faltasMesDetalle}
+                </p>
               ) : null}
             </div>
           ) : null}
         </section>
 
-        <section className="flex flex-col px-5 py-6 pb-8 sm:px-6 sm:py-8 sm:pb-10 xl:col-span-4 xl:overflow-y-auto xl:pb-10">
+        <section className={`flex flex-col lg:col-span-4 lg:overflow-y-auto ${pad}`}>
           <TablaNiveles activo={empleado.nivelId} />
-          <div className="mt-5">
+          <div className="mt-3">
             <TablaPaquetes activo={empleado.paqueteId} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border-2 border-violet-400 bg-violet-50 px-4 py-4 text-center">
-              <p className="text-[10px] font-bold uppercase text-slate-600">Paquete de prestaciones</p>
-              <p className="mt-2 text-xl font-extrabold uppercase text-violet-950 sm:text-2xl">{paqueteLabel}</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg border-2 border-violet-400 bg-violet-50 px-2.5 py-2.5 text-center sm:px-3">
+              <p className="text-[8px] font-bold uppercase text-slate-600 sm:text-[9px]">Paquete de prestaciones</p>
+              <p className="mt-1 text-sm font-extrabold uppercase text-violet-950 sm:text-base lg:text-lg">
+                {paqueteLabel}
+              </p>
             </div>
-            <div className="rounded-lg border-2 border-amber-500 bg-amber-50 px-4 py-4 text-center">
-              <p className="text-[10px] font-bold uppercase text-slate-600">Nivel</p>
-              <p className="mt-2 text-xl font-extrabold uppercase text-amber-950 sm:text-2xl">{nivelLabel}</p>
+            <div className="rounded-lg border-2 border-amber-500 bg-amber-50 px-2.5 py-2.5 text-center sm:px-3">
+              <p className="text-[8px] font-bold uppercase text-slate-600 sm:text-[9px]">Nivel</p>
+              <p className="mt-1 text-sm font-extrabold uppercase text-amber-950 sm:text-base lg:text-lg">
+                {nivelLabel}
+              </p>
             </div>
           </div>
 
           {empleado.promedioGeneral != null ? (
-            <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-center">
-              <p className="text-[11px] font-bold uppercase text-slate-600">Promedio general (4 módulos)</p>
-              <p className="mt-1 text-2xl font-extrabold tabular-nums text-slate-900">
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center">
+              <p className="text-[9px] font-bold uppercase text-slate-600 sm:text-[10px]">
+                Promedio general (4 módulos)
+              </p>
+              <p className="mt-0.5 text-xl font-extrabold tabular-nums text-slate-900 sm:text-2xl">
                 {empleado.promedioGeneral.toFixed(2)}
               </p>
             </div>
           ) : null}
         </section>
       </div>
+      {/* generadoEn reserved for export metadata */}
+      <span className="sr-only">{generadoEn}</span>
     </div>
   );
 });
@@ -195,10 +212,12 @@ function formatearFechaLegible(ymd: string): string {
 function DatoGrid({ label, valor }: { label: string; valor: string }) {
   return (
     <>
-      <dt className="border-b border-r border-slate-200/80 bg-slate-100/90 px-2.5 py-2 font-bold uppercase text-slate-600">
+      <dt className="border-b border-r border-slate-200/80 bg-slate-100/90 px-1.5 py-1.5 font-bold uppercase text-slate-600 sm:px-2">
         {label}
       </dt>
-      <dd className="border-b border-slate-200/80 px-2.5 py-2 font-semibold uppercase text-slate-900">{valor}</dd>
+      <dd className="truncate border-b border-slate-200/80 px-1.5 py-1.5 font-semibold uppercase text-slate-900 sm:px-2" title={valor}>
+        {valor}
+      </dd>
     </>
   );
 }
@@ -207,10 +226,12 @@ function RankingServicio({
   actual,
   lista,
   onSeleccionar,
+  presentacion = false,
 }: {
   actual: string;
   lista: CatDashboardEmpleado[];
   onSeleccionar?: (noEmpleado: string) => void;
+  presentacion?: boolean;
 }) {
   const actualKey = actual.trim().toUpperCase();
   const ordenados = useMemo(
@@ -230,18 +251,20 @@ function RankingServicio({
   return (
     <div
       data-cat-export-expand
-      className="mt-4 flex min-h-0 flex-1 flex-col border-t border-slate-200 pt-4"
+      className={`mt-3 flex min-h-0 flex-col border-t border-slate-200 pt-3 ${
+        presentacion ? "flex-1" : "max-h-[14rem] lg:max-h-[18rem]"
+      }`}
     >
-      <p className="shrink-0 text-[10px] font-bold uppercase text-slate-600">Ranking del servicio</p>
-      <p className="mt-0.5 shrink-0 text-[9px] font-medium text-slate-500">
+      <p className="shrink-0 text-[9px] font-bold uppercase text-slate-600 sm:text-[10px]">Ranking del servicio</p>
+      <p className="mt-0.5 shrink-0 text-[8px] font-medium text-slate-500 sm:text-[9px]">
         Por promedio general · ámbar: puede mejorar (&lt; {umbralBajo.toFixed(1)})
         {onSeleccionar ? " · clic para ver dashboard" : ""}
       </p>
       <ol
         data-cat-ranking-list
-        className={`mt-2 min-h-0 flex-1 pr-0.5 ${
-          compacto ? "space-y-0 text-[8px] sm:text-[9px]" : "space-y-0.5 text-[10px] sm:text-[11px]"
-        } overflow-y-auto`}
+        className={`mt-1.5 min-h-0 flex-1 overflow-y-auto pr-0.5 ${
+          compacto ? "space-y-0 text-[8px] sm:text-[9px]" : "space-y-0.5 text-[9px] sm:text-[10px]"
+        }`}
       >
         {ordenados.map((e, i) => {
           const rank = i + 1;
@@ -250,8 +273,8 @@ function RankingServicio({
           const top = rank <= 3 && prom != null;
           const mejorar = prom != null && prom < umbralBajo;
           const dot = colorPuntajeCategorizacion(prom);
-          const filaClass = `flex w-full items-center gap-1.5 rounded-md px-1.5 text-left ${
-            compacto ? "py-0.5" : "py-1"
+          const filaClass = `flex w-full items-center gap-1 rounded-md px-1 text-left ${
+            compacto ? "py-0.5" : "py-0.5 sm:py-1"
           } ${
             esActual
               ? "bg-violet-100 font-bold text-violet-950 ring-1 ring-violet-300"
@@ -271,9 +294,11 @@ function RankingServicio({
                   aria-current={esActual ? "true" : undefined}
                   aria-label={`Ver dashboard de ${e.nombre}, posición ${rank}`}
                 >
-                  <span className="w-5 shrink-0 text-right font-mono font-bold tabular-nums text-slate-500">{rank}</span>
+                  <span className="w-4 shrink-0 text-right font-mono font-bold tabular-nums text-slate-500 sm:w-5">
+                    {rank}
+                  </span>
                   <span
-                    className="inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-black/10"
+                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-black/10 sm:h-2 sm:w-2"
                     style={{ backgroundColor: dot }}
                     aria-hidden
                   />
@@ -286,9 +311,11 @@ function RankingServicio({
                 </button>
               ) : (
                 <div className={filaClass}>
-                  <span className="w-5 shrink-0 text-right font-mono font-bold tabular-nums text-slate-500">{rank}</span>
+                  <span className="w-4 shrink-0 text-right font-mono font-bold tabular-nums text-slate-500 sm:w-5">
+                    {rank}
+                  </span>
                   <span
-                    className="inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-black/10"
+                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-black/10 sm:h-2 sm:w-2"
                     style={{ backgroundColor: dot }}
                     aria-hidden
                   />
@@ -304,7 +331,7 @@ function RankingServicio({
           );
         })}
       </ol>
-      <p className="mt-2 shrink-0 text-[9px] text-slate-500">
+      <p className="mt-1.5 shrink-0 text-[8px] text-slate-500 sm:text-[9px]">
         {total} colaborador{total === 1 ? "" : "es"} en el servicio
       </p>
     </div>
@@ -313,13 +340,13 @@ function RankingServicio({
 
 function TablaNiveles({ activo }: { activo: CatNivelId | null }) {
   return (
-    <div className="overflow-x-auto">
-      <p className="mb-2 text-[10px] font-bold uppercase text-slate-600">Nivel</p>
-      <table className="w-full min-w-[200px] border-collapse text-[11px]">
+    <div className="min-w-0 overflow-x-auto">
+      <p className="mb-1.5 text-[9px] font-bold uppercase text-slate-600 sm:text-[10px]">Nivel</p>
+      <table className="w-full border-collapse text-[10px] sm:text-[11px]">
         <thead>
-          <tr className="bg-slate-100 text-[10px] font-bold uppercase">
-            <th className="border border-slate-300 px-2 py-1.5 text-left">Nivel</th>
-            <th className="border border-slate-300 px-2 py-1.5 text-left">Promedio</th>
+          <tr className="bg-slate-100 text-[9px] font-bold uppercase sm:text-[10px]">
+            <th className="border border-slate-300 px-1.5 py-1 text-left sm:px-2 sm:py-1.5">Nivel</th>
+            <th className="border border-slate-300 px-1.5 py-1 text-left sm:px-2 sm:py-1.5">Promedio</th>
           </tr>
         </thead>
         <tbody>
@@ -327,8 +354,8 @@ function TablaNiveles({ activo }: { activo: CatNivelId | null }) {
             const sel = activo === r.id;
             return (
               <tr key={r.id} className={sel ? "bg-amber-100 font-bold" : ""}>
-                <td className="border border-slate-300 px-2 py-1.5 uppercase">{r.label}</td>
-                <td className="border border-slate-300 px-2 py-1.5">{r.rango}</td>
+                <td className="border border-slate-300 px-1.5 py-1 uppercase sm:px-2 sm:py-1.5">{r.label}</td>
+                <td className="border border-slate-300 px-1.5 py-1 sm:px-2 sm:py-1.5">{r.rango}</td>
               </tr>
             );
           })}
@@ -340,14 +367,14 @@ function TablaNiveles({ activo }: { activo: CatNivelId | null }) {
 
 function TablaPaquetes({ activo }: { activo: CatPaqueteId | null }) {
   return (
-    <div className="overflow-x-auto">
-      <p className="mb-2 text-[10px] font-bold uppercase text-slate-600">Paquete de prestaciones</p>
-      <table className="w-full min-w-[280px] border-collapse text-[10px]">
+    <div className="min-w-0 overflow-x-auto">
+      <p className="mb-1.5 text-[9px] font-bold uppercase text-slate-600 sm:text-[10px]">Paquete de prestaciones</p>
+      <table className="w-full border-collapse text-[9px] sm:text-[10px]">
         <thead>
-          <tr className="bg-slate-100 text-[10px] font-bold uppercase">
-            <th className="border border-slate-300 px-2 py-1.5 text-left">Paquete</th>
-            <th className="border border-slate-300 px-2 py-1.5 text-left">Promedio</th>
-            <th className="border border-slate-300 px-2 py-1.5 text-left">Incluye</th>
+          <tr className="bg-slate-100 text-[9px] font-bold uppercase sm:text-[10px]">
+            <th className="border border-slate-300 px-1.5 py-1 text-left sm:px-2 sm:py-1.5">Paquete</th>
+            <th className="border border-slate-300 px-1.5 py-1 text-left sm:px-2 sm:py-1.5">Promedio</th>
+            <th className="border border-slate-300 px-1.5 py-1 text-left sm:px-2 sm:py-1.5">Incluye</th>
           </tr>
         </thead>
         <tbody>
@@ -355,9 +382,11 @@ function TablaPaquetes({ activo }: { activo: CatPaqueteId | null }) {
             const sel = activo === r.id;
             return (
               <tr key={r.id} className={sel ? "bg-violet-100 font-bold" : ""}>
-                <td className="border border-slate-300 px-2 py-1.5 uppercase">{r.label}</td>
-                <td className="border border-slate-300 px-2 py-1.5 whitespace-nowrap">{r.rango}</td>
-                <td className="border border-slate-300 px-2 py-1.5 leading-snug text-slate-700">{r.incluye}</td>
+                <td className="border border-slate-300 px-1.5 py-1 uppercase sm:px-2 sm:py-1.5">{r.label}</td>
+                <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 sm:px-2 sm:py-1.5">{r.rango}</td>
+                <td className="border border-slate-300 px-1.5 py-1 leading-snug text-slate-700 sm:px-2 sm:py-1.5">
+                  {r.incluye}
+                </td>
               </tr>
             );
           })}

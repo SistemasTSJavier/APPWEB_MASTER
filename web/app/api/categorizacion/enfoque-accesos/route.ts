@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import {
+  actualizarCatEnfoqueAccesoCliente,
   crearCatEnfoqueAccesoCliente,
   listCatEnfoqueAccesosCliente,
   revocarCatEnfoqueAccesoCliente,
 } from "@/lib/categorizacion-enfoque-acceso";
-import { requireCategorizacionAdminApi, requireCategorizacionApi } from "@/lib/categorizacion-api-auth";
+import { requireCategorizacionAdminApi } from "@/lib/categorizacion-api-auth";
 import { isSupabaseServerConfigured, supabaseServerEnvMissing } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,13 @@ export async function POST(req: Request) {
   if (!isSupabaseServerConfigured()) {
     return NextResponse.json({ error: "Supabase no configurado" }, { status: 503 });
   }
-  let body: { servicio?: string; fechaInicio?: string; fechaFin?: string; nota?: string };
+  let body: {
+    servicio?: string;
+    fechaInicio?: string;
+    fechaFin?: string;
+    nota?: string;
+    modulos?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -41,6 +48,7 @@ export async function POST(req: Request) {
       fechaInicio: String(body.fechaInicio ?? ""),
       fechaFin: String(body.fechaFin ?? ""),
       nota: String(body.nota ?? ""),
+      modulos: body.modulos,
       creadoPor: gate.auth.user.email ?? gate.auth.user.id,
     });
     return NextResponse.json({ ok: true, row });
@@ -55,19 +63,40 @@ export async function PATCH(req: Request) {
   if (!isSupabaseServerConfigured()) {
     return NextResponse.json({ error: "Supabase no configurado" }, { status: 503 });
   }
-  let body: { id?: string; accion?: string };
+  let body: {
+    id?: string;
+    accion?: string;
+    servicio?: string;
+    fechaInicio?: string;
+    fechaFin?: string;
+    nota?: string;
+    modulos?: unknown;
+    activo?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
   const id = String(body.id ?? "").trim();
-  if (!id || body.accion !== "revocar") {
-    return NextResponse.json({ error: "id y accion=revocar requeridos" }, { status: 400 });
-  }
+  if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
+
   try {
-    await revocarCatEnfoqueAccesoCliente(id);
-    return NextResponse.json({ ok: true });
+    if (body.accion === "revocar") {
+      await revocarCatEnfoqueAccesoCliente(id);
+      return NextResponse.json({ ok: true });
+    }
+
+    const row = await actualizarCatEnfoqueAccesoCliente({
+      id,
+      servicio: body.servicio,
+      fechaInicio: body.fechaInicio,
+      fechaFin: body.fechaFin,
+      nota: body.nota,
+      modulos: body.modulos,
+      activo: body.activo,
+    });
+    return NextResponse.json({ ok: true, row });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Error" }, { status: 500 });
   }

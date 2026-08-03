@@ -261,6 +261,16 @@ export function CatDashboardClient({
     return filtrarPorServicio(data.empleados, servicio, planta);
   }, [data, servicio, planta]);
 
+  /** Cliente: al cargar el servicio, mostrar el dashboard real del primer colaborador. */
+  useEffect(() => {
+    if (!esClienteConsulta || !servicio || empleadosServicio.length === 0) return;
+    if (noSel.trim()) return;
+    const primero = empleadosServicio[0];
+    if (!primero) return;
+    setNoSel(primero.noEmpleado.trim().toUpperCase());
+    setMostrar(true);
+  }, [esClienteConsulta, servicio, empleadosServicio, noSel]);
+
   const conteosServicio = useMemo(
     () => (data ? conteoActivosPorServicio(data.empleados) : []),
     [data],
@@ -291,10 +301,16 @@ export function CatDashboardClient({
   }, [noSel, empleadoManual, modoLoop, loopIndex, empleadosServicio]);
 
   useEffect(() => {
-    if (noSel && empleadosServicio.length > 0 && empleadosServicio.every((e) => e.noEmpleado !== noSel)) {
+    const key = noSel.trim().toUpperCase();
+    if (
+      key &&
+      empleadosServicio.length > 0 &&
+      empleadosServicio.every((e) => e.noEmpleado.trim().toUpperCase() !== key)
+    ) {
       setNoSel("");
+      if (!esClienteConsulta) setMostrar(false);
     }
-  }, [empleadosServicio, noSel]);
+  }, [empleadosServicio, noSel, esClienteConsulta]);
 
   useEffect(() => {
     if (!modoLoop || noSel || empleadosServicio.length === 0) return;
@@ -374,19 +390,21 @@ export function CatDashboardClient({
   }
 
   function seleccionarColaborador(no: string) {
-    setNoSel(no.trim().toUpperCase());
+    const key = no.trim().toUpperCase();
+    setNoSel(key);
     setModoLoop(false);
     setLoopIndex(0);
-    if (no.trim()) {
-      void abrirPresentacion();
-    }
+    setPantallaCompleta(false);
+    setMostrar(Boolean(key));
   }
 
   const cerrarPresentacion = useCallback(() => {
     void salirFullscreenVentana();
     setPantallaCompleta(false);
-    setMostrar(false);
-    detenerLoop();
+    setModoLoop(false);
+    setSegundosRestantes(LOOP_MS / 1000);
+    // Al salir de pantalla completa se mantiene la vista inline del colaborador.
+    setMostrar(true);
   }, []);
 
   const abrirPresentacion = useCallback(async () => {
@@ -418,8 +436,9 @@ export function CatDashboardClient({
     const onFullscreenChange = () => {
       if (!documentoEnFullscreen()) {
         setPantallaCompleta(false);
-        setMostrar(false);
-        detenerLoop();
+        setModoLoop(false);
+        setSegundosRestantes(LOOP_MS / 1000);
+        setMostrar(true);
       }
     };
     window.addEventListener("fullscreenchange", onFullscreenChange);
@@ -524,12 +543,12 @@ export function CatDashboardClient({
       currentPath="/categorizacion"
       modulosHabilitados={modulosHabilitados}
     >
-      <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-4">
         <CategorizacionHero
           title={esClienteConsulta ? "Categorización — consulta por servicio" : "Dashboard de categorización"}
           description={
             esClienteConsulta
-              ? "Promedio general y por módulo (capacitación, operaciones, enfoque al cliente) de los colaboradores activos de su servicio. Use presentación en pantalla completa o recorrido automático."
+              ? "Dashboard por colaborador: datos personales, gráfica por módulo, ranking del servicio, nivel y paquete. Use pantalla completa para presentación o recorrido automático."
               : "Por colaborador o en loop por servicio (20 s cada uno). Datos personales, gráfica, nivel y paquete."
           }
           backHref={esClienteConsulta ? undefined : "/categorizacion"}
@@ -548,7 +567,7 @@ export function CatDashboardClient({
           </div>
         ) : null}
 
-        <section className="card space-y-4">
+        <section className={`card ${esClienteConsulta ? "space-y-3 p-3 sm:p-4" : "space-y-4"}`}>
           <h2 className="text-sm font-bold uppercase text-slate-900">Filtros</h2>
           {conteosServicio.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
@@ -615,8 +634,12 @@ export function CatDashboardClient({
             ) : null}
             </div>
             <CatEmpleadoBuscador
-              label="Colaborador (opcional en loop)"
-              hint="Vacío + servicio = recorrido automático cada 20 s."
+              label={esClienteConsulta ? "Colaborador" : "Colaborador (opcional en loop)"}
+              hint={
+                esClienteConsulta
+                  ? "Seleccione un colaborador para ver su dashboard completo."
+                  : "Vacío + servicio = recorrido automático cada 20 s."
+              }
               value={noSel}
               onChange={seleccionarColaborador}
               opciones={opciones}
@@ -712,23 +735,12 @@ export function CatDashboardClient({
           <p className="text-xs font-medium text-slate-500">Actualizando datos en segundo plano…</p>
         ) : null}
 
-        {!busy && servicio && empleadosServicio.length > 0 && (esClienteConsulta || (!noSel && !modoLoop)) ? (
+        {!busy && !esClienteConsulta && servicio && empleadosServicio.length > 0 && !noSel && !modoLoop ? (
           <section className="card overflow-x-auto">
-            <h2 className="mb-3 text-sm font-bold uppercase">
-              {esClienteConsulta ? `Resumen general — ${servicio}` : `Vista por servicio — ${servicio}`}
-            </h2>
+            <h2 className="mb-3 text-sm font-bold uppercase">Vista por servicio — {servicio}</h2>
             <p className="mb-3 text-xs text-slate-600">
-              {esClienteConsulta ? (
-                <>
-                  Promedios de <strong>capacitación</strong>, <strong>operaciones</strong>, <strong>enfoque al cliente</strong> y{" "}
-                  <strong>general</strong> por colaborador. Pulse <strong>Mostrar general</strong> para la vista en pantalla
-                  completa con gráfica, nivel y paquete.
-                </>
-              ) : (
-                <>
-                  Pulsa <strong>Mostrar loop por servicio</strong> para rotar el dashboard cada 20 segundos.
-                </>
-              )}
+              Pulsa <strong>Presentar loop por servicio</strong> para rotar el dashboard cada 20 segundos, o elige un
+              colaborador para ver el dashboard completo.
             </p>
             <table className="w-full min-w-[640px] text-xs">
               <thead>
@@ -759,13 +771,31 @@ export function CatDashboardClient({
                         className="font-bold uppercase text-violet-800"
                         onClick={() => seleccionarColaborador(e.noEmpleado)}
                       >
-                        {esClienteConsulta ? "Ver general" : "Ver fijo"}
+                        Ver dashboard
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </section>
+        ) : null}
+
+        {mostrar && !pantallaCompleta && empleadoEnPantalla && data ? (
+          <section className="min-w-0">
+            <CatDashboardView
+              key={`inline-${empleadoEnPantalla.noEmpleado}`}
+              ref={dashRef}
+              empleado={empleadoEnPantalla}
+              generadoEn={data.generadoEn}
+              rankingServicio={empleadosServicio}
+              onSeleccionarColaborador={seleccionarColaborador}
+              puedeSubirFoto={puedeSubirFoto}
+              onFotoActualizada={actualizarFotoEmpleado}
+              logoServicioUrl={logoServicioDesdeMapa(data.logosServicio, empleadoEnPantalla.servicio)}
+              puedeSubirLogo={puedeSubirLogo}
+              onLogoServicioActualizado={(url) => actualizarLogoServicio(empleadoEnPantalla.servicio, url)}
+            />
           </section>
         ) : null}
 
