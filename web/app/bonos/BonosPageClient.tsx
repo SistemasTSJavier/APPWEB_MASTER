@@ -151,8 +151,8 @@ export function BonosPageClient({ appRole: _appRole, email: _email }: { appRole:
           <div>
             <h2 className="text-sm font-bold uppercase text-slate-900">Periodo de evaluación (semana)</h2>
             <p className="mt-1 text-[11px] text-slate-600">
-              Se muestran bonos cuya <strong>fecha de cumplimiento</strong> cae en la semana seleccionada (lun–dom),
-              igual que en Cuadrícula.
+              Se listan colaboradores <strong>sin F ni PSGS</strong> en el periodo del hito cuya{" "}
+              <strong>fecha de cumplimiento</strong> (ingreso + 15/30/60/90) cae en la semana seleccionada (lun–dom).
             </p>
           </div>
           <button

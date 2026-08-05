@@ -5,18 +5,24 @@
 
 import { empNoClaveGridRow } from "@/lib/attendance-emp-no";
 
+/** N.º de empleado desde celda JSON (string, número Excel o null). */
+function empFieldAsString(v: unknown): string | null {
+  if (typeof v === "string") {
+    const t = v.trim();
+    return t ? t : null;
+  }
+  if (typeof v === "number" && Number.isFinite(v)) return String(Math.trunc(v));
+  return null;
+}
+
 /** Clave canónica de fila persistida (cuadrícula usa employeeNo; legado empNo/noEmpleado). */
 export function attendanceRowEmpKey(row: Record<string, unknown>): string {
   return empNoClaveGridRow({
     employeeNo:
-      typeof row.employeeNo === "string"
-        ? row.employeeNo
-        : typeof row.empNo === "string"
-          ? row.empNo
-          : typeof row.noEmpleado === "string"
-            ? row.noEmpleado
-            : null,
-    id: typeof row.id === "string" ? row.id : undefined,
+      empFieldAsString(row.employeeNo) ??
+      empFieldAsString(row.empNo) ??
+      empFieldAsString(row.noEmpleado),
+    id: empFieldAsString(row.id) ?? undefined,
   });
 }
 

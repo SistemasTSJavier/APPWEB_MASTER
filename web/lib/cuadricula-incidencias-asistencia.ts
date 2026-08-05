@@ -206,7 +206,7 @@ export async function cargarIncidenciasCuadriculaEnRango(
       for (const raw of rows) {
         if (!raw || typeof raw !== "object") continue;
         const o = raw as Record<string, unknown>;
-        const no = attendanceRowEmpKey(o);
+        const no = canonicalEmpNoAttendance(attendanceRowEmpKey(o));
         if (!no) continue;
         const shifts = o.shifts;
         if (!Array.isArray(shifts)) continue;
@@ -230,9 +230,14 @@ export function incidenciasEnPeriodo(
   const diasFalta = new Set<string>();
   const diasPsgs = new Set<string>();
   const claves = new Set(clavesEmpleado.map((k) => canonicalEmpNoAttendance(k)).filter(Boolean));
+  if (claves.size === 0) {
+    return { faltas: 0, psgs: 0, dias: [] };
+  }
 
-  for (const clave of claves) {
-    const list = map.get(clave) ?? [];
+  // Coincide por clave canónica (tolera ceros a la izquierda / variantes en el mapa).
+  for (const [mapKey, list] of map) {
+    const canon = canonicalEmpNoAttendance(mapKey);
+    if (!canon || !claves.has(canon)) continue;
     for (const ev of list) {
       if (ev.ymd < periodo.inicioYmd || ev.ymd > periodo.finYmd) continue;
       if (ev.kind === "falta") diasFalta.add(ev.ymd);

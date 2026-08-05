@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  colaboradorEstaActivoEnOperacion,
+  colaboradorActivoParaMetricas,
   fechaIngresoNormalizadaColaborador,
+  prepararColaboradorParaMetricas,
 } from "@/lib/colaboradores-baja";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
@@ -13,6 +14,7 @@ import {
   claveServicioCompacta,
   servicioCatPersonalEsCalificable,
 } from "@/lib/categorizacion-servicios-calificables";
+import { parseFechaIngresoYmd } from "@/lib/categorizacion-tenure";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import {
   cargarIncidenciasCuadriculaEnRango,
@@ -22,13 +24,15 @@ import {
 } from "@/lib/cuadricula-incidencias-asistencia";
 import {
   BONOS_ANTIGUEDAD_TOPE_90,
+  BONOS_MILESTONES,
   type BonosFila,
   type BonosMilestone,
   type BonosPayload,
 } from "@/lib/bonos-types";
-import { fechaYmdEnSemana, semanaDesdeIso } from "@/lib/semana-lun-dom";
+import { fechaYmdEnSemana, semanaDesdeIso, type SemanaLunDom } from "@/lib/semana-lun-dom";
 
 const MS_DIA = 86_400_000;
+const TZ_MX = "America/Mexico_City";
 
 /** Servicios administrativos/corporativos excluidos de bonos (variante MATRIZ TACTICA sin L). */
 const BONOS_SERVICIOS_EXCLUIDOS_EXTRA = new Set([
@@ -58,6 +62,34 @@ function addDays(d: Date, n: number): Date {
   x.setDate(x.getDate() + n);
   x.setHours(0, 0, 0, 0);
   return x;
+}
+
+/** Hoy calendario en America/Mexico_City (medianoche local del proceso). */
+export function hoyMexicoCityDate(ref: Date = new Date()): Date {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ_MX,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const ymd = fmt.format(ref);
+  const d = parseYmd(ymd);
+  if (d) return d;
+  const fallback = new Date(ref);
+  fallback.setHours(0, 0, 0, 0);
+  return fallback;
+}
+
+/** Fecha de ingreso usable para bonos (expediente + form + parseo flexible). */
+export function fechaIngresoBonos(c: ColaboradorCompleto): string {
+  const n = fechaIngresoNormalizadaColaborador(c);
+  if (n) return n;
+  for (const raw of [String(c.fechaIngreso ?? "").trim(), String(c.form?.fechaIngreso ?? "").trim()]) {
+    if (!raw) continue;
+    const ymd = parseFechaIngresoYmd(raw);
+    if (ymd) return ymd;
+  }
+  return "";
 }
 
 /** Días calendario activos desde ingreso hasta hoy (0 = mismo día de ingreso). */
@@ -116,7 +148,10 @@ function servicioColaborador(c: ColaboradorCompleto): string {
 }
 
 function localForaneoColaborador(c: ColaboradorCompleto): string {
-  return String(c.form?.localForaneo ?? "LOCAL").trim().toUpperCase() || "LOCAL";
+  const raw = String(c.form?.localForaneo ?? "").trim().toUpperCase();
+  if (!raw) return "LOCAL";
+  if (raw === "LOCAL" || raw.startsWith("LOCAL")) return "LOCAL";
+  return raw;
 }
 
 export function colaboradorEsLocalBonos(c: ColaboradorCompleto): boolean {
@@ -131,25 +166,33 @@ export function servicioEsElegibleBonos(servicio: string): boolean {
 }
 
 export function colaboradorElegibleBonos(c: ColaboradorCompleto): boolean {
-  if (!colaboradorEstaActivoEnOperacion(c)) return false;
-  if (!colaboradorEsLocalBonos(c)) return false;
-  if (!servicioEsElegibleBonos(servicioColaborador(c))) return false;
+  const prep = prepararColaboradorParaMetricas(c);
+  if (!colaboradorActivoParaMetricas(prep)) return false;
+  if (!colaboradorEsLocalBonos(prep)) return false;
+  if (!servicioEsElegibleBonos(servicioColaborador(prep))) return false;
   return true;
 }
 
-function evaluarHitoAntiguedad(
+/**
+ * Hito cumplido sin F/PSGS en el periodo ingreso→cumplimiento.
+ * Con `requiereVentanaAntiguedad`: solo si hoy sigue en la ventana del hito (15–29, etc.).
+ */
+function evaluarHitoCumplido(
   fechaIngreso: string,
   hito: BonosMilestone,
-  diasActivos: number,
   hoy: Date,
   incidencias: Awaited<ReturnType<typeof cargarIncidenciasCuadriculaEnRango>>,
   claves: string[],
+  opts?: { requiereVentanaAntiguedad?: boolean; diasActivos?: number | null },
 ): HitoCumplido | null {
-  if (!antiguedadEnRangoHito(diasActivos, hito)) return null;
-
   const periodo = periodoBonoDesdeIngreso(fechaIngreso, hito);
   if (!periodo) return null;
   if (periodo.fin > hoy) return null;
+
+  if (opts?.requiereVentanaAntiguedad) {
+    const dias = opts.diasActivos ?? diasActivosDesdeIngreso(fechaIngreso, hoy);
+    if (dias == null || !antiguedadEnRangoHito(dias, hito)) return null;
+  }
 
   if (colaboradorIncumpleBonoEnPeriodo(incidencias, claves, periodo)) {
     return null;
@@ -163,48 +206,67 @@ function evaluarHitoAntiguedad(
   };
 }
 
-function evaluarColaboradorBonos(
-  c: ColaboradorCompleto,
+/**
+ * Sin filtro de semana: solo el hito vigente por antigüedad actual.
+ * Con semana: todos los hitos cuya fecha de cumplimiento cae en esa semana (aunque ya hayan pasado de ventana).
+ */
+function hitosBonosColaborador(
   fechaIngreso: string,
   incidencias: Awaited<ReturnType<typeof cargarIncidenciasCuadriculaEnRango>>,
+  claves: string[],
   hoy: Date,
   bonoFiltro: BonosMilestone | null,
-): HitoCumplido | null {
+  semana: SemanaLunDom | null,
+): HitoCumplido[] {
   const diasActivos = diasActivosDesdeIngreso(fechaIngreso, hoy);
-  if (diasActivos == null || diasActivos < 15) return null;
+  if (diasActivos == null || diasActivos < 15) return [];
 
-  const claves = clavesAsistenciaColaborador(c);
-  if (claves.length === 0) return null;
+  const candidatos: BonosMilestone[] = bonoFiltro != null ? [bonoFiltro] : [...BONOS_MILESTONES];
+  const out: HitoCumplido[] = [];
 
-  if (bonoFiltro != null) {
-    return evaluarHitoAntiguedad(fechaIngreso, bonoFiltro, diasActivos, hoy, incidencias, claves);
+  for (const hito of candidatos) {
+    if (semana) {
+      const periodo = periodoBonoDesdeIngreso(fechaIngreso, hito);
+      if (!periodo) continue;
+      if (!fechaYmdEnSemana(periodo.finYmd, semana)) continue;
+      const ok = evaluarHitoCumplido(fechaIngreso, hito, hoy, incidencias, claves);
+      if (ok) out.push(ok);
+      continue;
+    }
+
+    const vigente = hitoVigentePorAntiguedad(diasActivos);
+    if (vigente == null || vigente !== hito) continue;
+    const ok = evaluarHitoCumplido(fechaIngreso, hito, hoy, incidencias, claves, {
+      requiereVentanaAntiguedad: true,
+      diasActivos,
+    });
+    if (ok) out.push(ok);
   }
 
-  const hito = hitoVigentePorAntiguedad(diasActivos);
-  if (!hito) return null;
-  return evaluarHitoAntiguedad(fechaIngreso, hito, diasActivos, hoy, incidencias, claves);
+  return out;
 }
 
 export async function buildBonosReport(
   admin: SupabaseClient,
   opts?: { servicio?: string; bonoDias?: BonosMilestone | null; weekStartIso?: string | null },
 ): Promise<BonosPayload> {
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
+  const hoy = hoyMexicoCityDate();
 
   const semanaEvaluacion = opts?.weekStartIso?.trim()
     ? semanaDesdeIso(opts.weekStartIso.trim())
     : null;
 
   const colaboradores = await fetchAllColaboradoresCompletos(admin);
-  const elegibles = colaboradores.filter((c) => colaboradorElegibleBonos(c));
+  const elegibles = colaboradores
+    .map((c) => prepararColaboradorParaMetricas(c))
+    .filter((c) => colaboradorElegibleBonos(c));
 
   const servicioFiltro = opts?.servicio?.trim() ?? "";
   const bonoFiltro = opts?.bonoDias ?? null;
 
   let minIngreso: Date | null = null;
   for (const c of elegibles) {
-    const ing = parseYmd(fechaIngresoNormalizadaColaborador(c));
+    const ing = parseYmd(fechaIngresoBonos(c));
     if (!ing) continue;
     if (!minIngreso || ing < minIngreso) minIngreso = ing;
   }
@@ -217,7 +279,7 @@ export async function buildBonosReport(
   const filas: BonosFila[] = [];
 
   for (const c of elegibles) {
-    const fechaIngreso = fechaIngresoNormalizadaColaborador(c);
+    const fechaIngreso = fechaIngresoBonos(c);
     if (!fechaIngreso) continue;
 
     const servicio = servicioColaborador(c);
@@ -226,26 +288,32 @@ export async function buildBonosReport(
     const claves = clavesAsistenciaColaborador(c);
     if (claves.length === 0) continue;
 
-    const hito = evaluarColaboradorBonos(c, fechaIngreso, incidencias, hoy, bonoFiltro);
-    if (!hito) continue;
-
-    filas.push({
-      noEmpleado: claves[0]!,
-      nombre: String(c.nombreCompleto ?? c.form?.nombreCompleto ?? "").trim(),
+    const hitos = hitosBonosColaborador(
       fechaIngreso,
-      servicio,
-      localForaneo: localForaneoColaborador(c),
-      bonoDias: hito.bonoDias,
-      fechaCumplimiento: hito.fechaCumplimiento,
-      periodoEvaluadoDesde: hito.periodoEvaluadoDesde,
-      periodoEvaluadoHasta: hito.periodoEvaluadoHasta,
-    });
+      incidencias,
+      claves,
+      hoy,
+      bonoFiltro,
+      semanaEvaluacion,
+    );
+
+    for (const hito of hitos) {
+      filas.push({
+        noEmpleado: claves[0]!,
+        nombre: String(c.nombreCompleto ?? c.form?.nombreCompleto ?? "").trim(),
+        fechaIngreso,
+        servicio,
+        localForaneo: localForaneoColaborador(c),
+        bonoDias: hito.bonoDias,
+        fechaCumplimiento: hito.fechaCumplimiento,
+        periodoEvaluadoDesde: hito.periodoEvaluadoDesde,
+        periodoEvaluadoHasta: hito.periodoEvaluadoHasta,
+      });
+    }
   }
 
-  let filasFiltradas = filas;
-  if (semanaEvaluacion) {
-    filasFiltradas = filas.filter((f) => fechaYmdEnSemana(f.fechaCumplimiento, semanaEvaluacion));
-  }
+  // Con semana, el filtro ya se aplicó al evaluar hitos; sin semana no hace falta.
+  const filasFiltradas = filas;
 
   filasFiltradas.sort((a, b) => {
     if (a.bonoDias !== b.bonoDias) return a.bonoDias - b.bonoDias;
