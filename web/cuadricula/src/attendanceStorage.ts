@@ -198,7 +198,8 @@ export async function saveAttendanceGrid(
   return remoteOk || localOk
 }
 
-const SYNC_BATCH_SIZE = 6
+const SYNC_BATCH_SIZE = 3
+const SYNC_MAX_RETRIES = 2
 
 /**
  * Guarda varias plantas de la misma semana. El servidor es la fuente de verdad:
@@ -229,18 +230,14 @@ export async function saveManyAttendanceGrids(
     if (!id || rows.length === 0) continue
     const savedAt = new Date(baseMs + i).toISOString()
     let payload = buildAttendanceGridPayload(rows, serviceNo, savedAt)
-    
-    // ✅ MEJORADO: Hacer merge con datos previos si no es forceReplace
+
     if (!opts?.forceReplace) {
       const existing = loadAttendanceGridLocal(weekStartIso, id)
       if (existing?.rows?.length) {
         payload = mergeStoredAttendanceGrids(existing, payload) ?? payload
-        console.log(
-          `[ASISTENCIA-SAVE-MANY] ${id}: ${existing.rows.length} previas + ${rows.length} nuevas = ${payload.rows.length} totales`
-        )
       }
     }
-    
+
     const localOk = saveAttendanceGridLocal(weekStartIso, id, payload)
     entries.push({ weekStartIso, scopeKey: id, grid: payload, serviceNo, localOk })
   }
@@ -259,12 +256,37 @@ export async function saveManyAttendanceGrids(
   for (let i = 0; i < entries.length; i += SYNC_BATCH_SIZE) {
     const chunk = entries.slice(i, i + SYNC_BATCH_SIZE)
     const localOkCount = chunk.filter((e) => e.localOk).length
-    const res = await syncAllLocalAttendanceToRemote(
-      chunk.map(({ localOk: _omit, ...rest }) => rest),
-      { forceReplace: opts?.forceReplace },
-    )
+    let res: { uploaded: number; skipped: number; failed: number } | null = null
+
+    for (let attempt = 0; attempt <= SYNC_MAX_RETRIES; attempt++) {
+      res = await syncAllLocalAttendanceToRemote(
+        chunk.map(({ localOk: _omit, ...rest }) => rest),
+        { forceReplace: opts?.forceReplace },
+      )
+      if (res && (res.failed ?? 0) === 0) break
+      // Si el lote falla, reintentar de a una planta (payloads grandes ~280 filas).
+      if (attempt === SYNC_MAX_RETRIES || chunk.length === 1) break
+      let uploadedOne = 0
+      let failedOne = 0
+      let skippedOne = 0
+      for (const one of chunk) {
+        const oneRes = await syncAllLocalAttendanceToRemote(
+          [{ weekStartIso: one.weekStartIso, scopeKey: one.scopeKey, grid: one.grid, serviceNo: one.serviceNo }],
+          { forceReplace: opts?.forceReplace },
+        )
+        if (!oneRes) {
+          failedOne++
+          continue
+        }
+        uploadedOne += oneRes.uploaded ?? 0
+        skippedOne += oneRes.skipped ?? 0
+        failedOne += oneRes.failed ?? 0
+      }
+      res = { uploaded: uploadedOne, skipped: skippedOne, failed: failedOne }
+      if (failedOne === 0) break
+    }
+
     if (!res) {
-      /* Servidor inaccesible: la copia local cuenta como guardado. */
       saved += localOkCount
       failed += chunk.length - localOkCount
       continue

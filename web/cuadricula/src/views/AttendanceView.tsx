@@ -159,7 +159,7 @@ export function AttendanceView() {
 
       if (result.totalUpdated === 0) {
         setSaveMessage(
-          `CSV (${weekRangeLabel}): ningún colaborador activo coincidió con el archivo${statsMsg} Revise N.º de empleado y la semana visible.`,
+          `CSV (${weekRangeLabel}): ningún colaborador activo coincidió con el archivo${statsMsg} Se requiere N.º de empleado + activo en Colaboradores.`,
         )
         if (result.omitidosSinRegistro.length > 0) setCsvImportOmitidos(result.omitidosSinRegistro)
         return
@@ -168,20 +168,22 @@ export function AttendanceView() {
       startGridTransition(() => setRows(result.rows))
 
       const parts: string[] = [
-        `Importado: ${result.totalUpdated} colaborador(es) activo(s) en ${weekRangeLabel}. Separador: ${delimHint}.`,
+        `Importado: ${result.totalUpdated}/${result.filasCsv} colaborador(es) del CSV en ${weekRangeLabel}. Separador: ${delimHint}.`,
       ]
       if (result.plantsSaved > 0) {
-        parts.push(`Guardado en ${result.plantsSaved} planta(s).`)
+        parts.push(`Guardado en ${result.plantsSaved} planta(s) afectada(s).`)
       }
       if (result.plantsSaveFailed > 0) {
         parts.push(
           `${result.plantsSaveFailed} planta(s) no se guardaron en servidor; los datos ya están en pantalla — pulse «Guardar semana».`,
         )
       }
-      if (result.omitidosSinRegistro.length > 0) {
-        setCsvImportOmitidos(result.omitidosSinRegistro)
-        parts.push(`${result.omitidosSinRegistro.length} N.º del CSV no están activos en Colaboradores.`)
-      }
+        if (result.omitidosSinRegistro.length > 0) {
+          setCsvImportOmitidos(result.omitidosSinRegistro)
+          parts.push(
+            `${result.omitidosSinRegistro.length} N.º del CSV sin colaborador activo en expediente (no se importaron).`,
+          )
+        }
       if ((parsed.filasSinNumeroEmpleado ?? 0) > 0) {
         parts.push(`${parsed.filasSinNumeroEmpleado} fila(s) ignoradas: sin N.º de empleado.`)
       }

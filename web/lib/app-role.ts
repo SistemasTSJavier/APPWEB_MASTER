@@ -167,6 +167,7 @@ export const APP_MODULOS_HABILITABLES = [
   { id: "/pruebas-efectividad-operativa", label: "Efectividad operativa" },
   { id: "/asistencia-servicio", label: "Asistencia del servicio" },
   { id: "/bonos", label: "Bonos" },
+  { id: "/musica", label: "Playlist" },
 ] as const;
 
 export type AppModuloId = (typeof APP_MODULOS_HABILITABLES)[number]["id"];
@@ -440,6 +441,21 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
   "/pruebas-efectividad-operativa": ["admin", "gerente_rh", "capacitacion"],
   "/bonos": ["admin", "nominas", "gerente_rh"],
+  "/musica": [
+    "admin",
+    "rh",
+    "gerente_rh",
+    "aux_rh",
+    "mejora_continua",
+    "nominas",
+    "aux_legal",
+    "gerente_legal",
+    "editor_cuadricula",
+    "capacitacion",
+    "relaciones_laborales",
+    "gerente_operaciones",
+    "contabilidad",
+  ],
 };
 
 export function mayAccessFichaTecnica(role: AppRole, _email?: string | null): boolean {
@@ -466,6 +482,16 @@ export function roleMayCapturePruebasEfectividad(role: AppRole, email?: string |
 /** Bonos por asistencia: Administrador, Nóminas y Gerente RH. */
 export function roleMayAccessBonos(role: AppRole): boolean {
   return role === "admin" || role === "nominas" || role === "gerente_rh";
+}
+
+/** Playlist: cualquier rol operativo (proponer canciones). */
+export function roleMayAccessMusica(role: AppRole): boolean {
+  return role !== "cliente_enfoque";
+}
+
+/** Programar día / aprobar: solo admin. */
+export function roleMayAdminMusica(role: AppRole): boolean {
+  return role === "admin";
 }
 
 export function roleEsClienteEnfoque(role: AppRole): boolean {
@@ -541,6 +567,8 @@ export function canAccessPath(
     // Legado: clientes sin lista de módulos no abren asistencia (solo Cat + Efectividad).
     if (role === "cliente_enfoque") return false;
     if (!roleMayAccessAsistenciaServicio(role)) return false;
+  } else if (sec === "/musica") {
+    if (!roleMayAccessMusica(role)) return false;
   } else {
     const allowed = SECTION_ROLES[sec];
     if (!allowed) {
@@ -998,6 +1026,25 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       label: "Bonos",
       roles: ["admin", "nominas", "gerente_rh"],
     },
+    {
+      href: "/musica",
+      label: "Playlist",
+      roles: [
+        "admin",
+        "rh",
+        "gerente_rh",
+        "aux_rh",
+        "mejora_continua",
+        "nominas",
+        "aux_legal",
+        "gerente_legal",
+        "editor_cuadricula",
+        "capacitacion",
+        "relaciones_laborales",
+        "gerente_operaciones",
+        "contabilidad",
+      ],
+    },
   ];
   return items.filter((i) => {
     if (role === "admin") return true;
@@ -1008,6 +1055,7 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     }
     if (i.href === "/sgc") return roleMayAccessSgc(role);
     if (i.href === "/usuarios") return roleMayAccessAdminUsuarios(role);
+    if (i.href === "/musica") return roleMayAccessMusica(role);
     return i.roles.includes(role);
   });
 }

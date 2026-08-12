@@ -170,7 +170,7 @@ function scoreDelimiterOnLines(lines: string[], d: CsvDelimiter): number {
     score += row.length
     for (let c = 0; c < Math.min(4, row.length); c++) {
       const canon = canonicalEmpNoForCsvMatch(normalizarCeldaCsvNumerica(row[c] ?? ''))
-      if (canon && /^\d{3,10}$/.test(canon)) score += 18
+      if (canon && /^\d{1,12}$/.test(canon)) score += 18
     }
     for (const cell of row) {
       if (cellLooksLikeAttendanceCode(cell)) score += 4
@@ -370,7 +370,8 @@ const ATTENDANCE_KNOWN_CODES = new Set(['A', 'D', 'F', 'INC', 'VAC', 'PCGS', 'PS
 
 function looksLikeEmpNoCell(raw: string): boolean {
   const canon = canonicalEmpNoForCsvMatch(normalizarCeldaCsvNumerica(raw))
-  return Boolean(canon && /^\d{3,10}$/.test(canon))
+  // 1–12 dígitos: soporta claves cortas y N.º típicos MX (~280 filas por archivo).
+  return Boolean(canon && /^\d{1,12}$/.test(canon))
 }
 
 function looksLikeNombreCell(raw: string): boolean {
@@ -524,6 +525,7 @@ function parseCsvAttendanceRow(
   empCol: number
   nombreCol: number
   shifts: GridRow['shifts']
+  nombreCsv?: string
   numeroServicioCsv?: string
   servicioNombreCsv?: string
   plantaNombre?: string
@@ -556,6 +558,8 @@ function parseCsvAttendanceRow(
     empCol,
     nombreCol,
     shifts,
+    nombreCsv:
+      nombreCol >= 0 ? String(cells[nombreCol] ?? '').trim() || undefined : undefined,
     numeroServicioCsv: noSrv || undefined,
     servicioNombreCsv: servicioCsv || undefined,
     plantaNombre,
@@ -801,6 +805,8 @@ function shiftsFromCellsAt(cells: string[], shiftStart: number): GridRow['shifts
 export interface ParsedAttendanceGridCsvRow {
   employeeNo: string
   shifts: GridRow['shifts']
+  /** Nombre de la fila CSV (columna NOMBRES), para afinar la línea de cuadrícula. */
+  nombreCsv?: string
   /** Si el CSV trae «NO SERVICIO», se puede aplicar a la fila al importar. */
   numeroServicioCsv?: string
   /** Columna SERVICIO (nombre catálogo). */
@@ -905,13 +911,26 @@ export function parseAttendanceGridCodesCsv(text: string):
       continue
     }
 
-    byKey.set(parsed.empCanon, {
-      employeeNo: parsed.empCanon,
-      shifts: parsed.shifts,
-      numeroServicioCsv: parsed.numeroServicioCsv,
-      servicioNombreCsv: parsed.servicioNombreCsv,
-      plantaNombre: parsed.plantaNombre,
-    })
+    const prev = byKey.get(parsed.empCanon)
+    if (prev) {
+      byKey.set(parsed.empCanon, {
+        employeeNo: parsed.empCanon,
+        shifts: mergeShiftsPreferNonEmpty(prev.shifts, parsed.shifts),
+        nombreCsv: parsed.nombreCsv || prev.nombreCsv,
+        numeroServicioCsv: parsed.numeroServicioCsv || prev.numeroServicioCsv,
+        servicioNombreCsv: parsed.servicioNombreCsv || prev.servicioNombreCsv,
+        plantaNombre: parsed.plantaNombre || prev.plantaNombre,
+      })
+    } else {
+      byKey.set(parsed.empCanon, {
+        employeeNo: parsed.empCanon,
+        shifts: parsed.shifts,
+        nombreCsv: parsed.nombreCsv,
+        numeroServicioCsv: parsed.numeroServicioCsv,
+        servicioNombreCsv: parsed.servicioNombreCsv,
+        plantaNombre: parsed.plantaNombre,
+      })
+    }
   }
 
   if (byKey.size === 0) {
@@ -963,23 +982,34 @@ function scoreCsvRowShifts(row: ParsedAttendanceGridCsvRow): number {
 }
 
 /**
- * Varias filas CSV del mismo N.º → gana la **última** fila del archivo (reimportación reemplaza la semana).
+ * Varias filas CSV del mismo N.º → fusiona códigos (gana el no vacío; la última fila pisa celdas llenas).
  */
 export function mergeParsedRowsForEmployee(
   rows: ParsedAttendanceGridCsvRow[],
 ): ParsedAttendanceGridCsvRow | null {
   if (rows.length === 0) return null
-  const last = rows[rows.length - 1]!
-  const canon = canonicalEmpNoForCsvMatch(last.employeeNo) || last.employeeNo.trim()
-  const shifts = reassignFaltaSequence(
-    last.shifts.map((d) => ({ D: d.D ?? '', T: d.T ?? '', N: d.N ?? '' })),
-  )
+  let acc = rows[0]!
+  for (let i = 1; i < rows.length; i++) {
+    const cur = rows[i]!
+    acc = {
+      employeeNo: canonicalEmpNoForCsvMatch(cur.employeeNo) || cur.employeeNo.trim() || acc.employeeNo,
+      shifts: mergeShiftsPreferNonEmpty(acc.shifts, cur.shifts),
+      nombreCsv: cur.nombreCsv || acc.nombreCsv,
+      numeroServicioCsv: cur.numeroServicioCsv || acc.numeroServicioCsv,
+      servicioNombreCsv: cur.servicioNombreCsv || acc.servicioNombreCsv,
+      plantaNombre: cur.plantaNombre || acc.plantaNombre,
+    }
+  }
+  const canon = canonicalEmpNoForCsvMatch(acc.employeeNo) || acc.employeeNo.trim()
   return {
     employeeNo: canon,
-    shifts,
-    numeroServicioCsv: last.numeroServicioCsv,
-    servicioNombreCsv: last.servicioNombreCsv,
-    plantaNombre: last.plantaNombre,
+    shifts: reassignFaltaSequence(
+      acc.shifts.map((d) => ({ D: d.D ?? '', T: d.T ?? '', N: d.N ?? '' })),
+    ),
+    nombreCsv: acc.nombreCsv,
+    numeroServicioCsv: acc.numeroServicioCsv,
+    servicioNombreCsv: acc.servicioNombreCsv,
+    plantaNombre: acc.plantaNombre,
   }
 }
 
@@ -1008,14 +1038,44 @@ function applyCsvAttendanceToGridRow(
   gridRow: GridRow,
   imp: ParsedAttendanceGridCsvRow,
   reconcile: MergeCsvReconcileOpts | undefined,
+  colActivo?: ColaboradorCompleto | null,
 ): GridRow {
-  const canon = canonicalEmpNoForCsvMatch(String(gridRow.employeeNo ?? gridRow.id ?? ''))
+  const canon =
+    empNoClaveGridRow(gridRow) ||
+    canonicalEmpNoForCsvMatch(String(gridRow.employeeNo ?? gridRow.id ?? '')) ||
+    canonicalEmpNoForCsvMatch(imp.employeeNo)
   const shifts = reassignFaltaSequence(imp.shifts)
-  let merged: GridRow = { ...gridRow, shifts, employeeNo: gridRow.employeeNo || imp.employeeNo }
+  const col = colActivo ?? reconcile?.colaboradoresByEmp.get(canon) ?? null
+
+  // Anclar N.º y nombre a expediente activo para que caiga en la línea correcta.
+  const empExpediente = col
+    ? canonicalEmpNoForCsvMatch(col.noEmpleado) ||
+      canonicalEmpNoForCsvMatch(String(col.form?.noEmpleado1 ?? '')) ||
+      canon
+    : canon
+  const nombreExpediente = col
+    ? String(col.form?.nombreCompleto ?? col.nombreCompleto ?? '').trim()
+    : ''
+
+  let merged: GridRow = {
+    ...gridRow,
+    shifts,
+    vacant: false,
+    employeeNo: empExpediente || gridRow.employeeNo || imp.employeeNo,
+    name: elegirValorIdentificacionAsistencia(
+      nombreExpediente,
+      imp.nombreCsv,
+      gridRow.name,
+    ),
+  }
+
   if (reconcile) {
-    const col = reconcile.colaboradoresByEmp.get(canon)
     const plantaNorm = normPlantaCsv(
-      imp.plantaNombre?.trim() || reconcile.plantaNombre || gridRow.plantaLinea || '',
+      imp.plantaNombre?.trim() ||
+        (col ? plantaCapturaColaborador(col, reconcile.catalogo) : '') ||
+        reconcile.plantaNombre ||
+        gridRow.plantaLinea ||
+        '',
     )
     const svc = reconciliarServicioVacante(
       {
@@ -1030,15 +1090,24 @@ function applyCsvAttendanceToGridRow(
         rowServiceNo: svc.rowServiceNo,
         servicioLinea: svc.servicioLinea,
       },
-      col,
+      col ?? undefined,
       reconcile.catalogo,
-      reconcile.plantaNombre,
+      plantaNorm || reconcile.plantaNombre,
     )
     merged.servicioLinea = elegirValorIdentificacionAsistencia(
       svc.servicioLinea,
       gridRow.servicioLinea,
     )
     if (plantaNorm) merged.plantaLinea = plantaNorm
+    if (col) {
+      const fromCol = colaboradorToGridRow(col, reconcile.catalogo, plantaNorm || undefined)
+      merged.position = elegirValorIdentificacionAsistencia(fromCol.position, merged.position)
+      merged.role = elegirValorIdentificacionAsistencia(fromCol.role, merged.role)
+      merged.hireDate = elegirValorIdentificacionAsistencia(fromCol.hireDate, merged.hireDate)
+      if (!merged.servicioLinea) merged.servicioLinea = fromCol.servicioLinea
+      if (!merged.rowServiceNo) merged.rowServiceNo = fromCol.rowServiceNo
+      if (!merged.plantaLinea) merged.plantaLinea = fromCol.plantaLinea
+    }
   } else {
     const srvCsv = imp.numeroServicioCsv?.trim()
     if (srvCsv) merged = { ...merged, rowServiceNo: srvCsv }
@@ -1046,12 +1115,76 @@ function applyCsvAttendanceToGridRow(
   return withComputedTotals(merged, gridRowServiceNo(merged))
 }
 
+function normMatchToken(s: string): string {
+  return stripDiacritics(String(s ?? ''))
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * Elige la fila de cuadrícula correcta para un N.º:
+ * colaborador activo + N.º, y afinado por servicio / planta / nombre del CSV.
+ */
+export function pickBestGridRowForCsvImport(
+  candidates: GridRow[],
+  imp: ParsedAttendanceGridCsvRow,
+  col: ColaboradorCompleto | null | undefined,
+): GridRow | null {
+  const usable = candidates.filter((r) => {
+    if (r.vacant) return false
+    const k = empNoClaveGridRow(r) || canonicalEmpNoForCsvMatch(String(r.employeeNo ?? r.id ?? ''))
+    const want = canonicalEmpNoForCsvMatch(imp.employeeNo)
+    return Boolean(k && want && k === want)
+  })
+  if (usable.length === 0) return null
+  if (usable.length === 1) return usable[0]!
+
+  const csvNoSrv = canonicalNoServicioCatalogo(imp.numeroServicioCsv ?? '')
+  const csvPlanta = normPlantaCsv(imp.plantaNombre ?? '')
+  const csvServicio = normServicioNombreCsv(imp.servicioNombreCsv ?? '')
+  const csvNombre = normMatchToken(imp.nombreCsv ?? '')
+  const expNombre = col
+    ? normMatchToken(String(col.form?.nombreCompleto ?? col.nombreCompleto ?? ''))
+    : ''
+
+  let best = usable[0]!
+  let bestScore = -1
+  for (const r of usable) {
+    let score = 0
+    const rowNo = canonicalNoServicioCatalogo(gridRowServiceNo(r))
+    if (csvNoSrv && rowNo && csvNoSrv === rowNo) score += 40
+    const rowPlanta = normPlantaCsv(r.plantaLinea ?? '')
+    if (csvPlanta && rowPlanta && csvPlanta === rowPlanta) score += 25
+    const rowSvc = normServicioNombreCsv(r.servicioLinea ?? '')
+    if (csvServicio && rowSvc && (rowSvc === csvServicio || rowSvc.includes(csvServicio) || csvServicio.includes(rowSvc))) {
+      score += 20
+    }
+    const rowName = normMatchToken(r.name ?? '')
+    if (csvNombre && rowName && (rowName === csvNombre || rowName.includes(csvNombre) || csvNombre.includes(rowName))) {
+      score += 30
+    }
+    if (expNombre && rowName && (rowName === expNombre || rowName.includes(expNombre) || expNombre.includes(rowName))) {
+      score += 15
+    }
+    // Preferir fila con identificación completa (menos vacíos).
+    if (r.servicioLinea?.trim()) score += 2
+    if (gridRowServiceNo(r)) score += 2
+    if (r.position?.trim()) score += 1
+    if (score > bestScore) {
+      bestScore = score
+      best = r
+    }
+  }
+  return best
+}
+
 export type MergeCsvReconcileOpts = {
   catalogo: CatalogoServicioItem[]
   plantaNombre: string
-  /** Expediente por N.º de empleado (canónico); incluye bajas para historial en importación. */
+  /** Expediente por N.º de empleado (canónico); solo activos de captura. */
   colaboradoresByEmp: Map<string, ColaboradorCompleto>
-  /** Si true, filas del CSV sin fila en cuadrícula se crean por N.º de empleado (activos y bajas). */
+  /** Si true, filas del CSV sin fila en cuadrícula se crean por N.º (solo activos). */
   agregarFilasCsvPorEmpNo?: boolean
   /** Lista completa para estatus/fecha de baja en filas añadidas. */
   todosColaboradores?: ColaboradorCompleto[]
@@ -1062,6 +1195,11 @@ export type MergeCsvReconcileOpts = {
   reemplazarSemanaDesdeCsv?: boolean
   /** Importación en una planta elegida: no descartar por planta distinta en expediente. */
   omitirFiltroPlantaExpediente?: boolean
+  /**
+   * Exige colaborador activo en expediente (además del N.º en cuadrícula).
+   * Por defecto true cuando hay `colaboradoresByEmp`.
+   */
+  exigirColaboradorActivo?: boolean
 }
 
 /** Mapa N.º empleado → colaborador; duplicados: prioriza activo sobre baja. */
@@ -1101,6 +1239,8 @@ export function mergeCsvShiftsIntoGridRows(
   updatedCount: number
   /** Filas de cuadrícula actualizadas (puede ser > updatedCount si el mismo N.º tiene varias filas). */
   updatedRowCount: number
+  /** N.º canónicos actualizados (para guardar solo plantas afectadas). */
+  updatedEmployeeNos: string[]
   /** Empleados en CSV sin fila en la cuadrícula (esta planta). */
   csvEmployeesNotInGrid: string[]
   /** Empleados en cuadrícula sin fila en el CSV (se dejan como estaban). */
@@ -1141,45 +1281,62 @@ export function mergeCsvShiftsIntoGridRows(
   for (const [canon, imp] of csvByEmp) {
     if (scoreCsvRowShifts(imp) === 0) continue
 
-    let targets = gridByEmp.get(canon) ?? []
-    if (targets.length === 0 && reconcile?.agregarFilasCsvPorEmpNo) {
-      const col = reconcile.colaboradoresByEmp.get(canon)
-      if (!col || !colaboradorActivoParaCapturaAsistencia(col)) {
-        csvEmployeesNotInGrid.push(imp.employeeNo)
-        continue
-      }
-      if (
-        !reconcile.omitirFiltroPlantaExpediente &&
-        plantaCapturaColaborador(col, reconcile.catalogo) !==
-          normPlantaCapturaNombre(reconcile.plantaNombre)
-      ) {
-        csvEmployeesNotInGrid.push(imp.employeeNo)
-        continue
-      }
-      const plantaFila = reconcile.omitirFiltroPlantaExpediente
-        ? plantaCapturaColaborador(col, reconcile.catalogo)
-        : reconcile.plantaNombre
-      targets = [colaboradorToGridRow(col, reconcile.catalogo, plantaFila)]
-      gridCanonKeys.add(canon)
-    } else if (targets.length === 0) {
+    const exigirActivo = reconcile?.exigirColaboradorActivo !== false && Boolean(reconcile)
+    const col = reconcile?.colaboradoresByEmp.get(canon) ?? null
+
+    // Detección: N.º de empleado + colaborador activo en expediente (no basta el N.º suelto).
+    if (exigirActivo && (!col || !colaboradorActivoParaCapturaAsistencia(col))) {
       csvEmployeesNotInGrid.push(imp.employeeNo)
       continue
     }
 
-    updatedEmpleados.add(canon)
-    for (const r of targets) {
-      updatedRowCount++
-      const rowBase = reemplazarSemana
-        ? {
-            ...r,
-            shifts: emptyShifts(WEEK_COLUMNS.length),
-            totals: { ...ZERO_TOTALS },
-          }
-        : r
-      const applied = applyCsvAttendanceToGridRow(rowBase, imp, reconcile)
-      updatedByRowId.set(r.id, applied)
-      if (!existingRowIds.has(r.id)) appended.push(applied)
+    if (
+      col &&
+      reconcile &&
+      !reconcile.omitirFiltroPlantaExpediente &&
+      reconcile.plantaNombre.trim() &&
+      plantaCapturaColaborador(col, reconcile.catalogo) !==
+        normPlantaCapturaNombre(reconcile.plantaNombre)
+    ) {
+      csvEmployeesNotInGrid.push(imp.employeeNo)
+      continue
     }
+
+    const candidates = (gridByEmp.get(canon) ?? []).filter((r) => !r.vacant)
+    let target = pickBestGridRowForCsvImport(candidates, imp, col)
+
+    if (!target && reconcile?.agregarFilasCsvPorEmpNo && col) {
+      const plantaFila = reconcile.omitirFiltroPlantaExpediente
+        ? plantaCapturaColaborador(col, reconcile.catalogo)
+        : reconcile.plantaNombre || plantaCapturaColaborador(col, reconcile.catalogo)
+      target = colaboradorToGridRow(col, reconcile.catalogo, plantaFila)
+      gridCanonKeys.add(canon)
+    }
+
+    if (!target) {
+      csvEmployeesNotInGrid.push(imp.employeeNo)
+      continue
+    }
+
+    // Si había varias filas del mismo N.º, solo actualizamos la mejor (línea correcta).
+    if (candidates.length > 1) {
+      const bestId = target.id
+      const others = candidates.filter((r) => r.id !== bestId).map((r) => r.employeeNo || canon)
+      if (others.length > 0) ambiguousEmployeeNos.push(canon)
+    }
+
+    updatedEmpleados.add(canon)
+    updatedRowCount++
+    const rowBase = reemplazarSemana
+      ? {
+          ...target,
+          shifts: emptyShifts(WEEK_COLUMNS.length),
+          totals: { ...ZERO_TOTALS },
+        }
+      : target
+    const applied = applyCsvAttendanceToGridRow(rowBase, imp, reconcile, col)
+    updatedByRowId.set(target.id, applied)
+    if (!existingRowIds.has(target.id)) appended.push(applied)
   }
 
   const next = gridRows.map((r) => updatedByRowId.get(r.id) ?? r)
@@ -1196,6 +1353,7 @@ export function mergeCsvShiftsIntoGridRows(
     next: finalRows,
     updatedCount: updatedEmpleados.size,
     updatedRowCount,
+    updatedEmployeeNos: [...updatedEmpleados],
     csvEmployeesNotInGrid,
     gridEmployeesNotInCsv,
     ambiguousEmployeeNos,
@@ -1342,7 +1500,7 @@ export async function importAttendanceCsvDirectToGrid(opts: {
     ).rows
   }
 
-  const { next, updatedCount, csvEmployeesNotInGrid } = mergeCsvShiftsIntoGridRows(
+  const { next, updatedCount, csvEmployeesNotInGrid, updatedEmployeeNos } = mergeCsvShiftsIntoGridRows(
     base,
     opts.parsedRows,
     {
@@ -1353,6 +1511,7 @@ export async function importAttendanceCsvDirectToGrid(opts: {
       todosColaboradores: opts.colaboradores,
       reemplazarSemanaDesdeCsv: true,
       omitirFiltroPlantaExpediente: true,
+      exigirColaboradorActivo: true,
     },
   )
 
@@ -1361,14 +1520,27 @@ export async function importAttendanceCsvDirectToGrid(opts: {
   let plantsSaveFailed = 0
 
   if (opts.persist !== false && updatedCount > 0) {
+    const updatedSet = new Set(updatedEmployeeNos.map((n) => canonicalEmpNoForCsvMatch(n) || n))
     const { getAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
     const prefetch = await getAttendanceWeekPrefetch(opts.weekIso)
     const porPlanta = splitGridRowsByPlanta(rows, opts.colaboradores, opts.catalogo)
     const plantas = listarPlantasCapturaAsistencia(opts.colaboradores, opts.catalogo)
-    const items: { scopeKey: string; rows: GridRow[] }[] = []
+
+    // Solo plantas con al menos un N.º actualizado por el CSV (~280 filas no deben reescribir todo el universo).
+    const plantasAfectadas: string[] = []
     for (const planta of plantas) {
       const norm = normPlantaCapturaNombre(planta)
-      const filasPantalla = porPlanta.get(norm) ?? null
+      const filasPantalla = porPlanta.get(norm) ?? []
+      const hit = filasPantalla.some((r) => {
+        const k = empNoClaveGridRow(r) || canonicalEmpNoForCsvMatch(String(r.employeeNo ?? ''))
+        return Boolean(k && updatedSet.has(k))
+      })
+      if (hit) plantasAfectadas.push(planta)
+    }
+
+    const items: { scopeKey: string; rows: GridRow[] }[] = []
+    for (const planta of plantasAfectadas) {
+      const filasPantalla = porPlanta.get(normPlantaCapturaNombre(planta)) ?? null
       const filas = await filasParaGuardarPlantaWeek(
         opts.colaboradores,
         planta,
@@ -1481,6 +1653,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
         todosColaboradores: opts.colaboradores,
         reemplazarSemanaDesdeCsv: true,
         omitirFiltroPlantaExpediente: true,
+        exigirColaboradorActivo: true,
       })
 
       return {

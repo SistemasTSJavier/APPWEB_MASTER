@@ -9,6 +9,7 @@ import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayWriteCuadriculaAsistencia } from "@/lib/app-role";
 import {
   validateAttendanceRows,
+  sanitizeAttendanceRows,
   compareAttendancePayloads,
   createAuditLog,
   generateAttendanceHealthReport,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/attendance-integrity";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type SyncItem = {
   weekStartIso?: string;
@@ -76,18 +78,29 @@ export async function POST(req: Request) {
       continue;
     }
 
-    // ✅ VALIDAR INTEGRIDAD DE FILAS
-    const validation = validateAttendanceRows(grid.rows);
+    const sanitized = sanitizeAttendanceRows(Array.isArray(grid.rows) ? grid.rows : []);
+    if (sanitized.dropped > 0) {
+      console.warn(
+        `[ASISTENCIA] ${weekStartIso}/${scopeKey}: omitidas ${sanitized.dropped} fila(s) inválidas de ${grid.rows.length}`,
+      );
+    }
+    if (sanitized.rows.length === 0) {
+      console.warn(`[ASISTENCIA] Validación fallida para ${weekStartIso}/${scopeKey}: sin filas válidas`);
+      failed++;
+      continue;
+    }
+
+    const validation = validateAttendanceRows(sanitized.rows);
     if (!validation.ok) {
       console.warn(`[ASISTENCIA] Validación fallida para ${weekStartIso}/${scopeKey}:`, validation.errors);
       failed++;
-      continue; // No procesar si hay errores críticos
+      continue;
     }
 
     valid.push({
       weekStartIso,
       scopeKey,
-      grid,
+      grid: { ...grid, rows: sanitized.rows },
       incomingSavedAt:
         typeof grid.savedAt === "string" ? grid.savedAt : new Date().toISOString(),
       serviceNo:

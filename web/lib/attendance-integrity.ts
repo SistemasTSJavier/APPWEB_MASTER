@@ -142,6 +142,58 @@ export function validateAttendanceRows(rows: unknown[]): AttendanceValidationRes
 }
 
 /**
+ * Quita filas inválidas y normaliza `shifts` a 7 días.
+ * Para imports grandes (~280): no tumbar toda la planta por 1 fila mala.
+ */
+export function sanitizeAttendanceRows(rows: unknown[]): {
+  rows: unknown[];
+  dropped: number;
+  warnings: string[];
+} {
+  const out: unknown[] = [];
+  const warnings: string[] = [];
+  let dropped = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || typeof row !== "object") {
+      dropped++;
+      continue;
+    }
+    const r = { ...(row as Record<string, unknown>) };
+    if (!attendanceRowEmpKey(r)) {
+      dropped++;
+      warnings.push(`Fila ${i}: sin N.º de empleado — omitida`);
+      continue;
+    }
+    if (!Array.isArray(r.shifts)) {
+      r.shifts = Array.from({ length: 7 }, () => ({ D: "", T: "", N: "" }));
+      warnings.push(`Fila ${i} (${attendanceRowEmpLabel(r)}): shifts vacío — rellenado`);
+    } else if (r.shifts.length !== 7) {
+      const prevLen = r.shifts.length;
+      const src = r.shifts as unknown[];
+      const padded = Array.from({ length: 7 }, (_, di) => {
+        const day = src[di];
+        if (day && typeof day === "object") {
+          const d = day as Record<string, unknown>;
+          return {
+            D: String(d.D ?? ""),
+            T: String(d.T ?? ""),
+            N: String(d.N ?? ""),
+          };
+        }
+        return { D: "", T: "", N: "" };
+      });
+      r.shifts = padded;
+      warnings.push(`Fila ${i} (${attendanceRowEmpLabel(r)}): shifts ${prevLen} → 7`);
+    }
+    out.push(r);
+  }
+
+  return { rows: out, dropped, warnings };
+}
+
+/**
  * Calcula hash SHA256 simple de los datos para detectar cambios.
  * No es criptográfico, pero suficiente para detectar corrupción.
  */
