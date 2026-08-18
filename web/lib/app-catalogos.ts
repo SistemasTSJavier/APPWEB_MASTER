@@ -37,6 +37,7 @@ const ROLES_BASE_CATALOGO: readonly AppRole[] = [
   "capacitacion",
   "relaciones_laborales",
   "gerente_operaciones",
+  "recepcion",
 ];
 
 function db() {

@@ -17,6 +17,7 @@ import { isSgcDepartamentoId, esFormatoDepartamentoId, type SgcDepartamentoId } 
  * - relaciones_laborales: inicio y MOPER (registrar, editar y guardar); sin otros módulos.
  * - gerente_operaciones: solo MOPER; firma como Gerente de Operaciones (gerenteoperaciones@tacticalsupport.com.mx).
  * - contabilidad: solo MOPER; consulta documentos completados y marca recepción oficial (contabilidad@tacticalsupport.com.mx).
+ * - recepcion: solo Alertas Legal (marca llegada a firmar y dispara correo a Legal).
  * - cliente_enfoque: solo consulta del dashboard de categorización (todos los módulos), limitado al servicio del acceso temporal.
  */
 export type AppRole =
@@ -33,6 +34,7 @@ export type AppRole =
   | "relaciones_laborales"
   | "gerente_operaciones"
   | "contabilidad"
+  | "recepcion"
   | "cliente_enfoque";
 
 /** Correos previstos para usuarios legales (referencia al crear usuarios en Supabase). */
@@ -96,6 +98,8 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   gerenteoperaciones: "gerente_operaciones",
   contabilidad: "contabilidad",
   contable: "contabilidad",
+  recepcion: "recepcion",
+  recepción: "recepcion",
   cliente_enfoque: "cliente_enfoque",
   "cliente enfoque": "cliente_enfoque",
   cliente_enfoque_cliente: "cliente_enfoque",
@@ -121,6 +125,7 @@ export const APP_ROLE_LABEL: Record<AppRole, string> = {
   relaciones_laborales: "Relaciones laborales",
   gerente_operaciones: "Gerente operaciones",
   contabilidad: "Contabilidad",
+  recepcion: "Recepción",
   cliente_enfoque: "Cliente enfoque",
 };
 
@@ -168,6 +173,7 @@ export const APP_MODULOS_HABILITABLES = [
   { id: "/asistencia-servicio", label: "Asistencia del servicio" },
   { id: "/bonos", label: "Bonos" },
   { id: "/musica", label: "Playlist" },
+  { id: "/alertas-legal", label: "Alertas Legal" },
 ] as const;
 
 export type AppModuloId = (typeof APP_MODULOS_HABILITABLES)[number]["id"];
@@ -441,6 +447,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
   "/pruebas-efectividad-operativa": ["admin", "gerente_rh", "capacitacion"],
   "/bonos": ["admin", "nominas", "gerente_rh"],
+  "/alertas-legal": ["admin", "gerente_legal", "aux_legal", "recepcion"],
   "/musica": [
     "admin",
     "rh",
@@ -491,6 +498,80 @@ export function roleMayAccessMusica(role: AppRole): boolean {
 
 /** Programar día / aprobar: solo admin. */
 export function roleMayAdminMusica(role: AppRole): boolean {
+  return role === "admin";
+}
+
+/** Sugerido por rol (menú legado). El acceso real lo define Usuarios (Ver / Editar / Eliminar). */
+export function roleMayAccessAlertasLegal(role: AppRole): boolean {
+  return role === "admin" || role === "aux_legal" || role === "gerente_legal" || role === "recepcion";
+}
+
+/** Sugerido por rol: agregar personas. En producción manda `userMayAgregarAlertasLegal`. */
+export function roleMayGestionarAlertasLegal(role: AppRole): boolean {
+  return role === "admin" || role === "aux_legal";
+}
+
+/** Sugerido por rol: marcar llegada. En producción manda `userMayMarcarAlertaLegalLlegada`. */
+export function roleMayMarcarAlertaLegalLlegada(role: AppRole): boolean {
+  return role === "admin" || role === "recepcion";
+}
+
+function alertasLegalTieneCapsExplicitas(
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  return capacidadesDesdeMetadata(userMetadata) != null;
+}
+
+/** Abrir la sección: módulos de Usuarios; si no hay lista, cae al rol. */
+export function userMayAccessAlertasLegal(
+  role: AppRole,
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  if (role === "admin") return true;
+  if (alertasLegalTieneCapsExplicitas(userMetadata)) {
+    return userMayModulo(role, userMetadata, "/alertas-legal", "ver");
+  }
+  return roleMayAccessAlertasLegal(role);
+}
+
+/** Agregar personas (Editar en Usuarios). */
+export function userMayAgregarAlertasLegal(
+  role: AppRole,
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  if (role === "admin") return true;
+  if (alertasLegalTieneCapsExplicitas(userMetadata)) {
+    return userMayModulo(role, userMetadata, "/alertas-legal", "editar");
+  }
+  return roleMayGestionarAlertasLegal(role);
+}
+
+/** Cancelar alerta (Eliminar en Usuarios). */
+export function userMayCancelarAlertasLegal(
+  role: AppRole,
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  if (role === "admin") return true;
+  if (alertasLegalTieneCapsExplicitas(userMetadata)) {
+    return userMayModulo(role, userMetadata, "/alertas-legal", "eliminar");
+  }
+  return roleMayGestionarAlertasLegal(role);
+}
+
+/** Marcar llegada y enviar correo (Ver en Usuarios). */
+export function userMayMarcarAlertaLegalLlegada(
+  role: AppRole,
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  if (role === "admin") return true;
+  if (alertasLegalTieneCapsExplicitas(userMetadata)) {
+    return userMayModulo(role, userMetadata, "/alertas-legal", "ver");
+  }
+  return roleMayMarcarAlertaLegalLlegada(role);
+}
+
+/** Correo destinatario: solo Administrador, en la propia sección. */
+export function userMayConfigurarAlertasLegal(role: AppRole): boolean {
   return role === "admin";
 }
 
@@ -569,6 +650,8 @@ export function canAccessPath(
     if (!roleMayAccessAsistenciaServicio(role)) return false;
   } else if (sec === "/musica") {
     if (!roleMayAccessMusica(role)) return false;
+  } else if (sec === "/alertas-legal") {
+    if (!roleMayAccessAlertasLegal(role)) return false;
   } else {
     const allowed = SECTION_ROLES[sec];
     if (!allowed) {
@@ -624,6 +707,12 @@ export function defaultHomeForRole(
   }
   if (role === "relaciones_laborales" || role === "gerente_operaciones" || role === "contabilidad") return "/moper";
   if (role === "aux_rh") return "/altas";
+  if (role === "recepcion") {
+    const mods = parseModulosHabilitados(modulosHabilitados ?? []);
+    if (mods.includes("/alertas-legal")) return "/alertas-legal";
+    if (mods.length > 0) return hrefNavParaModulo(mods[0]!, role);
+    return "/alertas-legal";
+  }
   return "/";
 }
 
@@ -706,7 +795,13 @@ export function appSidebarModuleLinks(
 
 /** Muestra enlace «Inicio» en la barra lateral. */
 export function roleShowsInicioNav(role: AppRole): boolean {
-  return role !== "aux_rh" && role !== "gerente_operaciones" && role !== "contabilidad" && role !== "cliente_enfoque";
+  return (
+    role !== "aux_rh" &&
+    role !== "gerente_operaciones" &&
+    role !== "contabilidad" &&
+    role !== "recepcion" &&
+    role !== "cliente_enfoque"
+  );
 }
 
 /** Altas: importar / guardar expediente nuevo. Administrador y Aux RH (Gerente RH solo consulta en Altas). */
@@ -937,6 +1032,9 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       { href: "/sgc", label: "SGC" },
     ];
   }
+  if (role === "recepcion") {
+    return [{ href: "/alertas-legal", label: "Alertas Legal" }];
+  }
 
   const items: { href: string; label: string; roles: readonly AppRole[] }[] = [
     { href: "/altas", label: "Altas", roles: ["admin", "rh", "aux_rh"] },
@@ -1027,6 +1125,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       roles: ["admin", "nominas", "gerente_rh"],
     },
     {
+      href: "/alertas-legal",
+      label: "Alertas Legal",
+      roles: ["admin", "gerente_legal", "aux_legal", "recepcion"],
+    },
+    {
       href: "/musica",
       label: "Playlist",
       roles: [
@@ -1056,6 +1159,7 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     if (i.href === "/sgc") return roleMayAccessSgc(role);
     if (i.href === "/usuarios") return roleMayAccessAdminUsuarios(role);
     if (i.href === "/musica") return roleMayAccessMusica(role);
+    if (i.href === "/alertas-legal") return roleMayAccessAlertasLegal(role);
     return i.roles.includes(role);
   });
 }

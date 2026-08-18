@@ -122,7 +122,9 @@ function CapacidadesPicker({
       <p className="mt-1 text-[11px] text-slate-500">
         Marque Ver / Editar / Eliminar por sección. Solo los módulos marcados aparecen en el menú (el rol ya no abre
         el resto). En <strong>Colaboradores</strong>, solo Ver = consulta de nombre y no. de empleado (sin el resto de
-        datos). Tras guardar, el usuario debe cerrar sesión y volver a entrar si aún ve módulos viejos.
+        datos). En <strong>Alertas Legal</strong>: Ver = ver lista y marcar llegada (Recepción); Editar = agregar
+        personas; Eliminar = cancelar alerta. El correo destinatario lo configura el Administrador dentro de esa
+        sección. Tras guardar, el usuario debe cerrar sesión y volver a entrar si aún ve módulos viejos.
       </p>
       <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="w-full min-w-[420px] text-left text-xs">

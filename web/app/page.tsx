@@ -164,7 +164,8 @@ export default async function Home() {
             ) : auth.role === "gerente_legal" ? (
               <>
                 <span className="hidden sm:inline">
-                  USA LA BARRA IZQUIERDA: COLABORADORES, EXPEDIENTES LEGAL Y <strong>ALERTAS CONTRATO</strong>.
+                  USA LA BARRA IZQUIERDA: COLABORADORES, EXPEDIENTES LEGAL, <strong>ALERTAS CONTRATO</strong> Y{" "}
+                  <strong>ALERTAS LEGAL</strong> (LISTA PARA RECEPCIÓN).
                 </span>
                 <span className="sm:hidden">COLABORADORES · EXPEDIENTES · ALERTAS CONTRATO.</span>
               </>

@@ -50,6 +50,7 @@ export const ADMIN_USUARIO_ROLES: readonly AppRole[] = [
   "capacitacion",
   "relaciones_laborales",
   "gerente_operaciones",
+  "recepcion",
 ] as const;
 
 export type AdminUsuario = {
@@ -162,6 +163,10 @@ export function capacidadesSugeridasParaRol(role: AppRole): ModuloCapacidad[] {
       case "/sgc":
         editar = roleMayUploadSgc(role);
         eliminar = roleMayDeleteSgc(role);
+        break;
+      case "/alertas-legal":
+        editar = role === "aux_legal";
+        eliminar = role === "aux_legal";
         break;
       default:
         break;
