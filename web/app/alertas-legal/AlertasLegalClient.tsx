@@ -16,6 +16,11 @@ type AlertaLegalSugerencia = {
   servicio: string;
 };
 
+function pareceNumeroEmpleado(v: string): boolean {
+  const t = v.trim();
+  return /^[0-9.\s]+$/.test(t);
+}
+
 const inputCls =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200";
 const labelCls = "block text-[11px] font-bold uppercase tracking-wide text-slate-600";
@@ -80,36 +85,9 @@ export function AlertasLegalClient({
   }, [load]);
 
   useEffect(() => {
-    const t = noEmp.trim();
-    if (t.length < 2 || !puedeGestionar) return;
-    const h = window.setTimeout(() => {
-      void (async () => {
-        setLookupBusy(true);
-        try {
-          const r = await fetch("/api/alertas-legal", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ noEmpleado: t }),
-          });
-          const j = (await r.json()) as { nombre?: string; servicio?: string };
-          if (r.ok && j.nombre) {
-            setNombre(j.nombre);
-            setServicio(j.servicio ?? "");
-          }
-        } catch {
-          /* ignore */
-        } finally {
-          setLookupBusy(false);
-        }
-      })();
-    }, 400);
-    return () => window.clearTimeout(h);
-  }, [noEmp, puedeGestionar]);
-
-  useEffect(() => {
     const t = busquedaPersona.trim();
     if (!puedeGestionar) return;
-    if (t.length < 3) {
+    if (t.length < 2) {
       setSugerencias([]);
       return;
     }
@@ -117,13 +95,31 @@ export function AlertasLegalClient({
       void (async () => {
         setLookupBusy(true);
         try {
-          const r = await fetch("/api/alertas-legal", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: t }),
-          });
-          const j = (await r.json()) as { rows?: AlertaLegalSugerencia[] };
-          if (r.ok) setSugerencias(Array.isArray(j.rows) ? j.rows : []);
+          if (pareceNumeroEmpleado(t)) {
+            const r = await fetch("/api/alertas-legal", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ noEmpleado: t }),
+            });
+            const j = (await r.json()) as { noEmpleado?: string; nombre?: string; servicio?: string };
+            if (r.ok && j.noEmpleado && j.nombre) {
+              setSugerencias([{ noEmpleado: j.noEmpleado, nombre: j.nombre, servicio: j.servicio ?? "" }]);
+              return;
+            }
+          }
+          if (t.length >= 3) {
+            const r = await fetch("/api/alertas-legal", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ query: t }),
+            });
+            const j = (await r.json()) as { rows?: AlertaLegalSugerencia[] };
+            if (r.ok) {
+              setSugerencias(Array.isArray(j.rows) ? j.rows : []);
+              return;
+            }
+          }
+          setSugerencias([]);
         } catch {
           setSugerencias([]);
         } finally {
@@ -156,6 +152,10 @@ export function AlertasLegalClient({
     e.preventDefault();
     setErr(null);
     setMsg(null);
+    if (!noEmp.trim()) {
+      setErr("Selecciona una persona del buscador (N.º o nombre).");
+      return;
+    }
     setBusy(true);
     try {
       const r = await fetch("/api/alertas-legal", {
@@ -315,14 +315,14 @@ export function AlertasLegalClient({
         <section className="card space-y-4">
           <h2 className="text-sm font-bold uppercase text-slate-900">Agregar a la lista</h2>
           <form className="space-y-4" onSubmit={onAdd}>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4">
               <label className="block space-y-1.5">
-                <span className={labelCls}>Buscar por nombre</span>
+                <span className={labelCls}>Buscar colaborador (N.º o nombre)</span>
                 <input
                   className={`${inputCls} uppercase`}
                   value={busquedaPersona}
                   onChange={(e) => setBusquedaPersona(e.target.value)}
-                  placeholder="Escribe al menos 3 letras"
+                  placeholder="Ej. 12345 o nombre completo"
                 />
                 {lookupBusy ? <span className="text-[11px] text-slate-500">Buscando coincidencias…</span> : null}
                 {sugerencias.length > 0 ? (
@@ -345,19 +345,12 @@ export function AlertasLegalClient({
                   </ul>
                 ) : null}
               </label>
-              <label className="block space-y-1.5">
-                <span className={labelCls}>N.º de empleado</span>
-                <input
-                  className={`${inputCls} font-mono`}
-                  value={noEmp}
-                  onChange={(e) => setNoEmp(e.target.value)}
-                  required
-                  placeholder="Ej. 12345"
-                />
-                {lookupBusy ? <span className="text-[11px] text-slate-500">Buscando expediente…</span> : null}
-              </label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-1.5">
+                <span className={labelCls}>N.º de empleado</span>
+                <input className={`${inputCls} font-mono`} value={noEmp} readOnly placeholder="Selecciona una coincidencia" />
+              </label>
               <label className="block space-y-1.5">
                 <span className={labelCls}>Nombre</span>
                 <input
