@@ -11,7 +11,7 @@ import {
   isFaltaCodigoAsistencia,
   mondaysEnMesCalendario,
 } from "@/lib/categorizacion-faltas-cuadricula";
-import { servicioCoincideFiltroCat, serviciosAgrupadosUnicosDesdePersonal } from "@/lib/categorizacion-filtros-servicio";
+import { servicioCoincideFiltroCat, serviciosAgrupadosUnicosDesdePersonal, variantesServicioDesdeFilas, filaCoincideVarianteServicio, servicioUsaFiltroPlanta } from "@/lib/categorizacion-filtros-servicio";
 import type { ContratoPorMesFila, ContratosPorMesPeriodo, ContratosPorMesReport } from "@/lib/contratos-por-mes";
 import {
   anioActualMx,
@@ -290,6 +290,7 @@ function emptyReport(
   anio: number | null,
   servicioFiltro: string,
   periodoLabel: string,
+  varianteFiltro = "",
 ): ContratosPorMesReport {
   return {
     periodo,
@@ -297,8 +298,10 @@ function emptyReport(
     anio,
     periodoLabel,
     servicio: servicioFiltro,
+    variante: varianteFiltro,
     rows: [],
     servicios: [],
+    variantesServicio: [],
     fuente: "sin_datos",
     generadoEn: new Date().toISOString(),
   };
@@ -309,29 +312,31 @@ export async function buildContratosPorMesReportServer(opts: {
   mesYm?: string;
   anio?: number;
   servicio?: string;
+  variante?: string;
   forceRefresh?: boolean;
 }): Promise<ContratosPorMesReport> {
   const periodo: ContratosPorMesPeriodo = opts.periodo === "anio" ? "anio" : "mes";
   const mesYm = (opts.mesYm ?? mesActualMx()).trim().slice(0, 7);
   const anio = opts.anio ?? anioActualMx();
   const servicioFiltro = String(opts.servicio ?? "").trim();
+  const varianteFiltro = String(opts.variante ?? "").trim();
 
   if (periodo === "mes" && !mesYmValido(mesYm)) {
-    return emptyReport(periodo, mesYm, null, servicioFiltro, labelMesYm(mesYm));
+    return emptyReport(periodo, mesYm, null, servicioFiltro, labelMesYm(mesYm), varianteFiltro);
   }
   if (periodo === "anio" && !anioValido(anio)) {
-    return emptyReport(periodo, mesYm, anio, servicioFiltro, labelAnio(anio));
+    return emptyReport(periodo, mesYm, anio, servicioFiltro, labelAnio(anio), varianteFiltro);
   }
 
   const { periodoLabel } = rangoPeriodo(periodo, mesYm, anio);
 
   if (!isSupabaseServerConfigured()) {
-    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel);
+    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel, varianteFiltro);
   }
 
   const admin = createSupabaseServiceRoleClient();
   if (!admin) {
-    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel);
+    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel, varianteFiltro);
   }
 
   try {
@@ -366,9 +371,19 @@ export async function buildContratosPorMesReportServer(opts: {
       candidatos.map((r) => ({ servicio: r.servicio })),
     );
 
-    const rows = servicioFiltro
+    const delServicio = servicioFiltro
       ? candidatos.filter((r) => servicioCoincideFiltroCat(r.servicio, servicioFiltro))
       : candidatos;
+
+    const variantesServicio =
+      servicioFiltro && servicioUsaFiltroPlanta(servicioFiltro)
+        ? variantesServicioDesdeFilas(delServicio, servicioFiltro)
+        : [];
+
+    let rows = delServicio;
+    if (varianteFiltro && servicioUsaFiltroPlanta(servicioFiltro)) {
+      rows = rows.filter((r) => filaCoincideVarianteServicio(r.servicio, varianteFiltro));
+    }
 
     return {
       periodo,
@@ -376,12 +391,14 @@ export async function buildContratosPorMesReportServer(opts: {
       anio: periodo === "anio" ? anio : null,
       periodoLabel,
       servicio: servicioFiltro,
+      variante: varianteFiltro,
       rows,
       servicios,
+      variantesServicio,
       fuente: "supabase",
       generadoEn: new Date().toISOString(),
     };
   } catch {
-    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel);
+    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel, varianteFiltro);
   }
 }

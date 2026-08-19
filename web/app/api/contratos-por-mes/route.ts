@@ -22,6 +22,7 @@ export async function GET(req: Request) {
   const anioRaw = url.searchParams.get("anio")?.trim();
   const anio = anioRaw ? Number(anioRaw) : undefined;
   const servicio = url.searchParams.get("servicio")?.trim() || "";
+  const variante = url.searchParams.get("variante")?.trim() || "";
   const force = url.searchParams.get("refresh") === "1";
 
   const report = await buildContratosPorMesReportServer({
@@ -29,6 +30,7 @@ export async function GET(req: Request) {
     mesYm,
     anio,
     servicio,
+    variante,
     forceRefresh: force,
   });
 

@@ -19,8 +19,12 @@ export type ContratosPorMesReport = {
   anio: number | null;
   periodoLabel: string;
   servicio: string;
+  /** Variante de servicio (CAT SANTA, U-ERRE …) cuando aplica. */
+  variante: string;
   rows: ContratoPorMesFila[];
   servicios: string[];
+  /** Variantes disponibles si el servicio agrupado es CAT o U-ERRE. */
+  variantesServicio: string[];
   fuente: "supabase" | "sin_datos";
   generadoEn: string;
 };

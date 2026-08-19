@@ -9,6 +9,7 @@ import {
   type ContratosPorMesPeriodo,
 } from "@/lib/contratos-por-mes";
 import { downloadCsv } from "@/lib/colaboradores-csv";
+import { servicioUsaFiltroPlanta } from "@/lib/categorizacion-filtros-servicio";
 
 type Props = {
   mesInicial: string;
@@ -27,8 +28,10 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
   const [mes, setMes] = useState(mesInicial);
   const [anio, setAnio] = useState(anioActualMx());
   const [servicio, setServicio] = useState("");
+  const [variante, setVariante] = useState("");
   const [filas, setFilas] = useState<ContratoPorMesFila[]>([]);
   const [servicios, setServicios] = useState<string[]>([]);
+  const [variantesServicio, setVariantesServicio] = useState<string[]>([]);
   const [periodoLabel, setPeriodoLabel] = useState(labelMesYm(mesInicial));
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +55,7 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
           params.set("anio", String(anio));
         }
         if (servicio.trim()) params.set("servicio", servicio.trim());
+        if (variante.trim()) params.set("variante", variante.trim());
         if (refresh) params.set("refresh", "1");
         const r = await fetch(`/api/contratos-por-mes?${params.toString()}`, {
           cache: "no-store",
@@ -60,6 +64,7 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
         const j = (await r.json().catch(() => ({}))) as {
           rows?: ContratoPorMesFila[];
           servicios?: string[];
+          variantesServicio?: string[];
           periodoLabel?: string;
           error?: string;
           fuente?: "supabase" | "sin_datos";
@@ -68,18 +73,20 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
         if (ac.signal.aborted) return;
         setFilas(j.rows ?? []);
         setServicios(j.servicios ?? []);
+        setVariantesServicio(j.variantesServicio ?? []);
         if (j.periodoLabel) setPeriodoLabel(j.periodoLabel);
         if (j.fuente) setFuenteLive(j.fuente);
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return;
         setFilas([]);
         setServicios([]);
+        setVariantesServicio([]);
         setError(e instanceof Error ? e.message : "No se pudieron cargar los datos.");
       } finally {
         if (!ac.signal.aborted) setCargando(false);
       }
     },
-    [periodo, mes, anio, servicio],
+    [periodo, mes, anio, servicio, variante],
   );
 
   useEffect(() => {
@@ -100,13 +107,16 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
 
   const inactivos = useMemo(() => filas.filter((f) => !f.activo).length, [filas]);
 
+  const muestraVariante = servicioUsaFiltroPlanta(servicio);
+
   const exportarCsv = () => {
     const csv = contratosPorMesToCsv(filasFiltradas);
     const sufServ = servicio.trim() ? `-${servicio.trim().replace(/\s+/g, "_")}` : "";
+    const sufVar = variante.trim() ? `-${variante.trim().replace(/\s+/g, "_")}` : "";
     const nombre =
       periodo === "anio"
-        ? `contratos-por-mes-${anio}${sufServ}.csv`
-        : `contratos-por-mes-${mes.slice(0, 7)}${sufServ}.csv`;
+        ? `contratos-por-mes-${anio}${sufServ}${sufVar}.csv`
+        : `contratos-por-mes-${mes.slice(0, 7)}${sufServ}${sufVar}.csv`;
     downloadCsv(nombre, csv);
   };
 
@@ -185,7 +195,10 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
           <select
             id="servicio-contratos"
             value={servicio}
-            onChange={(e) => setServicio(e.target.value)}
+            onChange={(e) => {
+              setServicio(e.target.value);
+              setVariante("");
+            }}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
           >
             <option value="">Todos los servicios</option>
@@ -196,6 +209,31 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
             ))}
           </select>
         </div>
+
+        {muestraVariante ? (
+          <div className="min-w-[200px]">
+            <label
+              htmlFor="variante-contratos"
+              className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-600"
+            >
+              Variante {servicio}
+            </label>
+            <select
+              id="variante-contratos"
+              value={variante}
+              onChange={(e) => setVariante(e.target.value)}
+              disabled={variantesServicio.length === 0}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm uppercase text-slate-900 shadow-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:opacity-50"
+            >
+              <option value="">Todas las variantes ({variantesServicio.length})</option>
+              {variantesServicio.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
 
         <div className="min-w-[200px] flex-1">
           <label
@@ -248,6 +286,12 @@ export function ContratosPorMesClient({ mesInicial, fuente }: Props) {
         {servicio.trim() ? (
           <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-900">
             Servicio: <strong>{servicio}</strong>
+            {variante.trim() ? (
+              <>
+                {" "}
+                · Variante: <strong>{variante}</strong>
+              </>
+            ) : null}
           </span>
         ) : null}
         {busqueda.trim() ? (

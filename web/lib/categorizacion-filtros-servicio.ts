@@ -120,3 +120,26 @@ export function conteoActivosPorPlanta<T extends { servicio?: string; planta?: s
       return a.planta.localeCompare(b.planta, "es", { numeric: true });
     });
 }
+
+/** Líneas de servicio distintas bajo CAT o U-ERRE (p. ej. CAT SANTA, CAT RAMOS). */
+export function variantesServicioDesdeFilas<T extends { servicio?: string }>(
+  rows: T[],
+  servicioAgrupado: string,
+): string[] {
+  const base = normalizarServicioCategorizacion(servicioAgrupado);
+  if (!base || !servicioUsaFiltroPlanta(base)) return [];
+  const set = new Set<string>();
+  for (const r of rows) {
+    const line = String(r.servicio ?? "").trim();
+    if (!line || !servicioCoincideFiltroCat(line, base)) continue;
+    const norm = normalizarServicioCategorizacion(line);
+    if (norm) set.add(norm);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+}
+
+export function filaCoincideVarianteServicio(servicioLinea: string, variante: string): boolean {
+  const v = normalizarServicioCategorizacion(variante);
+  if (!v) return true;
+  return normalizarServicioCategorizacion(servicioLinea) === v;
+}
