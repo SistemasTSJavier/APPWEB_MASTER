@@ -1,15 +1,26 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import {
+  estatusEmpleadoNormalizado,
   expedienteColaboradorValido,
   fechaIngresoNormalizadaColaborador,
   prepararColaboradorParaMetricas,
 } from "@/lib/colaboradores-baja";
 import { attendanceRowEmpKey } from "@/lib/attendance-integrity";
-import { mondaysEnMesCalendario } from "@/lib/categorizacion-faltas-cuadricula";
+import {
+  isFaltaCodigoAsistencia,
+  mondaysEnMesCalendario,
+} from "@/lib/categorizacion-faltas-cuadricula";
 import { servicioCoincideFiltroCat, serviciosAgrupadosUnicosDesdePersonal } from "@/lib/categorizacion-filtros-servicio";
-import type { ContratoPorMesFila, ContratosPorMesReport } from "@/lib/contratos-por-mes";
-import { mesActualMx, mesYmValido } from "@/lib/contratos-por-mes";
+import type { ContratoPorMesFila, ContratosPorMesPeriodo, ContratosPorMesReport } from "@/lib/contratos-por-mes";
+import {
+  anioActualMx,
+  anioValido,
+  labelAnio,
+  labelMesYm,
+  mesActualMx,
+  mesYmValido,
+} from "@/lib/contratos-por-mes";
 import { fetchAllColaboradoresCompletos } from "@/lib/colaboradores-supabase-fetch-all";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { createSupabaseServiceRoleClient, hintSupabaseClientError, isSupabaseServerConfigured } from "@/lib/supabase/admin";
@@ -18,6 +29,13 @@ const TURNS = ["D", "T", "N"] as const;
 const CACHE_TTL_MS = 3 * 60 * 1000;
 
 type ShiftDay = Partial<Record<(typeof TURNS)[number], string>>;
+
+type EmpAsistenciaAgg = {
+  diasTrabajados: Set<string>;
+  fechasFaltas: Set<string>;
+  nombreGrid: string;
+  servicioGrid: string;
+};
 
 let colaboradoresCache: {
   list: ColaboradorCompleto[];
@@ -41,6 +59,12 @@ function dateToIsoYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function formatDateEs(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
 function isAsist(v: string): boolean {
   const u = v.trim().toUpperCase();
   return u === "A" || /^\d+$/.test(u);
@@ -61,25 +85,84 @@ function diaTieneTrabajo(day: ShiftDay): boolean {
   return false;
 }
 
-/** Días laborados por N.º empleado según cuadrícula (asistencia A/número o extra DD+número). */
-async function diasTrabajadosPorEmpleadoEnMes(
-  admin: SupabaseClient,
-  mesYm: string,
-): Promise<Map<string, number>> {
+function diaTieneFalta(day: ShiftDay): boolean {
+  for (const turn of TURNS) {
+    const v = String(day[turn] ?? "").trim();
+    if (v && isFaltaCodigoAsistencia(v)) return true;
+  }
+  return false;
+}
+
+function mondaysEnAnioCalendario(anio: number): Date[] {
+  const seen = new Set<string>();
+  const out: Date[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const ym = `${anio}-${String(m).padStart(2, "0")}`;
+    for (const monday of mondaysEnMesCalendario(ym)) {
+      const iso = dateToIsoYmd(monday);
+      if (seen.has(iso)) continue;
+      seen.add(iso);
+      out.push(monday);
+    }
+  }
+  return out;
+}
+
+function rangoPeriodo(periodo: ContratosPorMesPeriodo, mesYm: string, anio: number): {
+  rangeStart: Date;
+  rangeEnd: Date;
+  mondays: Date[];
+  periodoLabel: string;
+} {
+  if (periodo === "anio") {
+    const rangeStart = new Date(anio, 0, 1);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(anio, 11, 31);
+    rangeEnd.setHours(0, 0, 0, 0);
+    return {
+      rangeStart,
+      rangeEnd,
+      mondays: mondaysEnAnioCalendario(anio),
+      periodoLabel: labelAnio(anio),
+    };
+  }
+
   const ym = mesYm.slice(0, 7);
   const [ys, ms] = ym.split("-").map((x) => Number(x));
   const y = ys || new Date().getFullYear();
   const m0 = (ms || 1) - 1;
-  const monthStart = new Date(y, m0, 1);
-  monthStart.setHours(0, 0, 0, 0);
-  const monthEnd = new Date(y, m0 + 1, 0);
-  monthEnd.setHours(0, 0, 0, 0);
+  const rangeStart = new Date(y, m0, 1);
+  rangeStart.setHours(0, 0, 0, 0);
+  const rangeEnd = new Date(y, m0 + 1, 0);
+  rangeEnd.setHours(0, 0, 0, 0);
+  return {
+    rangeStart,
+    rangeEnd,
+    mondays: mondaysEnMesCalendario(ym),
+    periodoLabel: labelMesYm(ym),
+  };
+}
 
-  const mondays = mondaysEnMesCalendario(ym);
+function nombreDesdeFilaGrid(o: Record<string, unknown>): string {
+  return String(o.name ?? o.nombre ?? o.nombreCompleto ?? "").trim();
+}
+
+function servicioDesdeFilaGrid(o: Record<string, unknown>): string {
+  return String(o.servicioLinea ?? o.rowServiceNo ?? o.serviceNo ?? "").trim();
+}
+
+/** Asistencia y faltas por N.º empleado según cuadrícula en el periodo. */
+async function asistenciaPorEmpleadoEnPeriodo(
+  admin: SupabaseClient,
+  periodo: ContratosPorMesPeriodo,
+  mesYm: string,
+  anio: number,
+): Promise<Map<string, EmpAsistenciaAgg>> {
+  const { rangeStart, rangeEnd, mondays } = rangoPeriodo(periodo, mesYm, anio);
   const weekIsos = mondays.map((m) => dateToIsoYmd(m));
-  const diasPorEmpleado = new Map<string, Set<string>>();
+  const porEmpleado = new Map<string, EmpAsistenciaAgg>();
 
-  if (weekIsos.length === 0) return new Map();
+  if (weekIsos.length === 0) return porEmpleado;
 
   const { data, error } = await admin
     .from("cuadricula_asistencia")
@@ -104,28 +187,40 @@ async function diasTrabajadosPorEmpleadoEnMes(
       const shifts = o.shifts;
       if (!Array.isArray(shifts)) continue;
 
-      let fechas = diasPorEmpleado.get(no);
-      if (!fechas) {
-        fechas = new Set<string>();
-        diasPorEmpleado.set(no, fechas);
+      let agg = porEmpleado.get(no);
+      if (!agg) {
+        agg = {
+          diasTrabajados: new Set<string>(),
+          fechasFaltas: new Set<string>(),
+          nombreGrid: nombreDesdeFilaGrid(o),
+          servicioGrid: servicioDesdeFilaGrid(o),
+        };
+        porEmpleado.set(no, agg);
+      } else {
+        const nombre = nombreDesdeFilaGrid(o);
+        const srv = servicioDesdeFilaGrid(o);
+        if (nombre) agg.nombreGrid = nombre;
+        if (srv) agg.servicioGrid = srv;
       }
 
       for (let di = 0; di < shifts.length && di < 7; di++) {
         const day = shifts[di] as ShiftDay | undefined;
-        if (!day || !diaTieneTrabajo(day)) continue;
+        if (!day) continue;
         const fecha = addDays(monday, di);
         fecha.setHours(0, 0, 0, 0);
-        if (fecha < monthStart || fecha > monthEnd) continue;
-        fechas.add(dateToIsoYmd(fecha));
+        if (fecha < rangeStart || fecha > rangeEnd) continue;
+
+        if (diaTieneTrabajo(day)) {
+          agg.diasTrabajados.add(dateToIsoYmd(fecha));
+        }
+        if (diaTieneFalta(day)) {
+          agg.fechasFaltas.add(formatDateEs(fecha));
+        }
       }
     }
   }
 
-  const out = new Map<string, number>();
-  for (const [no, fechas] of diasPorEmpleado) {
-    if (fechas.size > 0) out.set(no, fechas.size);
-  }
-  return out;
+  return porEmpleado;
 }
 
 async function listColaboradoresCached(forceRefresh: boolean): Promise<ColaboradorCompleto[]> {
@@ -144,62 +239,104 @@ function empKeyColaborador(c: ColaboradorCompleto): string {
   return String(c.noEmpleado ?? "").trim().toUpperCase();
 }
 
-function filaDesdeColaborador(c: ColaboradorCompleto, diasTrabajados: number): ContratoPorMesFila {
+function colaboradorEstaActivo(c: ColaboradorCompleto): boolean {
+  const est = estatusEmpleadoNormalizado(c.form);
+  return est !== "INACTIVO" && est !== "BAJA";
+}
+
+function filaDesdeColaborador(
+  c: ColaboradorCompleto,
+  agg: EmpAsistenciaAgg,
+): ContratoPorMesFila | null {
+  if (agg.diasTrabajados.size === 0) return null;
   const prep = prepararColaboradorParaMetricas(c);
+  const fechasFaltas = [...agg.fechasFaltas].sort((a, b) => {
+    const [da, ma, ya] = a.split("/").map(Number);
+    const [db, mb, yb] = b.split("/").map(Number);
+    return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime();
+  });
   return {
     noEmpleado: String(c.noEmpleado ?? "").trim(),
     nombreCompleto: String(c.nombreCompleto ?? "").trim(),
     servicio: servicioLineaColaborador(prep),
     fechaIngreso: fechaIngresoNormalizadaColaborador(prep),
-    diasTrabajados,
+    diasTrabajados: agg.diasTrabajados.size,
+    fechasFaltas,
+    activo: colaboradorEstaActivo(prep),
+  };
+}
+
+function filaDesdeCuadricula(no: string, agg: EmpAsistenciaAgg): ContratoPorMesFila | null {
+  if (agg.diasTrabajados.size === 0) return null;
+  const fechasFaltas = [...agg.fechasFaltas].sort((a, b) => {
+    const [da, ma, ya] = a.split("/").map(Number);
+    const [db, mb, yb] = b.split("/").map(Number);
+    return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime();
+  });
+  return {
+    noEmpleado: no,
+    nombreCompleto: agg.nombreGrid || no,
+    servicio: agg.servicioGrid,
+    fechaIngreso: "",
+    diasTrabajados: agg.diasTrabajados.size,
+    fechasFaltas,
+    activo: false,
+  };
+}
+
+function emptyReport(
+  periodo: ContratosPorMesPeriodo,
+  mesYm: string,
+  anio: number | null,
+  servicioFiltro: string,
+  periodoLabel: string,
+): ContratosPorMesReport {
+  return {
+    periodo,
+    mesYm,
+    anio,
+    periodoLabel,
+    servicio: servicioFiltro,
+    rows: [],
+    servicios: [],
+    fuente: "sin_datos",
+    generadoEn: new Date().toISOString(),
   };
 }
 
 export async function buildContratosPorMesReportServer(opts: {
+  periodo?: ContratosPorMesPeriodo;
   mesYm?: string;
+  anio?: number;
   servicio?: string;
   forceRefresh?: boolean;
 }): Promise<ContratosPorMesReport> {
+  const periodo: ContratosPorMesPeriodo = opts.periodo === "anio" ? "anio" : "mes";
   const mesYm = (opts.mesYm ?? mesActualMx()).trim().slice(0, 7);
+  const anio = opts.anio ?? anioActualMx();
   const servicioFiltro = String(opts.servicio ?? "").trim();
 
-  if (!mesYmValido(mesYm)) {
-    return {
-      mesYm,
-      servicio: servicioFiltro,
-      rows: [],
-      servicios: [],
-      fuente: "sin_datos",
-      generadoEn: new Date().toISOString(),
-    };
+  if (periodo === "mes" && !mesYmValido(mesYm)) {
+    return emptyReport(periodo, mesYm, null, servicioFiltro, labelMesYm(mesYm));
+  }
+  if (periodo === "anio" && !anioValido(anio)) {
+    return emptyReport(periodo, mesYm, anio, servicioFiltro, labelAnio(anio));
   }
 
+  const { periodoLabel } = rangoPeriodo(periodo, mesYm, anio);
+
   if (!isSupabaseServerConfigured()) {
-    return {
-      mesYm,
-      servicio: servicioFiltro,
-      rows: [],
-      servicios: [],
-      fuente: "sin_datos",
-      generadoEn: new Date().toISOString(),
-    };
+    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel);
   }
 
   const admin = createSupabaseServiceRoleClient();
   if (!admin) {
-    return {
-      mesYm,
-      servicio: servicioFiltro,
-      rows: [],
-      servicios: [],
-      fuente: "sin_datos",
-      generadoEn: new Date().toISOString(),
-    };
+    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel);
   }
 
   try {
-    const [diasPorEmp, colaboradores] = await Promise.all([
-      diasTrabajadosPorEmpleadoEnMes(admin, mesYm),
+    const [asistenciaPorEmp, colaboradores] = await Promise.all([
+      asistenciaPorEmpleadoEnPeriodo(admin, periodo, mesYm, anio),
       listColaboradoresCached(opts.forceRefresh === true),
     ]);
 
@@ -212,10 +349,10 @@ export async function buildContratosPorMesReportServer(opts: {
     }
 
     const candidatos: ContratoPorMesFila[] = [];
-    for (const [no, dias] of diasPorEmp) {
+    for (const [no, agg] of asistenciaPorEmp) {
       const c = porNo.get(no);
-      if (!c) continue;
-      candidatos.push(filaDesdeColaborador(c, dias));
+      const fila = c ? filaDesdeColaborador(c, agg) : filaDesdeCuadricula(no, agg);
+      if (fila) candidatos.push(fila);
     }
 
     candidatos.sort((a, b) => {
@@ -234,7 +371,10 @@ export async function buildContratosPorMesReportServer(opts: {
       : candidatos;
 
     return {
-      mesYm,
+      periodo,
+      mesYm: periodo === "mes" ? mesYm : "",
+      anio: periodo === "anio" ? anio : null,
+      periodoLabel,
       servicio: servicioFiltro,
       rows,
       servicios,
@@ -242,13 +382,6 @@ export async function buildContratosPorMesReportServer(opts: {
       generadoEn: new Date().toISOString(),
     };
   } catch {
-    return {
-      mesYm,
-      servicio: servicioFiltro,
-      rows: [],
-      servicios: [],
-      fuente: "sin_datos",
-      generadoEn: new Date().toISOString(),
-    };
+    return emptyReport(periodo, mesYm, periodo === "anio" ? anio : null, servicioFiltro, periodoLabel);
   }
 }

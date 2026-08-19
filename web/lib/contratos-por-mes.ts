@@ -5,10 +5,19 @@ export type ContratoPorMesFila = {
   fechaIngreso: string;
   /** Días con asistencia registrada en cuadrícula (≥1 para aparecer en la lista). */
   diasTrabajados: number;
+  /** Fechas con falta en el periodo (dd/mm/aaaa). */
+  fechasFaltas: string[];
+  /** Activo según expediente; inactivos con asistencia también se listan. */
+  activo: boolean;
 };
 
+export type ContratosPorMesPeriodo = "mes" | "anio";
+
 export type ContratosPorMesReport = {
+  periodo: ContratosPorMesPeriodo;
   mesYm: string;
+  anio: number | null;
+  periodoLabel: string;
   servicio: string;
   rows: ContratoPorMesFila[];
   servicios: string[];
@@ -22,13 +31,31 @@ function csvCell(value: string): string {
   return s;
 }
 
-/** CSV UTF-8 con BOM: N.º, nombre, servicio, fecha ingreso. */
+/** CSV UTF-8 con BOM. */
 export function contratosPorMesToCsv(rows: ContratoPorMesFila[]): string {
-  const headers = ["NO_EMPLEADO", "NOMBRE_COMPLETO", "SERVICIO", "FECHA_INGRESO"];
+  const headers = [
+    "NO_EMPLEADO",
+    "NOMBRE_COMPLETO",
+    "SERVICIO",
+    "FECHA_INGRESO",
+    "DIAS_LABORADOS",
+    "FECHAS_FALTAS",
+    "ESTATUS",
+  ];
   const lines = [headers.map(csvCell).join(",")];
   for (const r of rows) {
     lines.push(
-      [r.noEmpleado, r.nombreCompleto, r.servicio, r.fechaIngreso].map(csvCell).join(","),
+      [
+        r.noEmpleado,
+        r.nombreCompleto,
+        r.servicio,
+        r.fechaIngreso,
+        String(r.diasTrabajados),
+        r.fechasFaltas.join("; "),
+        r.activo ? "ACTIVO" : "INACTIVO",
+      ]
+        .map(csvCell)
+        .join(","),
     );
   }
   return "\uFEFF" + lines.join("\r\n");
@@ -46,6 +73,10 @@ export function mesActualMx(): string {
   return `${y}-${m}`;
 }
 
+export function anioActualMx(): number {
+  return Number(mesActualMx().slice(0, 4)) || new Date().getFullYear();
+}
+
 export function labelMesYm(mesYm: string): string {
   const [y, m] = mesYm.slice(0, 7).split("-").map(Number);
   if (!y || !m) return mesYm;
@@ -55,4 +86,12 @@ export function labelMesYm(mesYm: string): string {
 
 export function mesYmValido(mesYm: string): boolean {
   return /^\d{4}-\d{2}$/.test(String(mesYm ?? "").trim().slice(0, 7));
+}
+
+export function anioValido(anio: number): boolean {
+  return Number.isInteger(anio) && anio >= 2000 && anio <= 2100;
+}
+
+export function labelAnio(anio: number): string {
+  return `Año ${anio}`;
 }
