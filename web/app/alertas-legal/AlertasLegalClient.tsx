@@ -10,6 +10,12 @@ import {
   type AlertaLegalMotivo,
 } from "@/lib/alertas-legal-types";
 
+type AlertaLegalSugerencia = {
+  noEmpleado: string;
+  nombre: string;
+  servicio: string;
+};
+
 const inputCls =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200";
 const labelCls = "block text-[11px] font-bold uppercase tracking-wide text-slate-600";
@@ -49,11 +55,14 @@ export function AlertasLegalClient({
   const [actingId, setActingId] = useState<string | null>(null);
 
   const [noEmp, setNoEmp] = useState("");
+  const [busquedaPersona, setBusquedaPersona] = useState("");
   const [nombre, setNombre] = useState("");
   const [servicio, setServicio] = useState("");
   const [motivo, setMotivo] = useState<AlertaLegalMotivo>("renuncia");
   const [notas, setNotas] = useState("");
   const [lookupBusy, setLookupBusy] = useState(false);
+  const [sugerencias, setSugerencias] = useState<AlertaLegalSugerencia[]>([]);
+  const recepcionSolo = puedeMarcarLlegada && !puedeGestionar && !puedeCancelar && !puedeConfigurar;
 
   const load = useCallback(async () => {
     const r = await fetch("/api/alertas-legal", { cache: "no-store" });
@@ -97,11 +106,43 @@ export function AlertasLegalClient({
     return () => window.clearTimeout(h);
   }, [noEmp, puedeGestionar]);
 
+  useEffect(() => {
+    const t = busquedaPersona.trim();
+    if (!puedeGestionar) return;
+    if (t.length < 3) {
+      setSugerencias([]);
+      return;
+    }
+    const h = window.setTimeout(() => {
+      void (async () => {
+        setLookupBusy(true);
+        try {
+          const r = await fetch("/api/alertas-legal", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: t }),
+          });
+          const j = (await r.json()) as { rows?: AlertaLegalSugerencia[] };
+          if (r.ok) setSugerencias(Array.isArray(j.rows) ? j.rows : []);
+        } catch {
+          setSugerencias([]);
+        } finally {
+          setLookupBusy(false);
+        }
+      })();
+    }, 400);
+    return () => window.clearTimeout(h);
+  }, [busquedaPersona, puedeGestionar]);
+
   const visibles = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
-      if (tab === "pendiente" && r.estado !== "pendiente") return false;
-      if (tab === "llego" && r.estado !== "llego") return false;
+      if (recepcionSolo) {
+        if (r.estado !== "pendiente") return false;
+      } else {
+        if (tab === "pendiente" && r.estado !== "pendiente") return false;
+        if (tab === "llego" && r.estado !== "llego") return false;
+      }
       if (!needle) return true;
       return (
         r.noEmpleado.toLowerCase().includes(needle) ||
@@ -109,7 +150,7 @@ export function AlertasLegalClient({
         r.servicio.toLowerCase().includes(needle)
       );
     });
-  }, [q, rows, tab]);
+  }, [q, recepcionSolo, rows, tab]);
 
   async function onAdd(e: FormEvent) {
     e.preventDefault();
@@ -132,10 +173,12 @@ export function AlertasLegalClient({
       if (!r.ok) throw new Error(j.error ?? `Error ${r.status}`);
       setMsg("Persona agregada a la lista de recepción.");
       setNoEmp("");
+      setBusquedaPersona("");
       setNombre("");
       setServicio("");
       setNotas("");
       setMotivo("renuncia");
+      setSugerencias([]);
       await load();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "No se pudo agregar.");
@@ -194,6 +237,14 @@ export function AlertasLegalClient({
     }
   }
 
+  function seleccionarSugerencia(item: AlertaLegalSugerencia) {
+    setNoEmp(item.noEmpleado);
+    setBusquedaPersona(item.nombre);
+    setNombre(item.nombre);
+    setServicio(item.servicio ?? "");
+    setSugerencias([]);
+  }
+
   return (
     <div className="min-w-0 space-y-5">
       <div>
@@ -204,6 +255,8 @@ export function AlertasLegalClient({
             ? "Configura el correo destinatario aquí. Los permisos de cada usuario (ver lista, agregar o marcar llegada) se asignan en Usuarios."
             : puedeGestionar
               ? "Agrega a las personas con alerta activa. Recepción las verá y marcará cuando lleguen a firmar."
+              : recepcionSolo
+                ? "Aquí solo verás a las personas registradas pendientes de llegada, para confirmar cuando se presenten."
               : puedeMarcarLlegada
                 ? "Busca a la persona y pulsa Llegó a firmar para enviar la alerta de seguimiento al instante."
                 : "Consulta las personas con alerta activa."}
@@ -264,6 +317,35 @@ export function AlertasLegalClient({
           <form className="space-y-4" onSubmit={onAdd}>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-1.5">
+                <span className={labelCls}>Buscar por nombre</span>
+                <input
+                  className={`${inputCls} uppercase`}
+                  value={busquedaPersona}
+                  onChange={(e) => setBusquedaPersona(e.target.value)}
+                  placeholder="Escribe al menos 3 letras"
+                />
+                {lookupBusy ? <span className="text-[11px] text-slate-500">Buscando coincidencias…</span> : null}
+                {sugerencias.length > 0 ? (
+                  <ul className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    {sugerencias.map((item) => (
+                      <li key={item.noEmpleado}>
+                        <button
+                          type="button"
+                          className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50"
+                          onClick={() => seleccionarSugerencia(item)}
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold uppercase text-slate-900">{item.nombre}</span>
+                            <span className="block text-[11px] text-slate-500">{item.servicio || "Sin servicio"}</span>
+                          </span>
+                          <span className="shrink-0 font-mono text-xs font-bold text-slate-600">{item.noEmpleado}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </label>
+              <label className="block space-y-1.5">
                 <span className={labelCls}>N.º de empleado</span>
                 <input
                   className={`${inputCls} font-mono`}
@@ -274,6 +356,8 @@ export function AlertasLegalClient({
                 />
                 {lookupBusy ? <span className="text-[11px] text-slate-500">Buscando expediente…</span> : null}
               </label>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-1.5">
                 <span className={labelCls}>Nombre</span>
                 <input
@@ -325,22 +409,30 @@ export function AlertasLegalClient({
       <section className="card space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-sm font-bold uppercase text-slate-900">
-            {tab === "pendiente" ? "Pendientes de llegada" : tab === "llego" ? "Ya llegaron" : "Todas"}
+            {recepcionSolo
+              ? "Personas registradas pendientes"
+              : tab === "pendiente"
+                ? "Pendientes de llegada"
+                : tab === "llego"
+                  ? "Ya llegaron"
+                  : "Todas"}
           </h2>
-          <div className="flex flex-wrap gap-2">
-            {(["pendiente", "llego", "todas"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={`rounded-md px-3 py-1.5 text-xs font-bold uppercase ${
-                  tab === t ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-700"
-                }`}
-                onClick={() => setTab(t)}
-              >
-                {t === "pendiente" ? "Pendientes" : t === "llego" ? "Llegaron" : "Todas"}
-              </button>
-            ))}
-          </div>
+          {!recepcionSolo ? (
+            <div className="flex flex-wrap gap-2">
+              {(["pendiente", "llego", "todas"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`rounded-md px-3 py-1.5 text-xs font-bold uppercase ${
+                    tab === t ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-700"
+                  }`}
+                  onClick={() => setTab(t)}
+                >
+                  {t === "pendiente" ? "Pendientes" : t === "llego" ? "Llegaron" : "Todas"}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
         <label className="block space-y-1.5">
           <span className={labelCls}>Buscar (nombre o N.º)</span>
@@ -389,7 +481,7 @@ export function AlertasLegalClient({
                       {actingId === r.id ? "Enviando…" : "Llegó a firmar"}
                     </button>
                   ) : null}
-                  {puedeMarcarLlegada && r.estado === "llego" && !r.emailEnviadoAt ? (
+                  {!recepcionSolo && puedeMarcarLlegada && r.estado === "llego" && !r.emailEnviadoAt ? (
                     <button
                       type="button"
                       className="rounded-md bg-amber-700 px-3 py-2 text-xs font-bold uppercase text-white hover:bg-amber-800 disabled:opacity-50"

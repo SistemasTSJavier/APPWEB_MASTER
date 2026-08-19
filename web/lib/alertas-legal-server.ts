@@ -3,7 +3,11 @@ import {
   hintSupabaseClientError,
   isSupabaseServerConfigured,
 } from "@/lib/supabase/admin";
-import { fetchColaboradoresDbRowsByNos } from "@/lib/colaboradores-supabase-fetch-all";
+import {
+  fetchAllColaboradoresCompletos,
+  fetchColaboradoresDbRowsByNos,
+} from "@/lib/colaboradores-supabase-fetch-all";
+import { nombreCompletoExpediente, normalizarNombreParaCoincidencia } from "@/lib/altas-coincidencia-nombre";
 import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
@@ -35,6 +39,12 @@ type DbRow = {
   llego_by_email: string | null;
   email_enviado_at: string | null;
   email_error: string | null;
+};
+
+export type AlertaLegalColaboradorSugerido = {
+  noEmpleado: string;
+  nombre: string;
+  servicio: string;
 };
 
 function mapRow(r: DbRow): AlertaLegalFila {
@@ -101,6 +111,50 @@ export async function datosColaboradorParaAlerta(noEmpleado: string): Promise<{
     };
   }
   return null;
+}
+
+export async function buscarColaboradoresParaAlerta(query: string): Promise<{
+  ok: true;
+  rows: AlertaLegalColaboradorSugerido[];
+} | { ok: false; error: string }> {
+  const sb = admin();
+  if (!sb) return { ok: false, error: "Supabase no configurado." };
+  const raw = String(query ?? "").trim();
+  const canon = canonicalEmpNoAttendance(raw);
+  if (canon) {
+    const hit = await datosColaboradorParaAlerta(canon);
+    return { ok: true, rows: hit ? [hit] : [] };
+  }
+
+  const needle = normalizarNombreParaCoincidencia(raw);
+  if (needle.length < 3) return { ok: true, rows: [] };
+
+  try {
+    const rows = await fetchAllColaboradoresCompletos(sb);
+    const seen = new Set<string>();
+    const out: AlertaLegalColaboradorSugerido[] = [];
+    for (const c of rows) {
+      const noEmpleado = canonicalEmpNoAttendance(c.noEmpleado) || "";
+      if (!noEmpleado || seen.has(noEmpleado)) continue;
+      const nombre = nombreCompletoExpediente(c).trim();
+      if (!nombre) continue;
+      const nombreNorm = normalizarNombreParaCoincidencia(nombre);
+      if (!nombreNorm.includes(needle)) continue;
+      seen.add(noEmpleado);
+      out.push({
+        noEmpleado,
+        nombre,
+        servicio: servicioLineaColaborador(c),
+      });
+    }
+    out.sort((a, b) => a.nombre.localeCompare(b.nombre, "es-MX"));
+    return { ok: true, rows: out.slice(0, 8) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "No se pudieron buscar coincidencias.",
+    };
+  }
 }
 
 export async function crearAlertaLegal(opts: {

@@ -3,6 +3,7 @@ import { requireAlertasLegalApi, requireAlertasLegalGestionApi } from "@/lib/ale
 import { esAlertaLegalEstado, esAlertaLegalMotivo } from "@/lib/alertas-legal-types";
 import { destinatarioAlertasLegalLlegada } from "@/lib/alertas-legal-email";
 import {
+  buscarColaboradoresParaAlerta,
   crearAlertaLegal,
   datosColaboradorParaAlerta,
   listarAlertasLegal,
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, row: result.row });
 }
 
-/** Vista previa de expediente al pegar N.º de empleado. */
+/** Vista previa por N.º o sugerencias por nombre. */
 export async function PUT(req: Request) {
   const gate = await requireAlertasLegalGestionApi();
   if ("error" in gate) return gate.error;
@@ -62,8 +63,17 @@ export async function PUT(req: Request) {
   } catch {
     return NextResponse.json({ error: "JSON inválido." }, { status: 400 });
   }
-  const no = String((body as { noEmpleado?: string })?.noEmpleado ?? "").trim();
-  const hit = await datosColaboradorParaAlerta(no);
-  if (!hit) return NextResponse.json({ error: "No se encontró ese N.º de empleado." }, { status: 404 });
-  return NextResponse.json(hit);
+  const o = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const no = String(o.noEmpleado ?? "").trim();
+  const query = String(o.query ?? "").trim();
+
+  if (no) {
+    const hit = await datosColaboradorParaAlerta(no);
+    if (!hit) return NextResponse.json({ error: "No se encontró ese N.º de empleado." }, { status: 404 });
+    return NextResponse.json(hit);
+  }
+
+  const result = await buscarColaboradoresParaAlerta(query);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 500 });
+  return NextResponse.json({ rows: result.rows });
 }
