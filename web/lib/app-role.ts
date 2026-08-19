@@ -174,6 +174,7 @@ export const APP_MODULOS_HABILITABLES = [
   { id: "/bonos", label: "Bonos" },
   { id: "/musica", label: "Playlist" },
   { id: "/alertas-legal", label: "Alertas Legal" },
+  { id: "/contratos-por-mes", label: "Contratos por mes" },
 ] as const;
 
 export type AppModuloId = (typeof APP_MODULOS_HABILITABLES)[number]["id"];
@@ -448,6 +449,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   "/pruebas-efectividad-operativa": ["admin", "gerente_rh", "capacitacion"],
   "/bonos": ["admin", "nominas", "gerente_rh"],
   "/alertas-legal": ["admin", "gerente_legal", "aux_legal", "recepcion"],
+  "/contratos-por-mes": ["admin"],
   "/musica": [
     "admin",
     "rh",
@@ -504,6 +506,24 @@ export function roleMayAdminMusica(role: AppRole): boolean {
 /** Sugerido por rol (menú legado). El acceso real lo define Usuarios (Ver / Editar / Eliminar). */
 export function roleMayAccessAlertasLegal(role: AppRole): boolean {
   return role === "admin" || role === "aux_legal" || role === "gerente_legal" || role === "recepcion";
+}
+
+/** Solo administrador por rol; el resto entra por módulo en Usuarios. */
+export function roleMayAccessContratosPorMes(role: AppRole): boolean {
+  return role === "admin";
+}
+
+/** Abrir la sección: admin o módulo «Contratos por mes» asignado en Usuarios. */
+export function userMayAccessContratosPorMes(
+  role: AppRole,
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  if (role === "admin") return true;
+  const caps = capacidadesDesdeMetadata(userMetadata);
+  if (caps != null) {
+    return userMayModulo(role, userMetadata, "/contratos-por-mes", "ver");
+  }
+  return parseModulosHabilitados(userMetadata?.modulos_habilitados).includes("/contratos-por-mes");
 }
 
 /** Sugerido por rol: agregar personas. En producción manda `userMayAgregarAlertasLegal`. */
@@ -1130,6 +1150,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       href: "/alertas-legal",
       label: "Alertas Legal",
       roles: ["admin", "gerente_legal", "aux_legal", "recepcion"],
+    },
+    {
+      href: "/contratos-por-mes",
+      label: "Contratos por mes",
+      roles: ["admin"],
     },
     {
       href: "/musica",
