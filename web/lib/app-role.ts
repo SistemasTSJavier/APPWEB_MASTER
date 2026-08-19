@@ -540,6 +540,7 @@ export function userMayAgregarAlertasLegal(
   userMetadata?: Record<string, unknown> | null,
 ): boolean {
   if (role === "admin") return true;
+  if (role === "recepcion") return false;
   if (alertasLegalTieneCapsExplicitas(userMetadata)) {
     return userMayModulo(role, userMetadata, "/alertas-legal", "editar");
   }
@@ -552,6 +553,7 @@ export function userMayCancelarAlertasLegal(
   userMetadata?: Record<string, unknown> | null,
 ): boolean {
   if (role === "admin") return true;
+  if (role === "recepcion") return false;
   if (alertasLegalTieneCapsExplicitas(userMetadata)) {
     return userMayModulo(role, userMetadata, "/alertas-legal", "eliminar");
   }
