@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { userMayAccessContratosPorMes } from "@/lib/app-role";
-import { listColaboradoresContratosPorMesServer } from "@/lib/contratos-por-mes-server";
+import { buildContratosPorMesReportServer } from "@/lib/contratos-por-mes-server";
 
 export const dynamic = "force-dynamic";
 
-/** Expedientes para filtrar contratos por mes en cliente. */
+/** Colaboradores con al menos 1 día laborado en cuadrícula para el mes indicado. */
 export async function GET(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
@@ -14,7 +14,19 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 
-  const force = new URL(req.url).searchParams.get("refresh") === "1";
-  const { list, fuente } = await listColaboradoresContratosPorMesServer({ forceRefresh: force });
-  return NextResponse.json({ list, fuente, total: list.length });
+  const url = new URL(req.url);
+  const mesYm = url.searchParams.get("mes")?.trim() || undefined;
+  const servicio = url.searchParams.get("servicio")?.trim() || "";
+  const force = url.searchParams.get("refresh") === "1";
+
+  const report = await buildContratosPorMesReportServer({
+    mesYm,
+    servicio,
+    forceRefresh: force,
+  });
+
+  return NextResponse.json({
+    ...report,
+    total: report.rows.length,
+  });
 }
