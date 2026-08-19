@@ -14,6 +14,7 @@ type AlertaLegalSugerencia = {
   noEmpleado: string;
   nombre: string;
   servicio: string;
+  activo: boolean;
 };
 
 const ALERTAS_LEGAL_RECIENTES_KEY = "alertas-legal-recentes";
@@ -49,6 +50,7 @@ function guardarRecientes(item: AlertaLegalSugerencia) {
 const inputCls =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200";
 const labelCls = "block text-[11px] font-bold uppercase tracking-wide text-slate-600";
+const selectedCls = "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950";
 
 function fmtWhen(iso: string | null): string {
   if (!iso) return "—";
@@ -93,6 +95,7 @@ export function AlertasLegalClient({
   const [lookupBusy, setLookupBusy] = useState(false);
   const [sugerencias, setSugerencias] = useState<AlertaLegalSugerencia[]>([]);
   const [recientes, setRecientes] = useState<AlertaLegalSugerencia[]>([]);
+  const [searchFocused, setSearchFocused] = useState(false);
   const recepcionSolo = puedeMarcarLlegada && !puedeGestionar && !puedeCancelar && !puedeConfigurar;
 
   const load = useCallback(async () => {
@@ -118,7 +121,7 @@ export function AlertasLegalClient({
     const t = busquedaPersona.trim();
     if (!puedeGestionar) return;
     if (t.length < 2) {
-      setSugerencias(t.length === 0 ? recientes : []);
+      setSugerencias(t.length === 0 && searchFocused ? recientes : []);
       return;
     }
     const h = window.setTimeout(() => {
@@ -131,9 +134,11 @@ export function AlertasLegalClient({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ noEmpleado: t }),
             });
-            const j = (await r.json()) as { noEmpleado?: string; nombre?: string; servicio?: string };
+            const j = (await r.json()) as { noEmpleado?: string; nombre?: string; servicio?: string; activo?: boolean };
             if (r.ok && j.noEmpleado && j.nombre) {
-              setSugerencias([{ noEmpleado: j.noEmpleado, nombre: j.nombre, servicio: j.servicio ?? "" }]);
+              setSugerencias([
+                { noEmpleado: j.noEmpleado, nombre: j.nombre, servicio: j.servicio ?? "", activo: j.activo !== false },
+              ]);
               return;
             }
           }
@@ -158,7 +163,7 @@ export function AlertasLegalClient({
       })();
     }, 400);
     return () => window.clearTimeout(h);
-  }, [busquedaPersona, puedeGestionar, recientes]);
+  }, [busquedaPersona, puedeGestionar, recientes, searchFocused]);
 
   const visibles = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -209,6 +214,7 @@ export function AlertasLegalClient({
       setNotas("");
       setMotivo("renuncia");
       setSugerencias([]);
+      setSearchFocused(false);
       await load();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "No se pudo agregar.");
@@ -275,6 +281,7 @@ export function AlertasLegalClient({
     setSugerencias([]);
     guardarRecientes(item);
     setRecientes(leerRecientes());
+    setSearchFocused(false);
   }
 
   return (
@@ -344,10 +351,10 @@ export function AlertasLegalClient({
       ) : null}
 
       {puedeGestionar ? (
-        <section className="card space-y-4">
+        <section className="card space-y-3">
           <h2 className="text-sm font-bold uppercase text-slate-900">Agregar a la lista</h2>
-          <form className="space-y-4" onSubmit={onAdd}>
-            <div className="grid gap-4">
+          <form className="space-y-3" onSubmit={onAdd}>
+            <div className="grid gap-3">
               <label className="block space-y-1.5">
                 <span className={labelCls}>Buscar colaborador (N.º o nombre)</span>
                 <input
@@ -355,14 +362,23 @@ export function AlertasLegalClient({
                   value={busquedaPersona}
                   onChange={(e) => setBusquedaPersona(e.target.value)}
                   onFocus={() => {
+                    setSearchFocused(true);
                     if (!busquedaPersona.trim()) setSugerencias(recientes);
+                  }}
+                  onBlur={() => {
+                    window.setTimeout(() => {
+                      setSearchFocused(false);
+                      setSugerencias([]);
+                    }, 120);
                   }}
                   placeholder="Ej. 12345 o nombre completo"
                 />
-                <span className="text-[11px] text-slate-500">Sugerencias de colaboradores activos.</span>
+                <span className="text-[11px] text-slate-500">
+                  Lanza nombres parecidos mientras escribes. Incluye activos e inactivos.
+                </span>
                 {lookupBusy ? <span className="text-[11px] text-slate-500">Buscando coincidencias…</span> : null}
                 {sugerencias.length > 0 ? (
-                  <ul className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                  <ul className="max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
                     {sugerencias.map((item) => (
                       <li key={item.noEmpleado}>
                         <button
@@ -372,7 +388,10 @@ export function AlertasLegalClient({
                         >
                           <span className="min-w-0">
                             <span className="block text-sm font-semibold uppercase text-slate-900">{item.nombre}</span>
-                            <span className="block text-[11px] text-slate-500">{item.servicio || "Sin servicio"}</span>
+                            <span className="block text-[11px] text-slate-500">
+                              {item.servicio || "Sin servicio"} {" · "}
+                              {item.activo ? "Activo" : "Inactivo"}
+                            </span>
                           </span>
                           <span className="shrink-0 font-mono text-xs font-bold text-slate-600">{item.noEmpleado}</span>
                         </button>
@@ -382,23 +401,17 @@ export function AlertasLegalClient({
                 ) : null}
               </label>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block space-y-1.5">
-                <span className={labelCls}>N.º de empleado</span>
-                <input className={`${inputCls} font-mono`} value={noEmp} readOnly placeholder="Selecciona una coincidencia" />
-              </label>
-              <label className="block space-y-1.5">
-                <span className={labelCls}>Nombre</span>
-                <input
-                  className={`${inputCls} uppercase`}
-                  value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                  required
-                  placeholder="Se completa al encontrar el N.º"
-                />
-              </label>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className={selectedCls}>
+                <span className="block text-[11px] font-bold uppercase tracking-wide text-emerald-800">N.º de empleado</span>
+                <span className="mt-0.5 block font-mono font-semibold">{noEmp || "Selecciona una coincidencia"}</span>
+              </div>
+              <div className={`${selectedCls} sm:col-span-2`}>
+                <span className="block text-[11px] font-bold uppercase tracking-wide text-emerald-800">Nombre</span>
+                <span className="mt-0.5 block font-semibold uppercase">{nombre || "Sin seleccionar"}</span>
+              </div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               <label className="block space-y-1.5">
                 <span className={labelCls}>Motivo</span>
                 <select
@@ -419,13 +432,13 @@ export function AlertasLegalClient({
               </label>
             </div>
             <label className="block space-y-1.5">
-              <span className={labelCls}>Notas (opcional)</span>
+              <span className={labelCls}>Motivo de baja / notas</span>
               <input
                 className={inputCls}
                 value={notas}
                 onChange={(e) => setNotas(e.target.value)}
                 maxLength={300}
-                placeholder="Ej. No dejar firmar sin Legal presente"
+                placeholder="Ej. Renuncia voluntaria / No dejar firmar sin Legal presente"
               />
             </label>
             <button type="submit" className="btn-primary uppercase" disabled={busy}>

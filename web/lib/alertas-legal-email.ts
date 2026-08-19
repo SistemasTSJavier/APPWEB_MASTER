@@ -1,6 +1,7 @@
 import { leerEmailDestinoAlertasLegal } from "@/lib/alertas-legal-config";
 import {
   ALERTAS_LEGAL_MOTIVO_LABEL,
+  type AlertaLegalDetalleCorreo,
   type AlertaLegalFila,
 } from "@/lib/alertas-legal-types";
 import {
@@ -33,6 +34,7 @@ export async function destinatarioAlertasLegalLlegada(): Promise<string> {
 export async function enviarEmailAlertaLegalLlegada(
   fila: AlertaLegalFila,
   recepcionEmail: string,
+  detalle?: AlertaLegalDetalleCorreo | null,
 ): Promise<EnvioAlertaLegalResultado> {
   const apiKey = leerResendApiKey();
   const from = leerVariableEntorno(process.env.EMAIL_FROM) || "onboarding@resend.dev";
@@ -64,13 +66,17 @@ export async function enviarEmailAlertaLegalLlegada(
         <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">N.º empleado</td>
             <td style="padding:6px 8px;border:1px solid #ddd;font-family:monospace">${escapeHtml(fila.noEmpleado)}</td></tr>
         <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Nombre</td>
-            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(fila.nombre)}</td></tr>
-        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Servicio</td>
-            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(fila.servicio || "—")}</td></tr>
-        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Motivo</td>
+            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(detalle?.nombre || fila.nombre)}</td></tr>
+        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Fecha de nacimiento</td>
+            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(detalle?.fechaNacimiento || "—")}</td></tr>
+        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">CURP</td>
+            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(detalle?.curp || "—")}</td></tr>
+        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Fecha de baja</td>
+            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(detalle?.fechaBaja || "—")}</td></tr>
+        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Motivo de baja</td>
+            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(fila.notas || detalle?.motivoBaja || "—")}</td></tr>
+        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Tipo de alerta</td>
             <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(motivo)}</td></tr>
-        <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Notas</td>
-            <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(fila.notas || "—")}</td></tr>
         <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Marcado por</td>
             <td style="padding:6px 8px;border:1px solid #ddd">${escapeHtml(recepcionEmail || "—")}</td></tr>
         <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f8fafc;font-weight:600">Fecha / hora (MX)</td>

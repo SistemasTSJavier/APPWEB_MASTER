@@ -41,6 +41,14 @@ export type AlertaLegalFila = {
   emailError: string | null;
 };
 
+export type AlertaLegalDetalleCorreo = {
+  nombre: string;
+  fechaNacimiento: string;
+  fechaBaja: string;
+  curp: string;
+  motivoBaja: string;
+};
+
 export function esAlertaLegalMotivo(v: string): v is AlertaLegalMotivo {
   return (ALERTAS_LEGAL_MOTIVOS as readonly string[]).includes(v);
 }

@@ -10,10 +10,12 @@ import {
 import { nombreCompletoExpediente, normalizarNombreParaCoincidencia } from "@/lib/altas-coincidencia-nombre";
 import { colaboradorEstaActivoEnOperacion } from "@/lib/colaboradores-baja";
 import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
+import { normalizarFechaParaInputDate } from "@/lib/fecha-input-normalize";
 import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
 import { enviarEmailAlertaLegalLlegada } from "@/lib/alertas-legal-email";
 import {
+  type AlertaLegalDetalleCorreo,
   esAlertaLegalEstado,
   esAlertaLegalMotivo,
   type AlertaLegalEstado,
@@ -46,6 +48,7 @@ export type AlertaLegalColaboradorSugerido = {
   noEmpleado: string;
   nombre: string;
   servicio: string;
+  activo: boolean;
 };
 
 function scoreSugerencia(s: AlertaLegalColaboradorSugerido, needleNorm: string, needleRaw: string): number {
@@ -54,7 +57,9 @@ function scoreSugerencia(s: AlertaLegalColaboradorSugerido, needleNorm: string, 
   if (no === needleRaw) return 0;
   if (no.startsWith(needleRaw)) return 1;
   if (nombreNorm.startsWith(needleNorm)) return 2;
-  if (nombreNorm.includes(needleNorm)) return 3;
+  const parts = needleNorm.split(" ").filter(Boolean);
+  if (parts.length > 1 && parts.every((p) => nombreNorm.includes(p))) return 3;
+  if (nombreNorm.includes(needleNorm)) return 4;
   return 99;
 }
 
@@ -106,7 +111,6 @@ export async function datosColaboradorParaAlerta(noEmpleado: string): Promise<{
   for (const r of rows) {
     const c = normalizeToCompleto(r.data);
     if (!c) continue;
-    if (!colaboradorEstaActivoEnOperacion(c)) continue;
     const dbNo = String(r.no_empleado ?? "").trim().toUpperCase();
     const hit = {
       ...c,
@@ -125,6 +129,40 @@ export async function datosColaboradorParaAlerta(noEmpleado: string): Promise<{
   return null;
 }
 
+export async function detalleCorreoColaboradorParaAlerta(noEmpleado: string): Promise<AlertaLegalDetalleCorreo | null> {
+  const sb = admin();
+  if (!sb) return null;
+  const canon = canonicalEmpNoAttendance(noEmpleado);
+  if (!canon) return null;
+  let rows: Awaited<ReturnType<typeof fetchColaboradoresDbRowsByNos>> = [];
+  try {
+    rows = await fetchColaboradoresDbRowsByNos(sb, [canon, noEmpleado]);
+  } catch {
+    return null;
+  }
+  for (const r of rows) {
+    const c = normalizeToCompleto(r.data);
+    if (!c) continue;
+    const dbNo = String(r.no_empleado ?? "").trim().toUpperCase();
+    const hit = {
+      ...c,
+      noEmpleado: dbNo || c.noEmpleado,
+      form: { ...c.form, noEmpleado1: dbNo || c.noEmpleado } as Record<string, string>,
+    };
+    const a = canonicalEmpNoAttendance(hit.noEmpleado);
+    const b = canonicalEmpNoAttendance(String(hit.form.noEmpleado1 ?? ""));
+    if (a !== canon && b !== canon) continue;
+    return {
+      nombre: String(nombreCompletoExpediente(hit) || "").trim(),
+      fechaNacimiento: normalizarFechaParaInputDate(String(hit.form.fechaNacimiento ?? "").trim()) || "",
+      fechaBaja: normalizarFechaParaInputDate(String(hit.form.fechaBaja ?? "").trim()) || "",
+      curp: String(hit.form.curp ?? "").trim().toUpperCase(),
+      motivoBaja: String(hit.form.motivoSeparacion ?? "").trim(),
+    };
+  }
+  return null;
+}
+
 export async function buscarColaboradoresParaAlerta(query: string): Promise<{
   ok: true;
   rows: AlertaLegalColaboradorSugerido[];
@@ -135,7 +173,7 @@ export async function buscarColaboradoresParaAlerta(query: string): Promise<{
   const canon = canonicalEmpNoAttendance(raw);
   if (canon) {
     const hit = await datosColaboradorParaAlerta(canon);
-    return { ok: true, rows: hit ? [hit] : [] };
+    return { ok: true, rows: hit ? [{ ...hit, activo: true }] : [] };
   }
 
   const needle = normalizarNombreParaCoincidencia(raw);
@@ -158,12 +196,14 @@ export async function buscarColaboradoresParaAlerta(query: string): Promise<{
         noEmpleado,
         nombre,
         servicio: servicioLineaColaborador(c),
+        activo: colaboradorEstaActivoEnOperacion(c),
       });
     }
     out.sort((a, b) => {
       const sa = scoreSugerencia(a, needle, raw);
       const sb = scoreSugerencia(b, needle, raw);
       if (sa !== sb) return sa - sb;
+      if (a.activo !== b.activo) return a.activo ? -1 : 1;
       return a.nombre.localeCompare(b.nombre, "es-MX");
     });
     return { ok: true, rows: out.slice(0, 8) };
@@ -246,9 +286,11 @@ export async function marcarAlertaLegalLlego(opts: {
   let emailTo = "";
 
   if (!fila.emailEnviadoAt) {
+    const detalleCorreo = await detalleCorreoColaboradorParaAlerta(fila.noEmpleado);
     const mail = await enviarEmailAlertaLegalLlegada(
       { ...fila, estado: "llego", llegoAt: now, llegoByEmail: opts.recepcionEmail },
       opts.recepcionEmail,
+      detalleCorreo,
     );
     emailTo = mail.to;
     emailOk = mail.ok;
