@@ -18,8 +18,9 @@ import { colaboradorTieneBaja } from '@/lib/colaboradores-baja'
 import {
   colaboradorActivoParaCapturaAsistencia,
   colaboradorToGridRow,
+  filtrarColaboradoresActivosCaptura,
+  filtrarFilasGridSoloActivosCaptura,
   listarPlantasCapturaAsistencia,
-  mapaColaboradoresActivosCapturaPorEmpNo,
   normPlantaCapturaNombre,
   plantaCapturaColaborador,
   gridRowServiceNo,
@@ -1284,8 +1285,13 @@ export function mergeCsvShiftsIntoGridRows(
     const exigirActivo = reconcile?.exigirColaboradorActivo !== false && Boolean(reconcile)
     const col = reconcile?.colaboradoresByEmp.get(canon) ?? null
 
-    // Detección: N.º de empleado + colaborador activo en expediente (no basta el N.º suelto).
-    if (exigirActivo && (!col || !colaboradorActivoParaCapturaAsistencia(col))) {
+    if (!col) {
+      csvEmployeesNotInGrid.push(imp.employeeNo)
+      continue
+    }
+
+    // Importación: N.º en expediente; activos e inactivos (inactivos no se muestran en cuadrícula).
+    if (exigirActivo && !colaboradorActivoParaCapturaAsistencia(col)) {
       csvEmployeesNotInGrid.push(imp.employeeNo)
       continue
     }
@@ -1470,7 +1476,11 @@ function groupCsvRowsByPlanta(
 
 export type DirectCsvImportResult = {
   rows: GridRow[]
+  /** Filas para pantalla (solo activos). */
+  rowsDisplay: GridRow[]
   totalUpdated: number
+  /** Colaboradores inactivos/baja importados y guardados (no visibles en cuadrícula). */
+  inactivosImportados: number
   omitidosSinRegistro: string[]
   plantsSaved: number
   plantsSaveFailed: number
@@ -1490,13 +1500,14 @@ export async function importAttendanceCsvDirectToGrid(opts: {
   baseRows?: GridRow[]
   persist?: boolean
 }): Promise<DirectCsvImportResult> {
-  const colaboradoresByEmp = mapaColaboradoresActivosCapturaPorEmpNo(opts.colaboradores)
+  const activosCaptura = filtrarColaboradoresActivosCaptura(opts.colaboradores)
+  const colaboradoresByEmp = mapaColaboradoresPorNoEmpleadoCanon(opts.colaboradores)
   let base: GridRow[]
   if (opts.baseRows && opts.baseRows.length > 0) {
     base = opts.baseRows
   } else {
     base = (
-      await mergeGridRowsTodasPlantasWeek(opts.colaboradores, opts.catalogo, opts.weekIso)
+      await mergeGridRowsTodasPlantasWeek(activosCaptura, opts.catalogo, opts.weekIso)
     ).rows
   }
 
@@ -1511,45 +1522,48 @@ export async function importAttendanceCsvDirectToGrid(opts: {
       todosColaboradores: opts.colaboradores,
       reemplazarSemanaDesdeCsv: true,
       omitirFiltroPlantaExpediente: true,
-      exigirColaboradorActivo: true,
+      exigirColaboradorActivo: false,
     },
   )
 
   const rows = sortGridRowsByPosicion(next)
+  const rowsDisplay = filtrarFilasGridSoloActivosCaptura(rows, activosCaptura)
+  const updatedSet = new Set(updatedEmployeeNos.map((n) => canonicalEmpNoForCsvMatch(n) || n))
+  let inactivosImportados = 0
+  for (const k of updatedSet) {
+    const col = colaboradoresByEmp.get(k)
+    if (col && !colaboradorActivoParaCapturaAsistencia(col)) inactivosImportados += 1
+  }
+
   let plantsSaved = 0
   let plantsSaveFailed = 0
 
   if (opts.persist !== false && updatedCount > 0) {
-    const updatedSet = new Set(updatedEmployeeNos.map((n) => canonicalEmpNoForCsvMatch(n) || n))
     const { getAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
     const prefetch = await getAttendanceWeekPrefetch(opts.weekIso)
     const porPlanta = splitGridRowsByPlanta(rows, opts.colaboradores, opts.catalogo)
-    const plantas = listarPlantasCapturaAsistencia(opts.colaboradores, opts.catalogo)
-
-    // Solo plantas con al menos un N.º actualizado por el CSV (~280 filas no deben reescribir todo el universo).
-    const plantasAfectadas: string[] = []
-    for (const planta of plantas) {
-      const norm = normPlantaCapturaNombre(planta)
-      const filasPantalla = porPlanta.get(norm) ?? []
-      const hit = filasPantalla.some((r) => {
+    const plantasAfectadas = new Set<string>()
+    for (const [plantaNorm, filasPlanta] of porPlanta) {
+      const hit = filasPlanta.some((r) => {
         const k = empNoClaveGridRow(r) || canonicalEmpNoForCsvMatch(String(r.employeeNo ?? ''))
         return Boolean(k && updatedSet.has(k))
       })
-      if (hit) plantasAfectadas.push(planta)
+      if (hit) plantasAfectadas.add(plantaNorm)
     }
 
     const items: { scopeKey: string; rows: GridRow[] }[] = []
-    for (const planta of plantasAfectadas) {
-      const filasPantalla = porPlanta.get(normPlantaCapturaNombre(planta)) ?? null
+    for (const plantaNorm of plantasAfectadas) {
+      const filasPantalla = porPlanta.get(plantaNorm) ?? null
       const filas = await filasParaGuardarPlantaWeek(
-        opts.colaboradores,
-        planta,
+        activosCaptura,
+        plantaNorm,
         opts.catalogo,
         opts.weekIso,
         prefetch,
         filasPantalla,
+        opts.colaboradores,
       )
-      const scopeKey = plantaToStorageKey(planta)
+      const scopeKey = plantaToStorageKey(plantaNorm)
       if (scopeKey && filas.length > 0) items.push({ scopeKey, rows: filas })
     }
     if (items.length > 0) {
@@ -1561,7 +1575,9 @@ export async function importAttendanceCsvDirectToGrid(opts: {
 
   return {
     rows,
+    rowsDisplay,
     totalUpdated: updatedCount,
+    inactivosImportados,
     omitidosSinRegistro: csvEmployeesNotInGrid,
     plantsSaved,
     plantsSaveFailed,
@@ -1584,7 +1600,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   const plantasExpediente = listarPlantasCapturaAsistencia(opts.colaboradores, opts.catalogo)
   const expedienteNorm = new Map(plantasExpediente.map((p) => [normPlantaCsv(p), p]))
 
-  const colaboradoresByEmpEarly = mapaColaboradoresActivosCapturaPorEmpNo(opts.colaboradores)
+  const colaboradoresByEmpEarly = mapaColaboradoresPorNoEmpleadoCanon(opts.colaboradores)
   const { groups: grouped, rowsSinPlanta: rowsSinPlantaCsv } = groupCsvRowsByPlanta(
     opts.parsedRows,
     opts.catalogo,
@@ -1653,7 +1669,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
         todosColaboradores: opts.colaboradores,
         reemplazarSemanaDesdeCsv: true,
         omitirFiltroPlantaExpediente: true,
-        exigirColaboradorActivo: true,
+        exigirColaboradorActivo: false,
       })
 
       return {

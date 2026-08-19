@@ -42,6 +42,7 @@ const CODE_HINTS = ['A', 'D', 'F', 'INC', 'VAC', 'PCGS', 'PSGS', 'CAP', 'DD']
 export function AttendanceView() {
   const {
     catalogo,
+    colaboradores,
     colaboradoresActivosCaptura,
     loading,
     error,
@@ -151,7 +152,7 @@ export function AttendanceView() {
     try {
       const result = await importAttendanceCsvDirectToGrid({
         parsedRows: parsed.rows,
-        colaboradores: colaboradoresActivosCaptura,
+        colaboradores,
         catalogo,
         weekIso,
         baseRows: rowsRef.current.length > 0 ? rowsRef.current : undefined,
@@ -159,17 +160,22 @@ export function AttendanceView() {
 
       if (result.totalUpdated === 0) {
         setSaveMessage(
-          `CSV (${weekRangeLabel}): ningún colaborador activo coincidió con el archivo${statsMsg} Se requiere N.º de empleado + activo en Colaboradores.`,
+          `CSV (${weekRangeLabel}): ningún colaborador en expediente coincidió con el archivo${statsMsg} Se requiere N.º de empleado registrado en Colaboradores.`,
         )
         if (result.omitidosSinRegistro.length > 0) setCsvImportOmitidos(result.omitidosSinRegistro)
         return
       }
 
-      startGridTransition(() => setRows(result.rows))
+      startGridTransition(() => setRows(result.rowsDisplay))
 
       const parts: string[] = [
         `Importado: ${result.totalUpdated}/${result.filasCsv} colaborador(es) del CSV en ${weekRangeLabel}. Separador: ${delimHint}.`,
       ]
+      if (result.inactivosImportados > 0) {
+        parts.push(
+          `${result.inactivosImportados} inactivo(s) guardado(s) en servidor (no visibles en cuadrícula; sí en Contratos por mes).`,
+        )
+      }
       if (result.plantsSaved > 0) {
         parts.push(`Guardado en ${result.plantsSaved} planta(s) afectada(s).`)
       }
@@ -181,7 +187,7 @@ export function AttendanceView() {
         if (result.omitidosSinRegistro.length > 0) {
           setCsvImportOmitidos(result.omitidosSinRegistro)
           parts.push(
-            `${result.omitidosSinRegistro.length} N.º del CSV sin colaborador activo en expediente (no se importaron).`,
+            `${result.omitidosSinRegistro.length} N.º del CSV sin colaborador en expediente (no se importaron).`,
           )
         }
       if ((parsed.filasSinNumeroEmpleado ?? 0) > 0) {
@@ -223,6 +229,7 @@ export function AttendanceView() {
             weekIso,
             prefetch,
             filasPantalla,
+            colaboradores,
           )
           return filas.length > 0 ? { scopeKey, rows: filas } : null
         }),

@@ -316,7 +316,7 @@ export function splitGridRowsByPlanta(
   return map;
 }
 
-/** Filas a guardar: roster completo de la planta con los turnos visibles en pantalla. */
+/** Filas a guardar: roster activo + turnos en pantalla + inactivos ya persistidos (importación). */
 export async function filasParaGuardarPlantaWeek(
   colaboradores: ColaboradorCompleto[],
   plantaNombre: string,
@@ -324,7 +324,9 @@ export async function filasParaGuardarPlantaWeek(
   weekStartIso: string,
   prefetch: AttendanceWeekPrefetch,
   filasPantalla?: GridRow[] | null,
+  colaboradoresTodos?: ColaboradorCompleto[],
 ): Promise<GridRow[]> {
+  const todos = colaboradoresTodos ?? colaboradores;
   const roster = await mergeGridRowsForPlantaWeek(
     colaboradores,
     plantaNombre,
@@ -332,16 +334,34 @@ export async function filasParaGuardarPlantaWeek(
     weekStartIso,
     prefetch,
   );
-  if (!filasPantalla?.length) return roster;
+  let merged = filasPantalla?.length
+    ? fusionarCapturaSemanalDesdeExpediente(roster, filasPantalla)
+    : roster;
 
-  const merged = fusionarCapturaSemanalDesdeExpediente(roster, filasPantalla);
-  return appendFilasGuardadasFueraDeBase(
+  merged = appendFilasGuardadasFueraDeBase(
     merged,
-    filasPantalla,
-    colaboradores,
+    filasPantalla ?? [],
+    todos,
     plantaNombre,
     catalogo,
   );
+
+  const scopeId = plantaToStorageKey(plantaNombre);
+  if (scopeId) {
+    const storedAll = resolveMergedStoredGridForPlanta(weekStartIso, scopeId, [], prefetch);
+    const storedNorm = storedAll?.rows?.length ? normalizeStoredRows(storedAll.rows) : [];
+    if (storedNorm.length > 0) {
+      merged = appendFilasGuardadasFueraDeBase(
+        merged,
+        storedNorm,
+        todos,
+        plantaNombre,
+        catalogo,
+      );
+    }
+  }
+
+  return merged;
 }
 
 /** @deprecated Use mergeGridRowsForPlantaWeek */

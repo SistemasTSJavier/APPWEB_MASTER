@@ -1,4 +1,4 @@
-import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
+import { canonicalEmpNoAttendance, empNoClaveGridRow } from "@/lib/attendance-emp-no";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import {
   nombreServicioCatalogoColaborador,
@@ -85,6 +85,28 @@ export function colaboradorActivoParaCapturaAsistencia(c: ColaboradorCompleto): 
 /** Lista precalculada de activos para cuadrícula (evita mezclar bajas/inactivos). */
 export function filtrarColaboradoresActivosCaptura(lista: ColaboradorCompleto[]): ColaboradorCompleto[] {
   return lista.filter(colaboradorActivoParaCapturaAsistencia);
+}
+
+/**
+ * Filas visibles en pantalla de cuadrícula: solo activos en captura.
+ * La importación CSV puede persistir inactivos en servidor (Contratos por mes).
+ */
+export function filtrarFilasGridSoloActivosCaptura(
+  rows: GridRow[],
+  activos: ColaboradorCompleto[],
+): GridRow[] {
+  const keys = new Set<string>();
+  for (const c of activos) {
+    for (const raw of [c.noEmpleado, String(c.form?.noEmpleado1 ?? "")]) {
+      const k = canonicalEmpNoAttendance(raw);
+      if (k) keys.add(k);
+    }
+  }
+  return rows.filter((r) => {
+    if (r.vacant) return false;
+    const k = empNoClaveGridRow(r);
+    return Boolean(k && keys.has(k));
+  });
 }
 
 /** Planta usada cuando el activo aún no tiene planta en expediente ni catálogo. */
