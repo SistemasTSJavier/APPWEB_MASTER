@@ -16,9 +16,34 @@ type AlertaLegalSugerencia = {
   servicio: string;
 };
 
+const ALERTAS_LEGAL_RECIENTES_KEY = "alertas-legal-recentes";
+
 function pareceNumeroEmpleado(v: string): boolean {
   const t = v.trim();
   return /^[0-9.\s]+$/.test(t);
+}
+
+function leerRecientes(): AlertaLegalSugerencia[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(ALERTAS_LEGAL_RECIENTES_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((x) => (x && typeof x === "object" ? (x as AlertaLegalSugerencia) : null))
+      .filter((x): x is AlertaLegalSugerencia => Boolean(x?.noEmpleado && x?.nombre))
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+function guardarRecientes(item: AlertaLegalSugerencia) {
+  if (typeof window === "undefined") return;
+  const prev = leerRecientes().filter((x) => x.noEmpleado !== item.noEmpleado);
+  const next = [item, ...prev].slice(0, 6);
+  window.localStorage.setItem(ALERTAS_LEGAL_RECIENTES_KEY, JSON.stringify(next));
 }
 
 const inputCls =
@@ -67,6 +92,7 @@ export function AlertasLegalClient({
   const [notas, setNotas] = useState("");
   const [lookupBusy, setLookupBusy] = useState(false);
   const [sugerencias, setSugerencias] = useState<AlertaLegalSugerencia[]>([]);
+  const [recientes, setRecientes] = useState<AlertaLegalSugerencia[]>([]);
   const recepcionSolo = puedeMarcarLlegada && !puedeGestionar && !puedeCancelar && !puedeConfigurar;
 
   const load = useCallback(async () => {
@@ -85,10 +111,14 @@ export function AlertasLegalClient({
   }, [load]);
 
   useEffect(() => {
+    setRecientes(leerRecientes());
+  }, []);
+
+  useEffect(() => {
     const t = busquedaPersona.trim();
     if (!puedeGestionar) return;
     if (t.length < 2) {
-      setSugerencias([]);
+      setSugerencias(t.length === 0 ? recientes : []);
       return;
     }
     const h = window.setTimeout(() => {
@@ -128,7 +158,7 @@ export function AlertasLegalClient({
       })();
     }, 400);
     return () => window.clearTimeout(h);
-  }, [busquedaPersona, puedeGestionar]);
+  }, [busquedaPersona, puedeGestionar, recientes]);
 
   const visibles = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -243,6 +273,8 @@ export function AlertasLegalClient({
     setNombre(item.nombre);
     setServicio(item.servicio ?? "");
     setSugerencias([]);
+    guardarRecientes(item);
+    setRecientes(leerRecientes());
   }
 
   return (
@@ -322,8 +354,12 @@ export function AlertasLegalClient({
                   className={`${inputCls} uppercase`}
                   value={busquedaPersona}
                   onChange={(e) => setBusquedaPersona(e.target.value)}
+                  onFocus={() => {
+                    if (!busquedaPersona.trim()) setSugerencias(recientes);
+                  }}
                   placeholder="Ej. 12345 o nombre completo"
                 />
+                <span className="text-[11px] text-slate-500">Sugerencias de colaboradores activos.</span>
                 {lookupBusy ? <span className="text-[11px] text-slate-500">Buscando coincidencias…</span> : null}
                 {sugerencias.length > 0 ? (
                   <ul className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">

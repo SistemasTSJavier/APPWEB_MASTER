@@ -8,6 +8,7 @@ import {
   fetchColaboradoresDbRowsByNos,
 } from "@/lib/colaboradores-supabase-fetch-all";
 import { nombreCompletoExpediente, normalizarNombreParaCoincidencia } from "@/lib/altas-coincidencia-nombre";
+import { colaboradorEstaActivoEnOperacion } from "@/lib/colaboradores-baja";
 import { normalizeToCompleto } from "@/lib/colaboradores-normalize";
 import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
 import { servicioLineaColaborador } from "@/lib/servicio-agrupacion";
@@ -46,6 +47,16 @@ export type AlertaLegalColaboradorSugerido = {
   nombre: string;
   servicio: string;
 };
+
+function scoreSugerencia(s: AlertaLegalColaboradorSugerido, needleNorm: string, needleRaw: string): number {
+  const nombreNorm = normalizarNombreParaCoincidencia(s.nombre);
+  const no = s.noEmpleado;
+  if (no === needleRaw) return 0;
+  if (no.startsWith(needleRaw)) return 1;
+  if (nombreNorm.startsWith(needleNorm)) return 2;
+  if (nombreNorm.includes(needleNorm)) return 3;
+  return 99;
+}
 
 function mapRow(r: DbRow): AlertaLegalFila {
   return {
@@ -95,6 +106,7 @@ export async function datosColaboradorParaAlerta(noEmpleado: string): Promise<{
   for (const r of rows) {
     const c = normalizeToCompleto(r.data);
     if (!c) continue;
+    if (!colaboradorEstaActivoEnOperacion(c)) continue;
     const dbNo = String(r.no_empleado ?? "").trim().toUpperCase();
     const hit = {
       ...c,
@@ -134,6 +146,7 @@ export async function buscarColaboradoresParaAlerta(query: string): Promise<{
     const seen = new Set<string>();
     const out: AlertaLegalColaboradorSugerido[] = [];
     for (const c of rows) {
+      if (!colaboradorEstaActivoEnOperacion(c)) continue;
       const noEmpleado = canonicalEmpNoAttendance(c.noEmpleado) || "";
       if (!noEmpleado || seen.has(noEmpleado)) continue;
       const nombre = nombreCompletoExpediente(c).trim();
@@ -147,7 +160,12 @@ export async function buscarColaboradoresParaAlerta(query: string): Promise<{
         servicio: servicioLineaColaborador(c),
       });
     }
-    out.sort((a, b) => a.nombre.localeCompare(b.nombre, "es-MX"));
+    out.sort((a, b) => {
+      const sa = scoreSugerencia(a, needle, raw);
+      const sb = scoreSugerencia(b, needle, raw);
+      if (sa !== sb) return sa - sb;
+      return a.nombre.localeCompare(b.nombre, "es-MX");
+    });
     return { ok: true, rows: out.slice(0, 8) };
   } catch (error) {
     return {
