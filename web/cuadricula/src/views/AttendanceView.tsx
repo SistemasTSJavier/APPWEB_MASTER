@@ -10,6 +10,7 @@ import {
 import { isAttendanceDayLocked } from '../attendanceDayLock'
 import { addDays, downloadTextFile, formatDateEs, mondayOfWeek, weekDayMetas } from '../attendanceExportSummary'
 import { saveManyAttendanceGrids, weekStartToIso } from '../attendanceStorage'
+import type { RemoteAttendanceFetchMeta } from '../attendanceRemote'
 import { reassignFaltaSequence } from '../attendanceFaltaSequence'
 import { withComputedTotals } from '../attendanceTotals'
 import {
@@ -61,6 +62,9 @@ export function AttendanceView() {
   const [gridLoading, setGridLoading] = useState(false)
   const [importandoCsv, setImportandoCsv] = useState(false)
   const [guardandoSemana, setGuardandoSemana] = useState(false)
+  const [remoteMeta, setRemoteMeta] = useState<RemoteAttendanceFetchMeta | null>(null)
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
+  const [storedRowCount, setStoredRowCount] = useState(0)
   const rowsRef = useRef<GridRow[]>([])
   rowsRef.current = rows
 
@@ -87,19 +91,25 @@ export function AttendanceView() {
     if (colaboradoresActivosCaptura.length === 0) {
       setRows([])
       setGridLoading(false)
+      setRemoteMeta(null)
+      setLastSavedAt(null)
+      setStoredRowCount(0)
       return
     }
     const loadSeq = ++weekLoadSeqRef.current
     let cancelled = false
     setGridLoading(true)
     ;(async () => {
-      const { rows: merged } = await mergeGridRowsTodasPlantasWeek(
+      const { rows: merged, remote, lastSavedAt: savedAt } = await mergeGridRowsTodasPlantasWeek(
         colaboradoresRef.current,
         catalogoRef.current,
         weekIso,
       )
       if (cancelled || loadSeq !== weekLoadSeqRef.current) return
       setGridLoading(false)
+      setRemoteMeta(remote)
+      setLastSavedAt(savedAt)
+      setStoredRowCount(merged.length)
       startGridTransition(() => setRows(merged))
     })()
     return () => {
@@ -203,7 +213,7 @@ export function AttendanceView() {
     }
   }
 
-  async function guardarSemana() {
+  async function guardarSemana(confirmMassRemoval = false) {
     if (!puedeEditar) return
     const plantas = listarPlantasCapturaAsistencia(colaboradoresActivosCaptura, catalogo)
     if (plantas.length === 0) {
@@ -241,7 +251,21 @@ export function AttendanceView() {
         setSaveMessage('No hay datos para guardar en esta semana.')
         return
       }
-      const batch = await saveManyAttendanceGrids(weekIso, batchItems, { forceReplace: true })
+      const batch = await saveManyAttendanceGrids(weekIso, batchItems, {
+        forceReplace: false,
+        confirmMassRemoval,
+      })
+      if (batch.massRemovalMessage) {
+        const ok = window.confirm(
+          `${batch.massRemovalMessage}\n\n¿Confirmar el guardado de todos modos? Se creará un backup previo.`,
+        )
+        if (ok) {
+          setGuardandoSemana(false)
+          return guardarSemana(true)
+        }
+        setSaveMessage('Guardado cancelado: se detectó borrado masivo de colaboradores.')
+        return
+      }
       if (batch.saved === 0) {
         setSaveMessage('No se pudo guardar la semana.')
         return
@@ -257,6 +281,44 @@ export function AttendanceView() {
       setGuardandoSemana(false)
     }
   }
+
+  const remoteStatusLabel = useMemo(() => {
+    if (gridLoading) return null
+    if (!remoteMeta) return null
+    const savedLabel = lastSavedAt
+      ? (() => {
+          try {
+            return new Date(lastSavedAt).toLocaleString('es-MX', {
+              dateStyle: 'short',
+              timeStyle: 'short',
+            })
+          } catch {
+            return lastSavedAt
+          }
+        })()
+      : null
+    if (remoteMeta.status === 'ok') {
+      return `Servidor OK · ${storedRowCount} fila(s)${savedLabel ? ` · último guardado ${savedLabel}` : ''}`
+    }
+    if (remoteMeta.status === 'empty') {
+      return `Servidor OK · sin datos guardados en esta semana · ${storedRowCount} fila(s) en pantalla`
+    }
+    if (remoteMeta.status === 'auth') {
+      return remoteMeta.message ?? 'Sesión expirada: no se pudo cargar asistencia del servidor.'
+    }
+    if (remoteMeta.status === 'forbidden') {
+      return remoteMeta.message ?? 'Sin permiso para leer asistencia del servidor.'
+    }
+    if (remoteMeta.status === 'no_config') {
+      return remoteMeta.message ?? 'Supabase no configurado en el servidor.'
+    }
+    return remoteMeta.message ?? 'No se pudo cargar asistencia del servidor.'
+  }, [gridLoading, remoteMeta, lastSavedAt, storedRowCount])
+
+  const remoteStatusIsError =
+    remoteMeta != null &&
+    remoteMeta.status !== 'ok' &&
+    remoteMeta.status !== 'empty'
 
   const updateCell = useCallback(
     (rowId: string, dayIndex: number, turn: Turn, next: string) => {
@@ -303,6 +365,18 @@ export function AttendanceView() {
         {!puedeEditar ? (
           <p className="topbar__readonlyBanner" role="status">
             <strong>Solo lectura.</strong> La captura requiere permiso de edición.
+          </p>
+        ) : null}
+        {remoteStatusLabel ? (
+          <p
+            className="hint"
+            role="status"
+            style={{
+              marginBottom: 8,
+              color: remoteStatusIsError ? '#b91c1c' : undefined,
+            }}
+          >
+            {remoteStatusLabel}
           </p>
         ) : null}
 

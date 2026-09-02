@@ -12,12 +12,17 @@ import {
 } from "@/lib/app-role";
 import {
   validateAttendanceRows,
-  compareAttendancePayloads,
   createAuditLog,
+  auditLogToDbRow,
   formatIntegrityErrorMessage,
   mergeAttendancePayloadRows,
   type StoredPayload,
 } from "@/lib/attendance-integrity";
+import {
+  backupAsistenciaPayload,
+  checkMassRemoval,
+  replaceAsistenciaDiasForScope,
+} from "@/lib/asistencia-dias-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +94,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ items });
 }
 
-/** POST — guarda una cuadrícula (upsert; solo si savedAt es más reciente o no existía). */
+/** POST — guarda una cuadrícula (upsert; merge + dual-write a días). */
 export async function POST(req: Request) {
   const auth = await getAuthedApiUser();
   if (!isAuthedApiUser(auth)) return auth;
@@ -124,7 +129,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ VALIDAR INTEGRIDAD ANTES DE GUARDAR
   const validation = validateAttendanceRows(grid.rows);
   if (!validation.ok) {
     const errorMsg = formatIntegrityErrorMessage(validation, `${weekStartIso}/${scopeKey}`);
@@ -141,32 +145,42 @@ export async function POST(req: Request) {
 
   const incomingSavedAt = typeof grid.savedAt === "string" ? grid.savedAt : new Date().toISOString();
   const serviceNo = typeof o.serviceNo === "string" ? o.serviceNo : (grid.serviceNo ?? "");
-  const forceReplace = o.forceReplace === true;
+  const confirmReplace = o.confirmReplace === true;
+  const confirmMassRemoval = o.confirmMassRemoval === true;
+  const forceReplaceRequested = o.forceReplace === true;
+  const forceReplace = forceReplaceRequested && confirmReplace && auth.role === "admin";
+
+  if (forceReplaceRequested && !forceReplace) {
+    return NextResponse.json(
+      {
+        error:
+          "forceReplace requiere confirmReplace: true y rol administrador. Use merge (por defecto) o confirme el reemplazo total.",
+        code: "force_replace_denied",
+      },
+      { status: 403 },
+    );
+  }
 
   let existingPayload: StoredPayload | null = null;
 
-  if (!forceReplace) {
-    const { data: existing } = await admin
-      .from("cuadricula_asistencia")
-      .select("payload")
-      .eq("week_start_iso", weekStartIso)
-      .eq("scope_key", scopeKey)
-      .maybeSingle();
+  const { data: existing } = await admin
+    .from("cuadricula_asistencia")
+    .select("payload, service_no")
+    .eq("week_start_iso", weekStartIso)
+    .eq("scope_key", scopeKey)
+    .maybeSingle();
 
-    if (existing?.payload) {
-      existingPayload = existing.payload as StoredPayload;
-      const prev = existingPayload;
-      const prevAt = typeof prev.savedAt === "string" ? prev.savedAt : "";
+  if (existing?.payload) {
+    existingPayload = existing.payload as StoredPayload;
+    if (!forceReplace) {
+      const prevAt = typeof existingPayload.savedAt === "string" ? existingPayload.savedAt : "";
       if (prevAt && prevAt > incomingSavedAt) {
         return NextResponse.json({ ok: true, skipped: true, reason: "older_than_server" });
       }
     }
   }
 
-  // ✅ MEJORADO: Hacer merge con datos anteriores (combinar filas por empleado)
-  let payloadToSave: StoredPayload = {
-    ...grid,
-  };
+  let payloadToSave: StoredPayload = { ...grid };
 
   if (!forceReplace && existingPayload?.rows && Array.isArray(payloadToSave.rows)) {
     const mergedRows = mergeAttendancePayloadRows(payloadToSave.rows, existingPayload.rows);
@@ -176,7 +190,7 @@ export async function POST(req: Request) {
     };
 
     console.log(
-      `[ASISTENCIA-MERGE] ${weekStartIso}/${scopeKey}: ${existingPayload.rows.length} previas + ${(grid.rows || []).length} nuevas = ${mergedRows.length} totales`
+      `[ASISTENCIA-MERGE] ${weekStartIso}/${scopeKey}: ${existingPayload.rows.length} previas + ${(grid.rows || []).length} nuevas = ${mergedRows.length} totales`,
     );
   }
 
@@ -186,8 +200,31 @@ export async function POST(req: Request) {
     version: payloadToSave.version === 1 ? 1 : 2,
   };
 
-  // ✅ COMPARAR CAMBIOS Y REGISTRAR AUDITORÍA
-  const comparison = compareAttendancePayloads(existingPayload || null, payload2);
+  const mass = checkMassRemoval(existingPayload, payload2);
+  if (mass.blocked && !confirmMassRemoval && !forceReplace) {
+    return NextResponse.json(
+      {
+        error: `Este guardado eliminaría ${mass.comparison.removedRows} colaborador(es) de la semana/planta (${mass.comparison.summary}). Confirme para continuar.`,
+        code: "mass_removal",
+        comparison: mass.comparison,
+        previousRowsCount: mass.previousRowsCount,
+        requireConfirmMassRemoval: true,
+      },
+      { status: 409 },
+    );
+  }
+
+  if (existingPayload) {
+    await backupAsistenciaPayload(
+      admin,
+      weekStartIso,
+      scopeKey,
+      existingPayload,
+      typeof existing?.service_no === "string" ? existing.service_no : serviceNo,
+      forceReplace ? "pre_replace" : "pre_save",
+    );
+  }
+
   const auditLog = createAuditLog(
     weekStartIso,
     scopeKey,
@@ -199,16 +236,13 @@ export async function POST(req: Request) {
     existingPayload,
     "success",
     undefined,
-    comparison.summary
+    mass.comparison.summary,
   );
 
-  // ✅ GUARDAR AUDITORÍA
-  if (process.env.NODE_ENV === "production") {
-    try {
-      await admin.from("cuadricula_asistencia_audit").insert(auditLog);
-    } catch (e) {
-      console.warn(`[ASISTENCIA] Error guardando auditoría:`, (e as any)?.message || String(e));
-    }
+  try {
+    await admin.from("cuadricula_asistencia_audit").insert(auditLogToDbRow(auditLog));
+  } catch (e) {
+    console.warn(`[ASISTENCIA] Error guardando auditoría:`, (e as Error)?.message || String(e));
   }
 
   const { error } = await admin.from("cuadricula_asistencia").upsert(
@@ -228,10 +262,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: hintSupabaseClientError(error.message) }, { status: 500 });
   }
 
-  // ✅ LOG DETALLADO
-  if (comparison.changed) {
-    console.log(`[ASISTENCIA] ✓ ${weekStartIso}/${scopeKey}: ${comparison.summary}`);
+  const dias = await replaceAsistenciaDiasForScope(
+    admin,
+    weekStartIso,
+    scopeKey,
+    payload2.rows,
+    incomingSavedAt,
+  );
+  if (!dias.ok) {
+    console.error(`[ASISTENCIA-DIAS] ${weekStartIso}/${scopeKey}:`, dias.error);
+    return NextResponse.json(
+      {
+        ok: true,
+        warning: `Payload guardado, pero falló sync de días: ${dias.error}`,
+        validation,
+        comparison: mass.comparison,
+      },
+      { status: 200 },
+    );
   }
 
-  return NextResponse.json({ ok: true, validation, comparison });
+  if (mass.comparison.changed) {
+    console.log(`[ASISTENCIA] ✓ ${weekStartIso}/${scopeKey}: ${mass.comparison.summary}`);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    validation,
+    comparison: mass.comparison,
+    diasWritten: dias.rowsWritten,
+  });
 }

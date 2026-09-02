@@ -15,7 +15,7 @@ import {
   plantaCapturaColaborador,
   plantaToStorageKey,
 } from "./cuadriculaColaboradoresBridge";
-import { canonicalEmpNoAttendance, empNoClaveGridRow, indexGridRowsByEmpNo } from "@/lib/attendance-emp-no";
+import { empNoClaveGridRow, indexGridRowsByEmpNo } from "@/lib/attendance-emp-no";
 import { sortGridRowsByPosicion } from "./attendanceGridSort";
 import { appendFilasGuardadasFueraDeBase } from "./attendancePlantaMerge";
 import { emptyShifts, WEEK_COLUMNS, ZERO_TOTALS, type GridRow } from "./mockData";
@@ -38,17 +38,20 @@ function fusionarCapturaSemanalDesdeExpediente(
   const merged = base.map((br) => {
     const k = empNoClaveGridRow(br);
     const s = k ? storedByEmp.get(k) : undefined;
-    if (!s?.shifts?.length || s.shifts.length !== br.shifts.length) {
+    if (!s?.shifts?.length) {
       return br;
     }
-    return {
-      ...br,
-      shifts: s.shifts.map((day) => ({
-        D: typeof day?.D === "string" ? day.D : "",
-        T: typeof day?.T === "string" ? day.T : "",
-        N: typeof day?.N === "string" ? day.N : "",
-      })),
-    };
+    const targetLen = br.shifts.length;
+    const mergedShifts = Array.from({ length: targetLen }, (_, i) => {
+      const day = s.shifts[i];
+      if (!day) return { D: "", T: "", N: "" };
+      return {
+        D: typeof day.D === "string" ? day.D : "",
+        T: typeof day.T === "string" ? day.T : "",
+        N: typeof day.N === "string" ? day.N : "",
+      };
+    });
+    return { ...br, shifts: mergedShifts };
   });
   return sortGridRowsByPosicion(merged.map((r) => withComputedTotals(r, gridRowServiceNo(r))));
 }
@@ -138,11 +141,8 @@ async function mergePlantaWeekBlock(
     });
   }
 
-  const empKeys = activos
-    .map((c) => canonicalEmpNoAttendance(c.noEmpleado))
-    .filter(Boolean);
   const stored = prefetchedWeek
-    ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, empKeys, prefetchedWeek)
+    ? resolveMergedStoredGridForPlanta(weekStartIso, scopeId, [], prefetchedWeek)
     : null;
 
   const normStored = stored?.rows?.length ? normalizeStoredRows(stored.rows) : [];

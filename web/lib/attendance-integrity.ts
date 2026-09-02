@@ -312,6 +312,24 @@ export function createAuditLog(
   };
 }
 
+/** Fila lista para insertar en `cuadricula_asistencia_audit` (snake_case). */
+export function auditLogToDbRow(log: AttendanceAuditLog): Record<string, unknown> {
+  return {
+    week_start_iso: log.weekStartIso,
+    scope_key: log.scopeKey,
+    action: log.action,
+    user_id: log.userId,
+    user_role: log.userRole,
+    timestamp: log.timestamp,
+    rows_affected: log.rowsAffected,
+    previous_hash: log.previousHash,
+    new_hash: log.newHash,
+    status: log.status,
+    error_message: log.errorMessage ?? null,
+    notes: log.notes ?? null,
+  };
+}
+
 /**
  * Formatea mensaje de error detallado para problemas de integridad.
  */

@@ -1,8 +1,7 @@
 /**
- * Faltas del mes desde cuadrícula de asistencia (Supabase `cuadricula_asistencia`).
+ * Faltas del mes desde cuadrícula de asistencia (tabla `cuadricula_asistencia_dias`).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { attendanceRowEmpKey } from "@/lib/attendance-integrity";
 import { hintSupabaseClientError } from "@/lib/supabase/admin";
 
 export type FaltasMesEmpleado = {
@@ -88,39 +87,6 @@ function normalizarNoEmpleado(raw: string): string {
   return raw.trim().toUpperCase();
 }
 
-function empNoDesdeFila(o: Record<string, unknown>): string {
-  return attendanceRowEmpKey(o);
-}
-
-type ShiftDay = Partial<Record<(typeof TURNS)[number], string>>;
-
-function contarFaltasFilaEnMes(
-  shifts: ShiftDay[],
-  weekMonday: Date,
-  monthStart: Date,
-  monthEnd: Date,
-): { count: number; fechas: string[] } {
-  const fechasSet = new Set<string>();
-  let count = 0;
-  for (let di = 0; di < shifts.length && di < 7; di++) {
-    const day = shifts[di];
-    if (!day) continue;
-    const fecha = addDays(weekMonday, di);
-    fecha.setHours(0, 0, 0, 0);
-    if (fecha < monthStart || fecha > monthEnd) continue;
-    let diaTieneFalta = false;
-    for (const turn of TURNS) {
-      const v = String(day[turn] ?? "");
-      if (isFaltaCodigoAsistencia(v)) {
-        count += 1;
-        diaTieneFalta = true;
-      }
-    }
-    if (diaTieneFalta) fechasSet.add(formatDateEs(fecha));
-  }
-  return { count, fechas: [...fechasSet] };
-}
-
 function mergeFaltas(map: FaltasMesMap, no: string, add: { count: number; fechas: string[] }): void {
   if (!no || add.count === 0) return;
   const prev = map[no] ?? { total: 0, fechas: [] };
@@ -129,28 +95,6 @@ function mergeFaltas(map: FaltasMesMap, no: string, add: { count: number; fechas
     total: prev.total + add.count,
     fechas: [...fechasSet],
   };
-}
-
-function procesarPayloadSemana(
-  payload: unknown,
-  weekMonday: Date,
-  monthStart: Date,
-  monthEnd: Date,
-  out: FaltasMesMap,
-): void {
-  if (!payload || typeof payload !== "object") return;
-  const rows = (payload as { rows?: unknown }).rows;
-  if (!Array.isArray(rows)) return;
-  for (const raw of rows) {
-    if (!raw || typeof raw !== "object") continue;
-    const o = raw as Record<string, unknown>;
-    const no = empNoDesdeFila(o);
-    if (!no) continue;
-    const shifts = o.shifts;
-    if (!Array.isArray(shifts)) continue;
-    const add = contarFaltasFilaEnMes(shifts as ShiftDay[], weekMonday, monthStart, monthEnd);
-    mergeFaltas(out, no, add);
-  }
 }
 
 /** Cuenta faltas (turnos F / F1…) por empleado en el mes calendario indicado. */
@@ -167,24 +111,48 @@ export async function contarFaltasMesDesdeCuadricula(
   const monthEnd = new Date(y, m0 + 1, 0);
   monthEnd.setHours(0, 0, 0, 0);
 
-  const mondays = mondaysEnMesCalendario(ym);
-  const weekIsos = mondays.map((m) => dateToIsoYmd(m));
   const out: FaltasMesMap = {};
+  const inicioYmd = dateToIsoYmd(monthStart);
+  const finYmd = dateToIsoYmd(monthEnd);
+  const PAGE = 1000;
+  let offset = 0;
 
-  if (weekIsos.length === 0) return { mesYm: ym, faltas: out };
+  while (true) {
+    const { data, error } = await admin
+      .from("cuadricula_asistencia_dias")
+      .select("employee_no, fecha, codigo_d, codigo_t, codigo_n")
+      .gte("fecha", inicioYmd)
+      .lte("fecha", finYmd)
+      .order("fecha", { ascending: true })
+      .order("employee_no", { ascending: true })
+      .range(offset, offset + PAGE - 1);
 
-  const { data, error } = await admin
-    .from("cuadricula_asistencia")
-    .select("week_start_iso, payload")
-    .in("week_start_iso", weekIsos);
+    if (error) throw new Error(hintSupabaseClientError(error.message));
 
-  if (error) throw new Error(hintSupabaseClientError(error.message));
+    const page = data ?? [];
+    if (page.length === 0) break;
 
-  for (const row of data ?? []) {
-    const weekIso = String(row.week_start_iso ?? "").trim();
-    const monday = mondays.find((m) => dateToIsoYmd(m) === weekIso);
-    if (!monday) continue;
-    procesarPayloadSemana(row.payload, monday, monthStart, monthEnd, out);
+    for (const row of page) {
+      const no = normalizarNoEmpleado(String(row.employee_no ?? ""));
+      if (!no) continue;
+      const fechaIso = String(row.fecha ?? "").trim();
+      if (!fechaIso) continue;
+      const [yy, mm, dd] = fechaIso.split("-").map(Number);
+      const fecha = new Date(yy || 1970, (mm || 1) - 1, dd || 1);
+      fecha.setHours(0, 0, 0, 0);
+
+      let count = 0;
+      for (const turn of TURNS) {
+        const col = turn === "D" ? "codigo_d" : turn === "T" ? "codigo_t" : "codigo_n";
+        const v = String((row as Record<string, unknown>)[col] ?? "");
+        if (isFaltaCodigoAsistencia(v)) count += 1;
+      }
+      if (count === 0) continue;
+      mergeFaltas(out, no, { count, fechas: [formatDateEs(fecha)] });
+    }
+
+    if (page.length < PAGE) break;
+    offset += PAGE;
   }
 
   for (const key of Object.keys(out)) {

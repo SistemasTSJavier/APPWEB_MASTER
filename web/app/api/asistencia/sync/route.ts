@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import {
   createSupabaseServiceRoleClient,
-  hintSupabaseClientError,
   isSupabaseServerConfigured,
   supabaseServerEnvMissing,
 } from "@/lib/supabase/admin";
@@ -10,12 +9,16 @@ import { roleMayWriteCuadriculaAsistencia } from "@/lib/app-role";
 import {
   validateAttendanceRows,
   sanitizeAttendanceRows,
-  compareAttendancePayloads,
   createAuditLog,
-  generateAttendanceHealthReport,
+  auditLogToDbRow,
   mergeAttendancePayloadRows,
   type StoredPayload,
 } from "@/lib/attendance-integrity";
+import {
+  backupAsistenciaPayload,
+  checkMassRemoval,
+  replaceAsistenciaDiasForScope,
+} from "@/lib/asistencia-dias-sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -51,9 +54,29 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
-  const parsed = body as { items?: SyncItem[]; forceReplace?: boolean };
+  const parsed = body as {
+    items?: SyncItem[];
+    forceReplace?: boolean;
+    confirmReplace?: boolean;
+    confirmMassRemoval?: boolean;
+  };
   const items = parsed?.items;
-  const forceReplace = parsed?.forceReplace === true;
+  const confirmReplace = parsed?.confirmReplace === true;
+  const confirmMassRemoval = parsed?.confirmMassRemoval === true;
+  const forceReplaceRequested = parsed?.forceReplace === true;
+  const forceReplace = forceReplaceRequested && confirmReplace && auth.role === "admin";
+
+  if (forceReplaceRequested && !forceReplace) {
+    return NextResponse.json(
+      {
+        error:
+          "forceReplace requiere confirmReplace: true y rol administrador.",
+        code: "force_replace_denied",
+      },
+      { status: 403 },
+    );
+  }
+
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "items[] vacío" }, { status: 400 });
   }
@@ -125,6 +148,40 @@ export async function POST(req: Request) {
     }
   }
 
+  // Pre-check mass removal across batch (before writing anything)
+  if (!confirmMassRemoval && !forceReplace) {
+    for (const item of valid) {
+      const cacheKey = `${item.weekStartIso}|${item.scopeKey}`;
+      const prev = existingMap.get(cacheKey) ?? null;
+      let payloadToSave: StoredPayload = {
+        ...item.grid,
+        savedAt: item.incomingSavedAt,
+        version: item.grid.version === 1 ? 1 : 2,
+      };
+      if (prev?.rows && Array.isArray(item.grid.rows)) {
+        payloadToSave = {
+          ...payloadToSave,
+          rows: mergeAttendancePayloadRows(item.grid.rows, prev.rows),
+        };
+      }
+      const mass = checkMassRemoval(prev, payloadToSave);
+      if (mass.blocked) {
+        return NextResponse.json(
+          {
+            error: `Sincronización eliminaría ${mass.comparison.removedRows} colaborador(es) en ${item.weekStartIso}/${item.scopeKey} (${mass.comparison.summary}). Confirme para continuar.`,
+            code: "mass_removal",
+            comparison: mass.comparison,
+            previousRowsCount: mass.previousRowsCount,
+            weekStartIso: item.weekStartIso,
+            scopeKey: item.scopeKey,
+            requireConfirmMassRemoval: true,
+          },
+          { status: 409 },
+        );
+      }
+    }
+  }
+
   let uploaded = 0;
   let skipped = 0;
 
@@ -139,8 +196,7 @@ export async function POST(req: Request) {
         }
       }
 
-      // ✅ MEJORADO: Hacer merge con datos anteriores
-      let payloadToSave = {
+      let payloadToSave: StoredPayload = {
         ...item.grid,
         savedAt: item.incomingSavedAt,
         version: item.grid.version === 1 ? 1 : 2,
@@ -154,14 +210,23 @@ export async function POST(req: Request) {
         };
 
         console.log(
-          `[ASISTENCIA-SYNC-MERGE] ${item.weekStartIso}/${item.scopeKey}: ${prev.rows.length} previas + ${(item.grid.rows || []).length} nuevas = ${mergedRows.length} totales`
+          `[ASISTENCIA-SYNC-MERGE] ${item.weekStartIso}/${item.scopeKey}: ${prev.rows.length} previas + ${(item.grid.rows || []).length} nuevas = ${mergedRows.length} totales`,
         );
       }
 
-      // ✅ COMPARAR Y REPORTAR CAMBIOS
-      const comparison = compareAttendancePayloads(prev as Record<string, unknown> | null, payloadToSave as Record<string, unknown>);
-      
-      // ✅ CREAR REGISTRO DE AUDITORÍA
+      const mass = checkMassRemoval(prev ?? null, payloadToSave);
+
+      if (prev) {
+        await backupAsistenciaPayload(
+          admin,
+          item.weekStartIso,
+          item.scopeKey,
+          prev,
+          item.serviceNo,
+          forceReplace ? "pre_replace" : "pre_sync",
+        );
+      }
+
       const auditLog = createAuditLog(
         item.weekStartIso,
         item.scopeKey,
@@ -173,17 +238,13 @@ export async function POST(req: Request) {
         prev,
         "success",
         undefined,
-        comparison.summary
+        mass.comparison.summary,
       );
 
-      // ✅ GUARDAR AUDITORÍA EN TABLA SEPARADA
-      if (process.env.NODE_ENV === "production") {
-        try {
-          await admin.from("cuadricula_asistencia_audit").insert(auditLog);
-        } catch (e) {
-          console.warn(`[ASISTENCIA] Error guardando auditoría:`, (e as any)?.message || String(e));
-          // No fallar la sincronización por error en auditoría
-        }
+      try {
+        await admin.from("cuadricula_asistencia_audit").insert(auditLogToDbRow(auditLog));
+      } catch (e) {
+        console.warn(`[ASISTENCIA] Error guardando auditoría:`, (e as Error)?.message || String(e));
       }
 
       const { error } = await admin.from("cuadricula_asistencia").upsert(
@@ -199,14 +260,31 @@ export async function POST(req: Request) {
       );
 
       if (error) {
-        console.error(`[ASISTENCIA] Error en upsert para ${item.weekStartIso}/${item.scopeKey}:`, error.message);
+        console.error(
+          `[ASISTENCIA] Error en upsert para ${item.weekStartIso}/${item.scopeKey}:`,
+          error.message,
+        );
         return "failed" as const;
       }
 
-      // ✅ LOG DETALLADO
-      if (comparison.changed) {
+      const dias = await replaceAsistenciaDiasForScope(
+        admin,
+        item.weekStartIso,
+        item.scopeKey,
+        payloadToSave.rows,
+        item.incomingSavedAt,
+      );
+      if (!dias.ok) {
+        console.error(
+          `[ASISTENCIA-DIAS] ${item.weekStartIso}/${item.scopeKey}:`,
+          dias.error,
+        );
+        // Payload ya guardado; no marcar failed completo (reportes se pueden resync)
+      }
+
+      if (mass.comparison.changed) {
         console.log(
-          `[ASISTENCIA-SYNC] ✓ ${item.weekStartIso}/${item.scopeKey}: ${comparison.summary}`
+          `[ASISTENCIA-SYNC] ✓ ${item.weekStartIso}/${item.scopeKey}: ${mass.comparison.summary}`,
         );
       }
 
@@ -220,12 +298,12 @@ export async function POST(req: Request) {
     else failed++;
   }
 
-  return NextResponse.json({ 
-    ok: true, 
-    uploaded, 
-    skipped, 
-    failed, 
+  return NextResponse.json({
+    ok: true,
+    uploaded,
+    skipped,
+    failed,
     total: items.length,
-    message: `✓ ${uploaded} sincronizadas (con merge de datos previos), ${skipped} omitidas, ${failed} fallidas`
+    message: `✓ ${uploaded} sincronizadas (con merge de datos previos), ${skipped} omitidas, ${failed} fallidas`,
   });
 }

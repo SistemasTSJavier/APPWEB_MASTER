@@ -167,7 +167,7 @@ export async function saveAttendanceGrid(
   serviceCatalogId: string,
   rows: GridRow[],
   serviceNo: string,
-  opts?: { savedAt?: string; forceReplace?: boolean },
+  opts?: { savedAt?: string; forceReplace?: boolean; confirmMassRemoval?: boolean },
 ): Promise<boolean> {
   const id = serviceCatalogId.trim()
   if (!id) return false
@@ -194,12 +194,19 @@ export async function saveAttendanceGrid(
   invalidateAttendanceWeekPrefetch(weekStartIso)
   const remoteOk = await pushAttendanceGridRemote(weekStartIso, id, payloadToSave, serviceNo, {
     forceReplace: opts?.forceReplace,
+    confirmMassRemoval: opts?.confirmMassRemoval,
   })
   return remoteOk || localOk
 }
 
 const SYNC_BATCH_SIZE = 3
 const SYNC_MAX_RETRIES = 2
+
+export type SaveManyAttendanceResult = {
+  saved: number
+  failed: number
+  massRemovalMessage?: string
+}
 
 /**
  * Guarda varias plantas de la misma semana. El servidor es la fuente de verdad:
@@ -209,8 +216,8 @@ const SYNC_MAX_RETRIES = 2
 export async function saveManyAttendanceGrids(
   weekStartIso: string,
   items: { scopeKey: string; rows: GridRow[]; serviceNo?: string }[],
-  opts?: { forceReplace?: boolean },
-): Promise<{ saved: number; failed: number }> {
+  opts?: { forceReplace?: boolean; confirmMassRemoval?: boolean },
+): Promise<SaveManyAttendanceResult> {
   if (items.length === 0) return { saved: 0, failed: 0 }
 
   const { syncAllLocalAttendanceToRemote } = await import('./attendanceRemote')
@@ -252,17 +259,30 @@ export async function saveManyAttendanceGrids(
 
   let saved = 0
   let failed = 0
+  let massRemovalMessage: string | undefined
 
   for (let i = 0; i < entries.length; i += SYNC_BATCH_SIZE) {
     const chunk = entries.slice(i, i + SYNC_BATCH_SIZE)
     const localOkCount = chunk.filter((e) => e.localOk).length
-    let res: { uploaded: number; skipped: number; failed: number } | null = null
+    let res: {
+      uploaded: number
+      skipped: number
+      failed: number
+      massRemoval?: { message: string }
+    } | null = null
 
     for (let attempt = 0; attempt <= SYNC_MAX_RETRIES; attempt++) {
       res = await syncAllLocalAttendanceToRemote(
         chunk.map(({ localOk: _omit, ...rest }) => rest),
-        { forceReplace: opts?.forceReplace },
+        {
+          forceReplace: opts?.forceReplace,
+          confirmMassRemoval: opts?.confirmMassRemoval,
+        },
       )
+      if (res?.massRemoval) {
+        massRemovalMessage = res.massRemoval.message
+        return { saved, failed: entries.length - saved, massRemovalMessage }
+      }
       if (res && (res.failed ?? 0) === 0) break
       // Si el lote falla, reintentar de a una planta (payloads grandes ~280 filas).
       if (attempt === SYNC_MAX_RETRIES || chunk.length === 1) break
@@ -272,8 +292,15 @@ export async function saveManyAttendanceGrids(
       for (const one of chunk) {
         const oneRes = await syncAllLocalAttendanceToRemote(
           [{ weekStartIso: one.weekStartIso, scopeKey: one.scopeKey, grid: one.grid, serviceNo: one.serviceNo }],
-          { forceReplace: opts?.forceReplace },
+          {
+            forceReplace: opts?.forceReplace,
+            confirmMassRemoval: opts?.confirmMassRemoval,
+          },
         )
+        if (oneRes?.massRemoval) {
+          massRemovalMessage = oneRes.massRemoval.message
+          return { saved, failed: entries.length - saved, massRemovalMessage }
+        }
         if (!oneRes) {
           failedOne++
           continue
@@ -298,7 +325,7 @@ export async function saveManyAttendanceGrids(
     failed += Math.max(0, remoteFailed - rescatadasPorLocal)
   }
 
-  return { saved, failed }
+  return { saved, failed, massRemovalMessage }
 }
 
 export function loadAttendanceGridLocal(

@@ -1,15 +1,13 @@
 /**
- * Faltas (F / F1…) y PSGS desde cuadrícula de asistencia (`cuadricula_asistencia`).
+ * Faltas (F / F1…) y PSGS desde cuadrícula de asistencia (`cuadricula_asistencia_dias`).
  * Bonos: solo F y PSGS descalifican; CAP, INC, VAC y PCGS no afectan el cumplimiento.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { attendanceRowEmpKey } from "@/lib/attendance-integrity";
 import { canonicalEmpNoAttendance } from "@/lib/attendance-emp-no";
 import type { ColaboradorCompleto } from "@/lib/colaboradores-types";
 import { isFaltaCodigoAsistencia } from "@/lib/categorizacion-faltas-cuadricula";
 import { hintSupabaseClientError } from "@/lib/supabase/admin";
 
-const TURNS = ["D", "T", "N"] as const;
 const CUADRICULA_PAGE_SIZE = 500;
 
 export type IncidenciaAsistenciaKind = "falta" | "psgs";
@@ -36,37 +34,6 @@ export function dateToIsoYmd(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function mondayOfWeek(d: Date): Date {
-  const c = new Date(d);
-  c.setHours(0, 0, 0, 0);
-  const day = c.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  c.setDate(c.getDate() + diff);
-  return c;
-}
-
-function addDays(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function mondaysEnRango(desde: Date, hasta: Date): Date[] {
-  const start = new Date(desde);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(hasta);
-  end.setHours(0, 0, 0, 0);
-  let wk = mondayOfWeek(start);
-  while (addDays(wk, 6) < start) wk = addDays(wk, 7);
-  const list: Date[] = [];
-  while (wk <= end) {
-    list.push(new Date(wk));
-    wk = addDays(wk, 7);
-  }
-  return list;
 }
 
 function celdaAsistencia(raw: unknown): string {
@@ -108,36 +75,6 @@ function isFaltaCodigoCelda(raw: string): boolean {
   return codigosEnCeldaAsistencia(raw).some((c) => isFaltaCodigoAsistencia(c));
 }
 
-type ShiftDay = Partial<Record<(typeof TURNS)[number], unknown>>;
-
-function incidenciasFilaEnRango(
-  shifts: ShiftDay[],
-  weekMonday: Date,
-  rangeStart: Date,
-  rangeEnd: Date,
-): IncidenciaAsistenciaDia[] {
-  const out: IncidenciaAsistenciaDia[] = [];
-  for (let di = 0; di < shifts.length && di < 7; di++) {
-    const day = shifts[di];
-    if (!day) continue;
-    const fecha = addDays(weekMonday, di);
-    if (fecha < rangeStart || fecha > rangeEnd) continue;
-    const ymd = dateToIsoYmd(fecha);
-    let tieneFalta = false;
-    let tienePsgs = false;
-    for (const turn of TURNS) {
-      const v = celdaAsistencia(day[turn]);
-      if (!v) continue;
-      if (!codigoDescalificaCumplimientoBono(v)) continue;
-      if (isFaltaCodigoCelda(v)) tieneFalta = true;
-      if (isPsgsCodigo(v)) tienePsgs = true;
-    }
-    if (tieneFalta) out.push({ ymd, kind: "falta" });
-    if (tienePsgs) out.push({ ymd, kind: "psgs" });
-  }
-  return out;
-}
-
 function mergeIncidencias(
   map: Map<string, IncidenciaAsistenciaDia[]>,
   no: string,
@@ -164,7 +101,7 @@ export function clavesAsistenciaEmpleado(rawNo: string): string[] {
 }
 
 /**
- * Lee todas las cuadrículas (todas las plantas/scope) en un rango de fechas.
+ * Lee incidencias (falta / PSGS) en un rango de fechas desde `cuadricula_asistencia_dias`.
  * Pagina para no truncar en ~1000 filas de PostgREST.
  */
 export async function cargarIncidenciasCuadriculaEnRango(
@@ -172,22 +109,23 @@ export async function cargarIncidenciasCuadriculaEnRango(
   desde: Date,
   hasta: Date,
 ): Promise<Map<string, IncidenciaAsistenciaDia[]>> {
-  const mondays = mondaysEnRango(desde, hasta);
   const out = new Map<string, IncidenciaAsistenciaDia[]>();
-  if (mondays.length === 0) return out;
-
-  const firstMondayIso = dateToIsoYmd(mondays[0]!);
-  const lastMondayIso = dateToIsoYmd(mondays[mondays.length - 1]!);
+  const rangeStart = new Date(desde);
+  rangeStart.setHours(0, 0, 0, 0);
+  const rangeEnd = new Date(hasta);
+  rangeEnd.setHours(0, 0, 0, 0);
+  const inicioYmd = dateToIsoYmd(rangeStart);
+  const finYmd = dateToIsoYmd(rangeEnd);
   let offset = 0;
 
   while (true) {
     const { data, error } = await admin
-      .from("cuadricula_asistencia")
-      .select("week_start_iso, payload")
-      .gte("week_start_iso", firstMondayIso)
-      .lte("week_start_iso", lastMondayIso)
-      .order("week_start_iso", { ascending: true })
-      .order("scope_key", { ascending: true })
+      .from("cuadricula_asistencia_dias")
+      .select("employee_no, fecha, codigo_d, codigo_t, codigo_n")
+      .gte("fecha", inicioYmd)
+      .lte("fecha", finYmd)
+      .order("fecha", { ascending: true })
+      .order("employee_no", { ascending: true })
       .range(offset, offset + CUADRICULA_PAGE_SIZE - 1);
 
     if (error) throw new Error(hintSupabaseClientError(error.message));
@@ -196,23 +134,24 @@ export async function cargarIncidenciasCuadriculaEnRango(
     if (page.length === 0) break;
 
     for (const row of page) {
-      const weekIso = String(row.week_start_iso ?? "").trim();
-      const monday = parseYmd(weekIso);
-      if (!monday) continue;
-      const payload = row.payload;
-      if (!payload || typeof payload !== "object") continue;
-      const rows = (payload as { rows?: unknown }).rows;
-      if (!Array.isArray(rows)) continue;
-      for (const raw of rows) {
-        if (!raw || typeof raw !== "object") continue;
-        const o = raw as Record<string, unknown>;
-        const no = canonicalEmpNoAttendance(attendanceRowEmpKey(o));
-        if (!no) continue;
-        const shifts = o.shifts;
-        if (!Array.isArray(shifts)) continue;
-        const add = incidenciasFilaEnRango(shifts as ShiftDay[], monday, desde, hasta);
-        mergeIncidencias(out, no, add);
+      const no = canonicalEmpNoAttendance(String(row.employee_no ?? ""));
+      if (!no) continue;
+      const ymd = String(row.fecha ?? "").trim();
+      if (!ymd) continue;
+
+      let tieneFalta = false;
+      let tienePsgs = false;
+      for (const col of ["codigo_d", "codigo_t", "codigo_n"] as const) {
+        const v = celdaAsistencia((row as Record<string, unknown>)[col]);
+        if (!v) continue;
+        if (!codigoDescalificaCumplimientoBono(v)) continue;
+        if (isFaltaCodigoCelda(v)) tieneFalta = true;
+        if (isPsgsCodigo(v)) tienePsgs = true;
       }
+      const add: IncidenciaAsistenciaDia[] = [];
+      if (tieneFalta) add.push({ ymd, kind: "falta" });
+      if (tienePsgs) add.push({ ymd, kind: "psgs" });
+      mergeIncidencias(out, no, add);
     }
 
     if (page.length < CUADRICULA_PAGE_SIZE) break;

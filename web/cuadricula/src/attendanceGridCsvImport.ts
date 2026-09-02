@@ -1567,7 +1567,20 @@ export async function importAttendanceCsvDirectToGrid(opts: {
       if (scopeKey && filas.length > 0) items.push({ scopeKey, rows: filas })
     }
     if (items.length > 0) {
-      const batch = await saveManyAttendanceGrids(opts.weekIso, items, { forceReplace: true })
+      let batch = await saveManyAttendanceGrids(opts.weekIso, items, { forceReplace: false })
+      if (batch.massRemovalMessage) {
+        const ok =
+          typeof window !== 'undefined' &&
+          window.confirm(
+            `${batch.massRemovalMessage}\n\n¿Confirmar el guardado del import de todos modos? Se creará un backup previo.`,
+          )
+        if (ok) {
+          batch = await saveManyAttendanceGrids(opts.weekIso, items, {
+            forceReplace: false,
+            confirmMassRemoval: true,
+          })
+        }
+      }
       plantsSaved = batch.saved
       plantsSaveFailed = batch.failed
     }
@@ -1618,6 +1631,7 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   const { getAttendanceWeekPrefetch } = await import('./attendanceWeekPrefetch')
   const prefetch = await getAttendanceWeekPrefetch(opts.weekIso)
   const colaboradoresByEmp = colaboradoresByEmpEarly
+  const activosCaptura = filtrarColaboradoresActivosCaptura(opts.colaboradores)
 
   type MergeOk = {
     kind: 'ok'
@@ -1711,14 +1725,42 @@ export async function applyAttendanceCsvToAllPlantasWeek(opts: {
   }
 
   if (toPersist.length > 0) {
-    const batch = await saveManyAttendanceGrids(
+    const persistItems: { scopeKey: string; rows: GridRow[]; serviceNo: string }[] = []
+    for (const s of toPersist) {
+      const filas = await filasParaGuardarPlantaWeek(
+        activosCaptura,
+        s.plantaNombre,
+        opts.catalogo,
+        opts.weekIso,
+        prefetch,
+        s.next,
+        opts.colaboradores,
+      )
+      if (filas.length > 0) {
+        persistItems.push({ scopeKey: s.scopeKey, rows: filas, serviceNo: '' })
+      }
+    }
+    let batch = await saveManyAttendanceGrids(
       opts.weekIso,
-      toPersist.map((s) => ({ scopeKey: s.scopeKey, rows: s.next, serviceNo: '' })),
-      { forceReplace: true },
+      persistItems,
+      { forceReplace: false },
     )
-    const allOk = batch.failed === 0 && batch.saved >= toPersist.length
-    plantsSaved = allOk ? toPersist.length : Math.min(batch.saved, toPersist.length)
-    plantsSaveFailed = Math.max(0, toPersist.length - plantsSaved)
+    if (batch.massRemovalMessage) {
+      const ok =
+        typeof window !== 'undefined' &&
+        window.confirm(
+          `${batch.massRemovalMessage}\n\n¿Confirmar el guardado del import de todos modos? Se creará un backup previo.`,
+        )
+      if (ok) {
+        batch = await saveManyAttendanceGrids(opts.weekIso, persistItems, {
+          forceReplace: false,
+          confirmMassRemoval: true,
+        })
+      }
+    }
+    const allOk = batch.failed === 0 && batch.saved >= persistItems.length
+    plantsSaved = allOk ? persistItems.length : Math.min(batch.saved, persistItems.length)
+    plantsSaveFailed = Math.max(0, persistItems.length - plantsSaved)
     for (const p of plantas) {
       if (p.updatedCount > 0) p.saved = allOk
     }

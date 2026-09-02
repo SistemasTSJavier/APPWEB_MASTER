@@ -1,8 +1,7 @@
 /**
- * Resumen de asistencia por servicio desde `cuadricula_asistencia` (solo lectura).
+ * Resumen de asistencia por servicio desde `cuadricula_asistencia_dias` (solo lectura).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { attendanceRowEmpKey } from "@/lib/attendance-integrity";
 import {
   mesCalendarioActualYm,
   mondaysEnMesCalendario,
@@ -138,8 +137,6 @@ function etiquetaSemana(monday: Date): string {
   return `${formatDateEs(monday)} – ${formatDateEs(domingo)}`;
 }
 
-type ShiftDay = Partial<Record<(typeof TURNS)[number], string>>;
-
 type DiaAgg = {
   totales: AsistenciaServicioTotales;
   fechas: AsistenciaServicioFechas;
@@ -149,9 +146,9 @@ function agregarFecha(fechas: AsistenciaServicioFechas, key: keyof AsistenciaSer
   if (!fechas[key].includes(label)) fechas[key].push(label);
 }
 
-function agregarDia(
-  shifts: ShiftDay[],
-  weekMonday: Date,
+function agregarCodigosDia(
+  day: { D: string; T: string; N: string },
+  fecha: Date,
   monthStart: Date,
   monthEnd: Date,
   rangeStart: Date | null,
@@ -159,49 +156,44 @@ function agregarDia(
 ): DiaAgg {
   const t = emptyTotales();
   const fechas = emptyFechas();
-  for (let di = 0; di < shifts.length && di < 7; di++) {
-    const day = shifts[di];
-    if (!day) continue;
-    const fecha = addDays(weekMonday, di);
-    fecha.setHours(0, 0, 0, 0);
-    if (fecha < monthStart || fecha > monthEnd) continue;
-    if (rangeStart && fecha < rangeStart) continue;
-    if (rangeEnd && fecha > rangeEnd) continue;
-    const label = formatDateEs(fecha);
-    let diaDescanso = false;
-    for (const turn of TURNS) {
-      const v = String(day[turn] ?? "").trim().toUpperCase();
-      if (!v) continue;
-      if (isDescanso(v)) diaDescanso = true;
-      else if (isFalta(v)) {
-        t.falta += 1;
-        agregarFecha(fechas, "falta", label);
-      } else if (v === "INC") {
-        t.inc += 1;
-        agregarFecha(fechas, "inc", label);
-      } else if (v === "VAC") {
-        t.vac += 1;
-        agregarFecha(fechas, "vac", label);
-      } else if (v === "PCGS") {
-        t.pcgs += 1;
-        agregarFecha(fechas, "pcgs", label);
-      } else if (v === "PSGS") {
-        t.psgs += 1;
-        agregarFecha(fechas, "psgs", label);
-      } else if (v === "CAP") {
-        t.cap += 1;
-        agregarFecha(fechas, "cap", label);
-      } else if (isDdExtra(v)) {
-        t.extra += 1;
-        agregarFecha(fechas, "extra", label);
-      } else if (isAsist(v)) {
-        t.asist += 1;
-      }
+  fecha.setHours(0, 0, 0, 0);
+  if (fecha < monthStart || fecha > monthEnd) return { totales: t, fechas };
+  if (rangeStart && fecha < rangeStart) return { totales: t, fechas };
+  if (rangeEnd && fecha > rangeEnd) return { totales: t, fechas };
+  const label = formatDateEs(fecha);
+  let diaDescanso = false;
+  for (const turn of TURNS) {
+    const v = String(day[turn] ?? "").trim().toUpperCase();
+    if (!v) continue;
+    if (isDescanso(v)) diaDescanso = true;
+    else if (isFalta(v)) {
+      t.falta += 1;
+      agregarFecha(fechas, "falta", label);
+    } else if (v === "INC") {
+      t.inc += 1;
+      agregarFecha(fechas, "inc", label);
+    } else if (v === "VAC") {
+      t.vac += 1;
+      agregarFecha(fechas, "vac", label);
+    } else if (v === "PCGS") {
+      t.pcgs += 1;
+      agregarFecha(fechas, "pcgs", label);
+    } else if (v === "PSGS") {
+      t.psgs += 1;
+      agregarFecha(fechas, "psgs", label);
+    } else if (v === "CAP") {
+      t.cap += 1;
+      agregarFecha(fechas, "cap", label);
+    } else if (isDdExtra(v)) {
+      t.extra += 1;
+      agregarFecha(fechas, "extra", label);
+    } else if (isAsist(v)) {
+      t.asist += 1;
     }
-    if (diaDescanso) {
-      t.desc += 1;
-      agregarFecha(fechas, "desc", label);
-    }
+  }
+  if (diaDescanso) {
+    t.desc += 1;
+    agregarFecha(fechas, "desc", label);
   }
   return { totales: t, fechas };
 }
@@ -241,15 +233,17 @@ export async function buildAsistenciaServicioMes(
 
   let rangeStart: Date | null = null;
   let rangeEnd: Date | null = null;
-  let mondaysQuery = mondays;
+  let queryStart = monthStart;
+  let queryEnd = monthEnd;
   if (semanaFiltro) {
     const monday = mondays.find((m) => dateToIsoYmd(m) === semanaFiltro);
     if (monday) {
-      mondaysQuery = [monday];
       rangeStart = new Date(monday);
       rangeStart.setHours(0, 0, 0, 0);
       rangeEnd = addDays(monday, 6);
       rangeEnd.setHours(0, 0, 0, 0);
+      queryStart = rangeStart;
+      queryEnd = rangeEnd;
     }
   }
 
@@ -270,33 +264,40 @@ export async function buildAsistenciaServicioMes(
     ]),
   );
 
-  const weekIsos = mondaysQuery.map((m) => dateToIsoYmd(m));
-  if (weekIsos.length > 0 && byNo.size > 0) {
-    const { data, error } = await admin
-      .from("cuadricula_asistencia")
-      .select("week_start_iso, payload")
-      .in("week_start_iso", weekIsos);
-    if (error) throw new Error(hintSupabaseClientError(error.message));
+  if (byNo.size > 0) {
+    const PAGE = 1000;
+    let offset = 0;
+    const inicioYmd = dateToIsoYmd(queryStart);
+    const finYmd = dateToIsoYmd(queryEnd);
+    while (true) {
+      const { data, error } = await admin
+        .from("cuadricula_asistencia_dias")
+        .select("employee_no, fecha, codigo_d, codigo_t, codigo_n")
+        .gte("fecha", inicioYmd)
+        .lte("fecha", finYmd)
+        .order("fecha", { ascending: true })
+        .order("employee_no", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (error) throw new Error(hintSupabaseClientError(error.message));
 
-    for (const row of data ?? []) {
-      const weekIso = String(row.week_start_iso ?? "").trim();
-      const monday = mondaysQuery.find((m) => dateToIsoYmd(m) === weekIso);
-      if (!monday) continue;
-      const payload = row.payload;
-      if (!payload || typeof payload !== "object") continue;
-      const rows = (payload as { rows?: unknown }).rows;
-      if (!Array.isArray(rows)) continue;
-      for (const raw of rows) {
-        if (!raw || typeof raw !== "object") continue;
-        const o = raw as Record<string, unknown>;
-        const no = attendanceRowEmpKey(o);
+      const page = data ?? [];
+      if (page.length === 0) break;
+
+      for (const row of page) {
+        const no = String(row.employee_no ?? "").trim().toUpperCase();
         const col = byNo.get(no);
         if (!col) continue;
-        const shifts = o.shifts;
-        if (!Array.isArray(shifts)) continue;
-        const add = agregarDia(
-          shifts as ShiftDay[],
-          monday,
+        const fechaIso = String(row.fecha ?? "").trim();
+        if (!fechaIso) continue;
+        const [yy, mm, dd] = fechaIso.split("-").map(Number);
+        const fecha = new Date(yy || 1970, (mm || 1) - 1, dd || 1);
+        const add = agregarCodigosDia(
+          {
+            D: String(row.codigo_d ?? ""),
+            T: String(row.codigo_t ?? ""),
+            N: String(row.codigo_n ?? ""),
+          },
+          fecha,
           monthStart,
           monthEnd,
           rangeStart,
@@ -305,6 +306,9 @@ export async function buildAsistenciaServicioMes(
         col.totales = addTotales(col.totales, add.totales);
         col.fechas = mergeFechas(col.fechas, add.fechas);
       }
+
+      if (page.length < PAGE) break;
+      offset += PAGE;
     }
   }
 

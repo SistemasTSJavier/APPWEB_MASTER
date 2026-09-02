@@ -191,12 +191,29 @@ export async function fetchAttendanceGridRemote(
   }
 }
 
+export type AttendanceSyncRemoteResult = {
+  uploaded: number
+  skipped: number
+  failed: number
+  massRemoval?: {
+    message: string
+    comparison?: {
+      removedRows: number
+      addedRows: number
+      modifiedRows: number
+      summary: string
+    }
+    weekStartIso?: string
+    scopeKey?: string
+  }
+}
+
 export async function pushAttendanceGridRemote(
   weekStartIso: string,
   scopeKey: string,
   grid: StoredAttendanceGrid,
   serviceNo: string,
-  opts?: { forceReplace?: boolean },
+  opts?: { forceReplace?: boolean; confirmMassRemoval?: boolean; confirmReplace?: boolean },
 ): Promise<boolean> {
   try {
     const r = await fetch('/api/asistencia', {
@@ -209,6 +226,8 @@ export async function pushAttendanceGridRemote(
         grid,
         serviceNo: serviceNo.trim(),
         forceReplace: opts?.forceReplace === true,
+        confirmMassRemoval: opts?.confirmMassRemoval === true,
+        confirmReplace: opts?.confirmReplace === true,
       }),
     })
     if (r.status === 503) return false
@@ -221,23 +240,50 @@ export async function pushAttendanceGridRemote(
 /** Sube todo lo que haya en localStorage (migración local → Supabase). */
 export async function syncAllLocalAttendanceToRemote(
   items: { weekStartIso: string; scopeKey: string; grid: StoredAttendanceGrid; serviceNo?: string }[],
-  opts?: { forceReplace?: boolean },
-): Promise<{ uploaded: number; skipped: number; failed: number } | null> {
+  opts?: { forceReplace?: boolean; confirmMassRemoval?: boolean; confirmReplace?: boolean },
+): Promise<AttendanceSyncRemoteResult | null> {
   if (items.length === 0) return { uploaded: 0, skipped: 0, failed: 0 }
   try {
     const r = await fetch('/api/asistencia/sync', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, forceReplace: opts?.forceReplace === true }),
+      body: JSON.stringify({
+        items,
+        forceReplace: opts?.forceReplace === true,
+        confirmMassRemoval: opts?.confirmMassRemoval === true,
+        confirmReplace: opts?.confirmReplace === true,
+      }),
     })
     if (r.status === 503) return null
-    if (!r.ok) return null
-    const j = (await r.json()) as {
+    const j = (await r.json().catch(() => ({}))) as {
       uploaded?: number
       skipped?: number
       failed?: number
+      error?: string
+      code?: string
+      comparison?: AttendanceSyncRemoteResult['massRemoval'] extends infer M
+        ? M extends { comparison?: infer C }
+          ? C
+          : never
+        : never
+      weekStartIso?: string
+      scopeKey?: string
     }
+    if (r.status === 409 && j.code === 'mass_removal') {
+      return {
+        uploaded: 0,
+        skipped: 0,
+        failed: items.length,
+        massRemoval: {
+          message: typeof j.error === 'string' ? j.error : 'Confirmación requerida: borrado masivo.',
+          comparison: j.comparison,
+          weekStartIso: j.weekStartIso,
+          scopeKey: j.scopeKey,
+        },
+      }
+    }
+    if (!r.ok) return null
     return {
       uploaded: j.uploaded ?? 0,
       skipped: j.skipped ?? 0,

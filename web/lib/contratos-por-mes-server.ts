@@ -6,7 +6,6 @@ import {
   fechaIngresoNormalizadaColaborador,
   prepararColaboradorParaMetricas,
 } from "@/lib/colaboradores-baja";
-import { attendanceRowEmpKey } from "@/lib/attendance-integrity";
 import {
   isFaltaCodigoAsistencia,
   mondaysEnMesCalendario,
@@ -44,12 +43,6 @@ let colaboradoresCache: {
 
 export function invalidateContratosPorMesCache(): void {
   colaboradoresCache = null;
-}
-
-function addDays(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
 }
 
 function dateToIsoYmd(d: Date): string {
@@ -143,14 +136,6 @@ function rangoPeriodo(periodo: ContratosPorMesPeriodo, mesYm: string, anio: numb
   };
 }
 
-function nombreDesdeFilaGrid(o: Record<string, unknown>): string {
-  return String(o.name ?? o.nombre ?? o.nombreCompleto ?? "").trim();
-}
-
-function servicioDesdeFilaGrid(o: Record<string, unknown>): string {
-  return String(o.servicioLinea ?? o.rowServiceNo ?? o.serviceNo ?? "").trim();
-}
-
 /** Asistencia y faltas por N.º empleado según cuadrícula en el periodo. */
 async function asistenciaPorEmpleadoEnPeriodo(
   admin: SupabaseClient,
@@ -158,66 +143,69 @@ async function asistenciaPorEmpleadoEnPeriodo(
   mesYm: string,
   anio: number,
 ): Promise<Map<string, EmpAsistenciaAgg>> {
-  const { rangeStart, rangeEnd, mondays } = rangoPeriodo(periodo, mesYm, anio);
-  const weekIsos = mondays.map((m) => dateToIsoYmd(m));
+  const { rangeStart, rangeEnd } = rangoPeriodo(periodo, mesYm, anio);
   const porEmpleado = new Map<string, EmpAsistenciaAgg>();
 
-  if (weekIsos.length === 0) return porEmpleado;
+  const inicioYmd = dateToIsoYmd(rangeStart);
+  const finYmd = dateToIsoYmd(rangeEnd);
+  const PAGE = 1000;
+  let offset = 0;
 
-  const { data, error } = await admin
-    .from("cuadricula_asistencia")
-    .select("week_start_iso, payload")
-    .in("week_start_iso", weekIsos);
-  if (error) throw new Error(hintSupabaseClientError(error.message));
+  while (true) {
+    const { data, error } = await admin
+      .from("cuadricula_asistencia_dias")
+      .select("employee_no, fecha, codigo_d, codigo_t, codigo_n, nombre, servicio")
+      .gte("fecha", inicioYmd)
+      .lte("fecha", finYmd)
+      .order("fecha", { ascending: true })
+      .order("employee_no", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw new Error(hintSupabaseClientError(error.message));
 
-  for (const row of data ?? []) {
-    const weekIso = String(row.week_start_iso ?? "").trim();
-    const monday = mondays.find((m) => dateToIsoYmd(m) === weekIso);
-    if (!monday) continue;
-    const payload = row.payload;
-    if (!payload || typeof payload !== "object") continue;
-    const rows = (payload as { rows?: unknown }).rows;
-    if (!Array.isArray(rows)) continue;
+    const page = data ?? [];
+    if (page.length === 0) break;
 
-    for (const raw of rows) {
-      if (!raw || typeof raw !== "object") continue;
-      const o = raw as Record<string, unknown>;
-      const no = attendanceRowEmpKey(o);
+    for (const row of page) {
+      const no = String(row.employee_no ?? "").trim().toUpperCase();
       if (!no) continue;
-      const shifts = o.shifts;
-      if (!Array.isArray(shifts)) continue;
+      const fechaIso = String(row.fecha ?? "").trim();
+      if (!fechaIso) continue;
+
+      const day: ShiftDay = {
+        D: String(row.codigo_d ?? ""),
+        T: String(row.codigo_t ?? ""),
+        N: String(row.codigo_n ?? ""),
+      };
 
       let agg = porEmpleado.get(no);
       if (!agg) {
         agg = {
           diasTrabajados: new Set<string>(),
           fechasFaltas: new Set<string>(),
-          nombreGrid: nombreDesdeFilaGrid(o),
-          servicioGrid: servicioDesdeFilaGrid(o),
+          nombreGrid: String(row.nombre ?? "").trim(),
+          servicioGrid: String(row.servicio ?? "").trim(),
         };
         porEmpleado.set(no, agg);
       } else {
-        const nombre = nombreDesdeFilaGrid(o);
-        const srv = servicioDesdeFilaGrid(o);
+        const nombre = String(row.nombre ?? "").trim();
+        const srv = String(row.servicio ?? "").trim();
         if (nombre) agg.nombreGrid = nombre;
         if (srv) agg.servicioGrid = srv;
       }
 
-      for (let di = 0; di < shifts.length && di < 7; di++) {
-        const day = shifts[di] as ShiftDay | undefined;
-        if (!day) continue;
-        const fecha = addDays(monday, di);
+      if (diaTieneTrabajo(day)) {
+        agg.diasTrabajados.add(fechaIso);
+      }
+      if (diaTieneFalta(day)) {
+        const [y, m, d] = fechaIso.split("-").map(Number);
+        const fecha = new Date(y || 1970, (m || 1) - 1, d || 1);
         fecha.setHours(0, 0, 0, 0);
-        if (fecha < rangeStart || fecha > rangeEnd) continue;
-
-        if (diaTieneTrabajo(day)) {
-          agg.diasTrabajados.add(dateToIsoYmd(fecha));
-        }
-        if (diaTieneFalta(day)) {
-          agg.fechasFaltas.add(formatDateEs(fecha));
-        }
+        agg.fechasFaltas.add(formatDateEs(fecha));
       }
     }
+
+    if (page.length < PAGE) break;
+    offset += PAGE;
   }
 
   return porEmpleado;

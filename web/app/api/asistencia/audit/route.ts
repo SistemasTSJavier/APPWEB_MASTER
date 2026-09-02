@@ -11,6 +11,8 @@ import {
 } from "@/lib/supabase/admin";
 import { getAuthedApiUser, isAuthedApiUser } from "@/lib/auth-api";
 import { roleMayReadCuadriculaAsistencia } from "@/lib/app-role";
+import { replaceAsistenciaDiasForScope } from "@/lib/asistencia-dias-sync";
+import type { StoredPayload } from "@/lib/attendance-integrity";
 
 export const dynamic = "force-dynamic";
 
@@ -145,6 +147,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: restoreError.message }, { status: 500 });
   }
 
+  const payload = backup.payload as StoredPayload;
+  const dias = await replaceAsistenciaDiasForScope(
+    admin,
+    String(backup.week_start_iso),
+    String(backup.scope_key),
+    Array.isArray(payload?.rows) ? payload.rows : [],
+    typeof backup.saved_at === "string" ? backup.saved_at : new Date().toISOString(),
+  );
+  if (!dias.ok) {
+    console.warn(`[ASISTENCIA-RESTORE-DIAS] ${backup.week_start_iso}/${backup.scope_key}:`, dias.error);
+  }
+
   // 3. Registrar la recuperación en auditoría
   await admin.from("cuadricula_asistencia_audit").insert({
     week_start_iso: backup.week_start_iso,
@@ -153,10 +167,10 @@ export async function POST(req: Request) {
     user_id: auth.user?.id ?? "unknown",
     user_role: auth.role ?? "unknown",
     timestamp: new Date().toISOString(),
-    rows_affected: 0,
+    rows_affected: Array.isArray(payload?.rows) ? payload.rows.length : 0,
     new_hash: backup.hash,
     status: "success",
-    notes: `Restaurado desde backup ${backupId}`,
+    notes: `Restaurado desde backup ${backupId || "latest"}`,
   });
 
   return NextResponse.json({
@@ -164,7 +178,8 @@ export async function POST(req: Request) {
     restored: {
       weekStartIso: backup.week_start_iso,
       scopeKey: backup.scope_key,
-      rowsCount: Array.isArray(backup.payload?.rows) ? backup.payload.rows.length : 0,
+      rowsCount: Array.isArray(payload?.rows) ? payload.rows.length : 0,
+      diasWritten: dias.rowsWritten,
       backedUpAt: backup.backed_up_at,
       message: "Datos restaurados exitosamente",
     },
