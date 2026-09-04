@@ -14,6 +14,7 @@ import {
   MOPER_FIRMA_PUBLIC_PATH,
 } from "@/lib/moper-public-paths";
 import { isIdeasPublicApi, isIdeasPublicPage } from "@/lib/ideas-que-transforman-public-paths";
+import { isBuzonPublicApi, isBuzonPublicPage } from "@/lib/buzon-public-paths";
 import { isSafeLoginRedirect, loginUrlWithNext } from "@/lib/login-redirect";
 
 function publicApiPath(pathname: string, method: string): boolean {
@@ -21,11 +22,12 @@ function publicApiPath(pathname: string, method: string): boolean {
   if (pathname === "/api/auth/signout" && (method === "POST" || method === "GET")) return true;
   if (pathname === "/api/catalogos/departamentos" && method === "GET") return true;
   if (isIdeasPublicApi(pathname, method)) return true;
+  if (isBuzonPublicApi(pathname, method)) return true;
   return isMoperPublicApi(pathname, method);
 }
 
 function isFeaturePublicPage(pathname: string): boolean {
-  return isMoperFirmaPublicPage(pathname) || isIdeasPublicPage(pathname);
+  return isMoperFirmaPublicPage(pathname) || isIdeasPublicPage(pathname) || isBuzonPublicPage(pathname);
 }
 
 /** Rutas de auth que no requieren sesión (login, callback OAuth, cerrar sesión). */

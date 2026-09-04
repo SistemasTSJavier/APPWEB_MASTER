@@ -167,6 +167,7 @@ export const APP_MODULOS_HABILITABLES = [
   { id: "/moper", label: "Moper" },
   { id: "/sgc", label: "SGC" },
   { id: "/ideas-que-transforman", label: "Ideas que transforman" },
+  { id: "/buzon", label: "Buzón" },
   { id: "/gestores-proceso", label: "Gestores proceso" },
   { id: "/categorizacion", label: "Categorización" },
   { id: "/pruebas-efectividad-operativa", label: "Efectividad operativa" },
@@ -294,6 +295,7 @@ export function hrefNavParaModulo(modulo: AppModuloId, role?: AppRole | null): s
   }
   if (modulo === "/gerente-legal") return "/gerente-legal/contratos";
   if (modulo === "/ideas-que-transforman") return "/ideas-que-transforman/panel";
+  if (modulo === "/buzon") return "/buzon/panel";
   return modulo;
 }
 
@@ -444,6 +446,7 @@ const SECTION_ROLES: Record<string, readonly AppRole[]> = {
   ],
   "/usuarios": ["admin"],
   "/ideas-que-transforman": ["admin", "mejora_continua"],
+  "/buzon": ["admin"],
   "/gestores-proceso": ["admin", "rh", "gerente_rh"],
   "/categorizacion": ["admin", "gerente_rh", "capacitacion"],
   "/pruebas-efectividad-operativa": ["admin", "gerente_rh", "capacitacion"],
@@ -511,6 +514,37 @@ export function roleMayAccessAlertasLegal(role: AppRole): boolean {
 /** Solo administrador por rol; el resto entra por módulo en Usuarios. */
 export function roleMayAccessContratosPorMes(role: AppRole): boolean {
   return role === "admin";
+}
+
+/** Buzón (panel): admin por rol; otros vía módulo en Usuarios. */
+export function roleMayAccessBuzon(role: AppRole): boolean {
+  return role === "admin";
+}
+
+/** Abrir panel Buzón: admin o módulo «Buzón» con ver. */
+export function userMayAccessBuzon(
+  role: AppRole,
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  if (role === "admin") return true;
+  const caps = capacidadesDesdeMetadata(userMetadata);
+  if (caps != null) {
+    return userMayModulo(role, userMetadata, "/buzon", "ver");
+  }
+  return parseModulosHabilitados(userMetadata?.modulos_habilitados).includes("/buzon");
+}
+
+/** Cambiar estatus / nota en Buzón: admin o módulo con editar. */
+export function userMayEditBuzon(
+  role: AppRole,
+  userMetadata?: Record<string, unknown> | null,
+): boolean {
+  if (role === "admin") return true;
+  const caps = capacidadesDesdeMetadata(userMetadata);
+  if (caps != null) {
+    return userMayModulo(role, userMetadata, "/buzon", "editar");
+  }
+  return false;
 }
 
 /** Abrir la sección: admin o módulo «Contratos por mes» asignado en Usuarios. */
@@ -629,6 +663,12 @@ export function canAccessPath(
     if (p === "/ideas-que-transforman") return true;
   }
 
+  // Formulario público del buzón (sin panel).
+  if (sec === "/buzon") {
+    const p = pathname.replace(/\/$/, "") || "/";
+    if (p === "/buzon") return true;
+  }
+
   if (role === "admin") return true;
 
   const mods =
@@ -649,6 +689,8 @@ export function canAccessPath(
   // Sin lista explícita: acceso por rol (comportamiento legado).
   if (sec === "/ideas-que-transforman") {
     if (!roleMayAccessIdeasQueTransforman(role)) return false;
+  } else if (sec === "/buzon") {
+    if (!roleMayAccessBuzon(role)) return false;
   } else if (sec === "/ficha-tecnica") {
     if (!mayAccessFichaTecnica(role, userEmail)) return false;
   } else if (sec === "/categorizacion") {
@@ -1125,6 +1167,11 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
       href: "/ideas-que-transforman/panel",
       label: "Ideas que transforman",
       roles: ["admin", "mejora_continua"],
+    },
+    {
+      href: "/buzon/panel",
+      label: "Buzón",
+      roles: ["admin"],
     },
     {
       href: "/gestores-proceso",
