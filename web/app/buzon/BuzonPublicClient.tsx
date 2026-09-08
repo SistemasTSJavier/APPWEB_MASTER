@@ -226,9 +226,11 @@ export function BuzonPublicClient() {
           <h1 className="mt-2 text-2xl font-bold uppercase tracking-wide text-white sm:text-3xl">
             Buzón
           </h1>
-          <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-slate-300">
-            Registre una queja o requerimiento con evidencia fotográfica, o consulte el avance con su
-            código de seguimiento.
+          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-300">
+            Este registro es únicamente para la renovación de infraestructura de su sitio, o para
+            solicitar una mejora cuando algo no funciona bien: equipo, instalación o condiciones del
+            lugar. Describa el detalle y adjunte una foto de evidencia. Si ya registró, consulte el
+            avance con su código de seguimiento.
           </p>
         </header>
 
