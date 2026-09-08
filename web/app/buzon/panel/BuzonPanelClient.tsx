@@ -145,7 +145,7 @@ export function BuzonPanelClient() {
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-300/90">
           Atención interna
         </p>
-        <h1 className="mt-1 text-xl font-bold uppercase tracking-wide sm:text-2xl">Buzón</h1>
+        <h1 className="mt-1 text-xl font-bold uppercase tracking-wide sm:text-2xl">Buzón de sugerencias</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
           Primero apruebe o rechace el registro. Solo los aprobados tienen estatus de seguimiento.
         </p>

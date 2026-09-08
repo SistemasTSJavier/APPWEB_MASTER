@@ -224,7 +224,7 @@ export function BuzonPublicClient() {
             Atención interna
           </p>
           <h1 className="mt-2 text-2xl font-bold uppercase tracking-wide text-white sm:text-3xl">
-            Buzón
+            Buzón de sugerencias
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-300">
             Este registro es únicamente para la renovación de infraestructura de su sitio, o para

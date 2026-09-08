@@ -167,7 +167,7 @@ export const APP_MODULOS_HABILITABLES = [
   { id: "/moper", label: "Moper" },
   { id: "/sgc", label: "SGC" },
   { id: "/ideas-que-transforman", label: "Ideas que transforman" },
-  { id: "/buzon", label: "Buzón" },
+  { id: "/buzon", label: "Buzón de sugerencias" },
   { id: "/gestores-proceso", label: "Gestores proceso" },
   { id: "/categorizacion", label: "Categorización" },
   { id: "/pruebas-efectividad-operativa", label: "Efectividad operativa" },
@@ -1170,8 +1170,8 @@ export function homeSidebarLinks(role: AppRole, userEmail?: string | null): { hr
     },
     {
       href: "/buzon/panel",
-      label: "Buzón",
-      roles: ["admin"],
+      label: "Buzón de sugerencias",
+      roles: ["admin", "mejora_continua"],
     },
     {
       href: "/gestores-proceso",
