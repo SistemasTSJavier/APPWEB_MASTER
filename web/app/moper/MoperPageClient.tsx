@@ -16,9 +16,12 @@ function MoperPageContent() {
     authHeaders,
     puedeMarcarRecibidoContabilidad,
     puedeReenviarEmailContabilidad,
+    puedeExportarCsv,
     esSoloContabilidad,
     esNominasRecepcion,
   } = useMoperWorkflow();
+  const [descargandoCsv, setDescargandoCsv] = useState(false);
+  const [errorCsv, setErrorCsv] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const codigoUrl = searchParams.get("codigo")?.trim().toUpperCase() ?? "";
   const registroParam = searchParams.get("registro")?.trim() ?? "";
@@ -40,6 +43,32 @@ function MoperPageContent() {
     setRefreshWorkflow((k) => k + 1);
   }, []);
 
+  const descargarCsvVerificados = useCallback(async () => {
+    setErrorCsv(null);
+    setDescargandoCsv(true);
+    try {
+      const res = await fetch("/api/moper/export-csv", { credentials: "same-origin" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || "No se pudo descargar el CSV");
+      }
+      const blob = await res.blob();
+      const stamp = new Date().toISOString().slice(0, 10);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `moper-verificados-${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErrorCsv(e instanceof Error ? e.message : "No se pudo descargar el CSV");
+    } finally {
+      setDescargandoCsv(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!codigoUrl || accesoPorCodigo) return;
     void loginPorCodigo(codigoUrl);
@@ -55,7 +84,8 @@ function MoperPageContent() {
 
   return (
     <div className="w-full space-y-6">
-      <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Modulo</p>
         <h1 className="text-3xl font-bold uppercase tracking-tight text-slate-900">MOPER</h1>
         {esNominasRecepcion && !vistaDocumentoRecepcion ? (
@@ -75,6 +105,20 @@ function MoperPageContent() {
             Al completarse todas las firmas se notifica por correo.
           </p>
         )}
+        </div>
+        {puedeExportarCsv ? (
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={() => void descargarCsvVerificados()}
+              disabled={descargandoCsv}
+              className="px-4 py-2 bg-black text-white rounded text-sm font-medium hover:bg-oxford-800 disabled:opacity-50"
+            >
+              {descargandoCsv ? "Generando CSV…" : "Descargar CSV verificados"}
+            </button>
+            {errorCsv ? <p className="text-xs text-red-700">{errorCsv}</p> : null}
+          </div>
+        ) : null}
       </div>
 
       {mostrarListaRecepcion ? (

@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
+import { AppModuleLayout } from "@/components/app-module-layout";
 import { getAuthedUserWithRole } from "@/lib/auth-server";
 import { MoperPageClient } from "@/app/moper/MoperPageClient";
+
+export const dynamic = "force-dynamic";
 
 function displayNameFromUser(user: {
   email?: string | null;
@@ -17,10 +20,12 @@ export default async function MoperPage() {
   const auth = await getAuthedUserWithRole();
   if (!auth) redirect("/login");
   return (
-    <MoperPageClient
-      appRole={auth.role}
-      userEmail={auth.user.email ?? ""}
-      userName={displayNameFromUser(auth.user)}
-    />
+    <AppModuleLayout currentPath="/moper">
+      <MoperPageClient
+        appRole={auth.role}
+        userEmail={auth.user.email ?? ""}
+        userName={displayNameFromUser(auth.user)}
+      />
+    </AppModuleLayout>
   );
 }

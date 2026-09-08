@@ -51,3 +51,8 @@ export function moperWorkflowPuedeReenviarEmailContabilidad(role: AppRole): bool
 export function moperWorkflowEsSoloContabilidad(role: AppRole): boolean {
   return role === "contabilidad";
 }
+
+/** CSV de MOPER registrados y verificados (firmas completas): solo admin y mejora continua. */
+export function moperWorkflowPuedeExportarCsv(role: AppRole): boolean {
+  return role === "admin" || role === "mejora_continua";
+}

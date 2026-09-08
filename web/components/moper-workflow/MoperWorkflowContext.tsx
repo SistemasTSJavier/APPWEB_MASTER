@@ -18,6 +18,7 @@ import {
   moperWorkflowPuedeEditar,
   moperWorkflowPuedeMarcarRecibidoContabilidad,
   moperWorkflowPuedeReenviarEmailContabilidad,
+  moperWorkflowPuedeExportarCsv,
   moperWorkflowEsSoloContabilidad,
   moperWorkflowEsNominasRecepcion,
   moperWorkflowRolFromAppRole,
@@ -43,6 +44,7 @@ type MoperWorkflowContextValue = {
   puedeFirmarControl: boolean;
   puedeMarcarRecibidoContabilidad: boolean;
   puedeReenviarEmailContabilidad: boolean;
+  puedeExportarCsv: boolean;
   esSoloContabilidad: boolean;
   esNominasRecepcion: boolean;
   loginPorCodigo: (codigo: string) => Promise<{ ok: boolean; error?: string }>;
@@ -105,6 +107,7 @@ export function MoperWorkflowProvider({
     puedeFirmarControl: moperWorkflowPuedeFirmarControl(appRole),
     puedeMarcarRecibidoContabilidad: moperWorkflowPuedeMarcarRecibidoContabilidad(appRole),
     puedeReenviarEmailContabilidad: moperWorkflowPuedeReenviarEmailContabilidad(appRole),
+    puedeExportarCsv: moperWorkflowPuedeExportarCsv(appRole),
     esSoloContabilidad: moperWorkflowEsSoloContabilidad(appRole),
     esNominasRecepcion: moperWorkflowEsNominasRecepcion(appRole),
     loginPorCodigo,

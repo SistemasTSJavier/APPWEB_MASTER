@@ -646,3 +646,104 @@ export async function asignarFoliosPendientesMoper(
     proximoFolio: formatFolio(nuevoNext),
   };
 }
+
+function csvCell(value: string | number | boolean | null | undefined): string {
+  const text = value == null ? "" : String(value);
+  if (/[;"\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+
+function csvFecha(iso: string | null | undefined): string {
+  if (!iso?.trim()) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.trim();
+  return d.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" });
+}
+
+const MOPER_CSV_HEADERS = [
+  "folio",
+  "oficial",
+  "curp",
+  "fecha_ingreso",
+  "fecha_inicio_efectiva",
+  "servicio_actual",
+  "servicio_nuevo",
+  "puesto_actual",
+  "puesto_nuevo",
+  "sueldo_actual",
+  "sueldo_nuevo",
+  "motivo_movimiento",
+  "razon_social",
+  "solicitado_por",
+  "creado_por",
+  "fecha_registro",
+  "firma_conformidad_por",
+  "firma_conformidad_fecha",
+  "firma_rh_por",
+  "firma_rh_fecha",
+  "firma_gerente_por",
+  "firma_gerente_fecha",
+  "firma_control_por",
+  "firma_control_fecha",
+  "recibido_contabilidad",
+  "recibido_contabilidad_por",
+  "recibido_contabilidad_fecha",
+];
+
+const MOPER_CSV_SELECT =
+  "folio, oficial_nombre, curp, fecha_ingreso, fecha_inicio_efectiva, servicio_actual_nombre, servicio_nuevo_nombre, puesto_actual_nombre, puesto_nuevo_nombre, sueldo_actual, sueldo_nuevo, motivo, razon, solicitado_por, creado_por, created_at, firma_conformidad_nombre, firma_conformidad_at, firma_rh_nombre, firma_rh_at, firma_gerente_nombre, firma_gerente_at, firma_control_nombre, firma_control_at, recibido_contabilidad_por, recibido_contabilidad_at";
+
+/** MOPER registrados y verificados: aprobados o con firmas completas, no cancelados. */
+export async function construirCsvMoperVerificados(admin: SupabaseClient): Promise<string> {
+  const pageSize = 500;
+  const rows: MoperRegistroRow[] = [];
+  for (let from = 0; from < 5000; from += pageSize) {
+    const { data, error } = await admin
+      .from("moper_registros")
+      .select(MOPER_CSV_SELECT)
+      .neq("estado", "cancelado")
+      .or("completado.eq.true,estado.eq.aprobado")
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) failSupabase(error);
+    const batch = (data ?? []) as MoperRegistroRow[];
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+
+  const lines = [
+    MOPER_CSV_HEADERS.join(";"),
+    ...rows.map((r) =>
+      [
+        csvCell(r.folio),
+        csvCell(r.oficial_nombre),
+        csvCell(r.curp),
+        csvCell(r.fecha_ingreso),
+        csvCell(r.fecha_inicio_efectiva),
+        csvCell(r.servicio_actual_nombre),
+        csvCell(r.servicio_nuevo_nombre),
+        csvCell(r.puesto_actual_nombre),
+        csvCell(r.puesto_nuevo_nombre),
+        csvCell(r.sueldo_actual),
+        csvCell(r.sueldo_nuevo),
+        csvCell(r.motivo),
+        csvCell(r.razon),
+        csvCell(r.solicitado_por),
+        csvCell(r.creado_por),
+        csvCell(csvFecha(r.created_at)),
+        csvCell(r.firma_conformidad_nombre),
+        csvCell(csvFecha(r.firma_conformidad_at)),
+        csvCell(r.firma_rh_nombre),
+        csvCell(csvFecha(r.firma_rh_at)),
+        csvCell(r.firma_gerente_nombre),
+        csvCell(csvFecha(r.firma_gerente_at)),
+        csvCell(r.firma_control_nombre),
+        csvCell(csvFecha(r.firma_control_at)),
+        csvCell(r.recibido_contabilidad_at ? "si" : "no"),
+        csvCell(r.recibido_contabilidad_por),
+        csvCell(csvFecha(r.recibido_contabilidad_at)),
+      ].join(";"),
+    ),
+  ];
+  return `\uFEFF${lines.join("\r\n")}`;
+}
